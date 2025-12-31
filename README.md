@@ -9,7 +9,17 @@ Chinese README: [README.zh-CN.md](README.zh-CN.md)
 
 Agent Hand is a terminal session manager (tmux-based) for AI coding agents, with a CLI and a TUI (work-in-progress but already usable).
 
-## Quick start
+## Install
+
+### One-liner (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash
+```
+
+By default it installs to `/usr/local/bin` (if writable), otherwise `~/.local/bin`.
+
+### Build from source
 
 ```bash
 git clone https://github.com/weykon/agent-hand.git agent-hand

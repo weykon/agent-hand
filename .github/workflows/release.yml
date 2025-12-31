@@ -1,0 +1,55 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=agent-hand
+          OUTDIR=dist
+          mkdir -p "$OUTDIR"
+          cp "target/${{ matrix.target }}/release/${BIN}" "$OUTDIR/${BIN}"
+          tar -C "$OUTDIR" -czf "$OUTDIR/${BIN}-${{ matrix.target }}.tar.gz" "$BIN"
+          (cd "$OUTDIR" && shasum -a 256 "${BIN}-${{ matrix.target }}.tar.gz" > "${BIN}-${{ matrix.target }}.tar.gz.sha256")
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
