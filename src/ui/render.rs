@@ -73,7 +73,7 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
     let tree = app.tree();
 
     if tree.is_empty() {
-        let empty = Paragraph::new("No sessions found.\n\nUse: agent-deck add ...\nPress 'n' to create.\nPress '?' for help.")
+        let empty = Paragraph::new("No sessions found.\n\nUse: agent-hand add ...\nPress 'n' to create.\nPress '?' for help.")
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL).title("Sessions"));

@@ -7,5 +7,5 @@ pub mod ui;
 
 pub use error::{Error, Result};
 
-/// Version of agent-deck
+/// Version of agent-hand
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

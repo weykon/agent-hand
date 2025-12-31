@@ -1,4 +1,4 @@
-use agent_deck_rs::cli::{run_cli, Args};
+use agent_hand::cli::{run_cli, Args};
 use clap::Parser;
 use tracing_subscriber::{fmt, EnvFilter};
 

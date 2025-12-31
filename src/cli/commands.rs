@@ -7,7 +7,13 @@ use crate::session::{Instance, Storage, DEFAULT_PROFILE};
 use crate::tmux::{TmuxManager, Tool};
 
 pub async fn run_cli(args: Args) -> Result<()> {
-    let profile = args.profile.as_deref().unwrap_or(DEFAULT_PROFILE);
+    // Backward-compat: allow legacy env var name.
+    let legacy_profile = std::env::var("AGENTDECK_PROFILE").ok();
+    let profile = args
+        .profile
+        .as_deref()
+        .or(legacy_profile.as_deref())
+        .unwrap_or(DEFAULT_PROFILE);
 
     match args.command {
         Some(Command::Add {
@@ -34,7 +40,7 @@ pub async fn run_cli(args: Args) -> Result<()> {
         Some(Command::Mcp { action }) => handle_mcp(action).await,
 
         Some(Command::Version) => {
-            println!("agent-deck v{}", crate::VERSION);
+            println!("agent-hand v{}", crate::VERSION);
             Ok(())
         }
 

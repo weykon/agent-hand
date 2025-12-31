@@ -1,13 +1,13 @@
 [package]
-name = "agent-deck-rs"
+name = "agent-hand"
 version = "0.1.0"
 edition = "2021"
-authors = ["Agent Deck Contributors"]
+authors = ["Agent Hand Contributors"]
 description = "Terminal session manager for AI coding agents"
 license = "MIT"
 
 [[bin]]
-name = "agent-deck"
+name = "agent-hand"
 path = "src/main.rs"
 
 [dependencies]

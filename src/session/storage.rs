@@ -42,11 +42,26 @@ impl Storage {
         })
     }
 
-    /// Get agent-deck base directory
-    pub fn get_agent_deck_dir() -> Result<PathBuf> {
+    /// Get agent-hand base directory
+    ///
+    /// Backward-compat: if `~/.agent-deck-rs` exists and `~/.agent-hand` does not, use the old dir.
+    pub fn get_agent_hand_dir() -> Result<PathBuf> {
         let home =
             dirs::home_dir().ok_or_else(|| Error::config("Cannot determine home directory"))?;
-        Ok(home.join(".agent-deck-rs"))
+
+        let new_dir = home.join(".agent-hand");
+        let old_dir = home.join(".agent-deck-rs");
+
+        if !new_dir.exists() && old_dir.exists() {
+            Ok(old_dir)
+        } else {
+            Ok(new_dir)
+        }
+    }
+
+    /// Backward-compatible alias
+    pub fn get_agent_deck_dir() -> Result<PathBuf> {
+        Self::get_agent_hand_dir()
     }
 
     /// Get profile name

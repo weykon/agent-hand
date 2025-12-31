@@ -1,11 +1,11 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "agent-deck")]
+#[command(name = "agent-hand")]
 #[command(version, about = "Terminal session manager for AI coding agents", long_about = None)]
 pub struct Args {
     /// Profile to use
-    #[arg(short, long, global = true, env = "AGENTDECK_PROFILE")]
+    #[arg(short, long, global = true, env = "AGENTHAND_PROFILE")]
     pub profile: Option<String>,
 
     #[command(subcommand)]

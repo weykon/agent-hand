@@ -1,4 +1,4 @@
-# Agent Deck (Rust)
+# Agent Hand (Rust)
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 
 ## 🎯 项目简介
 
-这是 [Agent Deck](https://github.com/asheshgoplani/agent-deck) 的 Rust 重新实现版本，提供：
+这是一个从原始 Go 开源项目 **[agent-deck](https://github.com/asheshgoplani/agent-deck)** 发展而来的 Rust 版本/重写（本仓库名：**agent-hand**），提供：
 
 - **更快的启动速度** - < 100ms (Go版本: ~150ms)
 - **更低的内存占用** - < 10MB (Go版本: ~15MB)
@@ -48,8 +48,8 @@
 
 ```bash
 # 从源码构建
-git clone <your-repo-url> agent-deck-rs
-cd agent-deck-rs
+git clone https://github.com/weykon/agent-hand.git agent-hand
+cd agent-hand
 cargo build --release
 
 # 可选：安装到系统
@@ -60,19 +60,19 @@ cargo install --path .
 
 ```bash
 # 添加会话
-agent-deck add . -t "My Project" -c claude
+agent-hand add . -t "My Project" -c claude
 
 # 列出所有会话
-agent-deck list
+agent-hand list
 
 # 查看状态
-agent-deck status -v
+agent-hand status -v
 
 # 启动会话
-agent-deck session start <id>
+agent-hand session start <id>
 
 # 附加到会话
-agent-deck session attach <id>
+agent-hand session attach <id>
 ```
 
 ## 🧩 MCP 配置
@@ -82,24 +82,24 @@ agent-deck session attach <id>
 启动某个 MCP 的 pooled 进程（会监听 Unix socket，供多个 session 复用）：
 
 ```bash
-agent-deck mcp pool start <name>
-agent-deck mcp pool status
+agent-hand mcp pool start <name>
+agent-hand mcp pool status
 ```
 
 如果你想在前台运行（便于看日志/调试）：
 
 ```bash
-agent-deck mcp pool serve <name>
+agent-hand mcp pool serve <name>
 ```
 
 当 pool 运行时，TUI 的 MCP apply 会优先把该 MCP 写成 `nc -U <socket>` 的形式，以便复用进程。
 
-pool 日志：`~/.agent-deck-rs/pool/<name>.log`
+pool 日志：`~/.agent-hand/pool/<name>.log`（兼容旧目录：`~/.agent-deck-rs/...`）
 
 停止 pool：
 
 ```bash
-agent-deck mcp pool stop <name>
+agent-hand mcp pool stop <name>
 ```
 
 > 注意：当前 pool 是“单连接代理”，同一时刻只服务一个连接；适合节省重复启动的开销，但不保证多客户端并发。
@@ -108,7 +108,7 @@ agent-deck mcp pool stop <name>
 
 TUI 的 `m` 面板会从全局 MCP 池读取可用 MCP，并写入/更新项目目录下的 `.mcp.json`。
 
-- 全局 MCP 池文件：`~/.agent-deck-rs/mcp.json`
+- 全局 MCP 池文件：`~/.agent-hand/mcp.json`（兼容旧目录：`~/.agent-deck-rs/mcp.json`）
 - 项目 MCP 文件：`<project>/.mcp.json`
 
 全局池文件格式：
@@ -141,18 +141,18 @@ TUI 的 `m` 面板会从全局 MCP 池读取可用 MCP，并写入/更新项目�
 ### 会话管理
 
 ```bash
-agent-deck add <path>           # 添加新会话
+agent-hand add <path>           # 添加新会话
   -t, --title <TITLE>           # 会话标题
   -g, --group <GROUP>           # 分组路径
   -c, --cmd <COMMAND>           # 启动命令
 
-agent-deck list                 # 列出所有会话
+agent-hand list                 # 列出所有会话
   --json                        # JSON 输出
   --all                         # 所有 profiles
 
-agent-deck remove <id>          # 删除会话
+agent-hand remove <id>          # 删除会话
 
-agent-deck status               # 状态总览
+agent-hand status               # 状态总览
   -v, --verbose                 # 详细输出
   -q, --quiet                   # 仅显示等待数量
   --json                        # JSON 输出
@@ -161,19 +161,19 @@ agent-deck status               # 状态总览
 ### Session 子命令
 
 ```bash
-agent-deck session start <id>    # 启动会话
-agent-deck session stop <id>     # 停止会话
-agent-deck session restart <id>  # 重启会话
-agent-deck session attach <id>   # 附加到会话
-agent-deck session show <id>     # 显示详情
+agent-hand session start <id>    # 启动会话
+agent-hand session stop <id>     # 停止会话
+agent-hand session restart <id>  # 重启会话
+agent-hand session attach <id>   # 附加到会话
+agent-hand session show <id>     # 显示详情
 ```
 
 ### Profile 管理
 
 ```bash
-agent-deck profile list          # 列出所有 profiles
-agent-deck profile create <name> # 创建 profile
-agent-deck profile delete <name> # 删除 profile
+agent-hand profile list          # 列出所有 profiles
+agent-hand profile create <name> # 创建 profile
+agent-hand profile delete <name> # 删除 profile
 ```
 
 ## 🏗️ 架构设计
@@ -316,10 +316,10 @@ cargo clippy
 
 ```bash
 # 启用日志
-RUST_LOG=debug agent-deck list
+RUST_LOG=debug agent-hand list
 
 # 查看 tmux 调试信息
-AGENTDECK_DEBUG=1 agent-deck status -v
+AGENTDECK_DEBUG=1 agent-hand status -v
 ```
 
 ## 📝 实现进度
@@ -363,7 +363,7 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ## 🙏 致谢
 
-- 原始 Go 版本：[Agent Deck](https://github.com/asheshgoplani/agent-deck)
+- 原始 Go 版本（本项目来源）：[agent-deck](https://github.com/asheshgoplani/agent-deck)
 - 状态检测灵感：[Claude Squad](https://github.com/smtg-ai/claude-squad)
 
 ---
