@@ -63,7 +63,11 @@ pub struct App {
     pending_preview_id: Option<String>,
     last_status_refresh: Instant,
     last_cache_refresh: Instant,
+
+    // Status/probing
     last_tmux_activity: HashMap<String, i64>,
+    last_tmux_activity_change: HashMap<String, Instant>,
+    last_status_probe: HashMap<String, Instant>,
 
     // Backend
     storage: Arc<Mutex<Storage>>,
@@ -75,6 +79,9 @@ impl App {
     const NAVIGATION_SETTLE: Duration = Duration::from_millis(300);
     const STATUS_REFRESH: Duration = Duration::from_secs(1);
     const CACHE_REFRESH: Duration = Duration::from_secs(2);
+
+    const STATUS_COOLDOWN: Duration = Duration::from_secs(2);
+    const STATUS_FALLBACK: Duration = Duration::from_secs(60);
 
     /// Create new application
     pub async fn new(profile: &str) -> Result<Self> {
@@ -107,6 +114,8 @@ impl App {
             last_status_refresh: Instant::now(),
             last_cache_refresh: Instant::now(),
             last_tmux_activity: HashMap::new(),
+            last_tmux_activity_change: HashMap::new(),
+            last_status_probe: HashMap::new(),
             storage: Arc::new(Mutex::new(storage)),
             tmux: Arc::new(tmux),
         };
@@ -251,37 +260,58 @@ impl App {
     }
 
     async fn refresh_statuses(&mut self) -> Result<()> {
+        let now = Instant::now();
+
         for session in &mut self.sessions {
             let tmux_session = TmuxManager::session_name(&session.id);
-            if self.tmux.session_exists(&tmux_session).unwrap_or(false) {
-                let activity = self.tmux.session_activity(&tmux_session).unwrap_or(0);
-                if self
-                    .last_tmux_activity
-                    .get(&session.id)
-                    .copied()
-                    .is_some_and(|a| a == activity)
-                    && session.status != Status::Idle
-                {
-                    continue;
-                }
-
-                let content = self
-                    .tmux
-                    .capture_pane(&tmux_session, 30)
-                    .await
-                    .unwrap_or_default();
-                let detector = crate::tmux::PromptDetector::new(session.tool);
-                let has_prompt = detector.has_prompt(&content);
-                session.status = if has_prompt {
-                    Status::Waiting
-                } else {
-                    Status::Running
-                };
-                self.last_tmux_activity.insert(session.id.clone(), activity);
-            } else {
+            if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
                 session.status = Status::Idle;
                 self.last_tmux_activity.remove(&session.id);
+                self.last_tmux_activity_change.remove(&session.id);
+                self.last_status_probe.remove(&session.id);
+                continue;
             }
+
+            let activity = self.tmux.session_activity(&tmux_session).unwrap_or(0);
+            let prev_activity = self.last_tmux_activity.get(&session.id).copied();
+
+            // Cheap gating: if activity moved forward, assume running and skip capture-pane.
+            if prev_activity.is_none() || prev_activity.is_some_and(|a| activity > a) {
+                self.last_tmux_activity.insert(session.id.clone(), activity);
+                self.last_tmux_activity_change
+                    .insert(session.id.clone(), now);
+                session.status = Status::Running;
+                continue;
+            }
+
+            let need_fallback_probe = self
+                .last_status_probe
+                .get(&session.id)
+                .is_none_or(|t| now.duration_since(*t) >= Self::STATUS_FALLBACK);
+
+            let activity_settled = self
+                .last_tmux_activity_change
+                .get(&session.id)
+                .is_some_and(|t| now.duration_since(*t) >= Self::STATUS_COOLDOWN);
+
+            // Only probe when running has settled (to detect prompt/idle), or on infrequent fallback.
+            if !(need_fallback_probe || (activity_settled && session.status == Status::Running)) {
+                continue;
+            }
+
+            let content = self
+                .tmux
+                .capture_pane(&tmux_session, 30)
+                .await
+                .unwrap_or_default();
+            let detector = crate::tmux::PromptDetector::new(session.tool);
+            let has_prompt = detector.has_prompt(&content);
+            session.status = if has_prompt {
+                Status::Waiting
+            } else {
+                Status::Idle
+            };
+            self.last_status_probe.insert(session.id.clone(), now);
         }
         Ok(())
     }
