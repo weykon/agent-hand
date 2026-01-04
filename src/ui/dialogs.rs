@@ -159,6 +159,38 @@ impl NewSessionDialog {
         PathBuf::from(trimmed)
     }
 
+    fn fuzzy_score(query: &str, text: &str) -> Option<i32> {
+        if query.is_empty() {
+            return Some(0);
+        }
+
+        let mut score: i32 = 0;
+        let mut last_match: Option<usize> = None;
+        let mut pos = 0usize;
+
+        for ch in query.chars() {
+            if let Some(found) = text[pos..].find(ch) {
+                let idx = pos + found;
+                score += 10;
+                if let Some(prev) = last_match {
+                    if idx == prev + 1 {
+                        score += 15;
+                    } else {
+                        score -= (idx.saturating_sub(prev) as i32).min(10);
+                    }
+                } else {
+                    score -= idx.min(15) as i32;
+                }
+                last_match = Some(idx);
+                pos = idx + 1;
+            } else {
+                return None;
+            }
+        }
+
+        Some(score)
+    }
+
     pub fn complete_path_or_cycle(&mut self, backwards: bool) {
         if self.path_suggestions_visible && !self.path_suggestions.is_empty() {
             if backwards {
