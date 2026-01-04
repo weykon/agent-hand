@@ -21,7 +21,7 @@ use crate::tmux::{TmuxManager, SESSION_PREFIX};
 
 use super::{
     AppState, DeleteConfirmDialog, Dialog, ForkDialog, ForkField, MCPColumn, MCPDialog,
-    NewSessionDialog, NewSessionField, NewSessionTool, TreeItem,
+    MoveGroupDialog, NewSessionDialog, NewSessionField, NewSessionTool, TreeItem,
 };
 
 /// Main TUI application
@@ -445,6 +445,13 @@ impl App {
                 }
             }
 
+            // Move session to group
+            KeyCode::Char('g') => {
+                if self.selected_session().is_some() {
+                    self.open_move_group_dialog();
+                }
+            }
+
             // Refresh preview (cached snapshot)
             KeyCode::Char('p') => {
                 self.refresh_preview_cache_selected().await?;
@@ -586,7 +593,8 @@ impl App {
                         d.path_dirty = false;
                         d.field = match d.field {
                             NewSessionField::Path => NewSessionField::Title,
-                            NewSessionField::Title => NewSessionField::Tool,
+                            NewSessionField::Title => NewSessionField::Group,
+                            NewSessionField::Group => NewSessionField::Tool,
                             NewSessionField::Tool => NewSessionField::Command,
                             NewSessionField::Command => NewSessionField::Command,
                         };
@@ -611,6 +619,9 @@ impl App {
                         }
                         NewSessionField::Title => {
                             d.title.pop();
+                        }
+                        NewSessionField::Group => {
+                            d.group_path.pop();
                         }
                         NewSessionField::Tool => {}
                         NewSessionField::Command => {
@@ -645,7 +656,9 @@ impl App {
                                     } else if d.tool == NewSessionTool::Shell {
                                         d.command.clear();
                                     }
-                                } else if d.field == NewSessionField::Path && d.path_suggestions_visible {
+                                } else if d.field == NewSessionField::Path
+                                    && d.path_suggestions_visible
+                                {
                                     d.complete_path_or_cycle(true);
                                 }
                                 return Ok(());
@@ -663,7 +676,9 @@ impl App {
                                     } else if d.tool == NewSessionTool::Shell {
                                         d.command.clear();
                                     }
-                                } else if d.field == NewSessionField::Path && d.path_suggestions_visible {
+                                } else if d.field == NewSessionField::Path
+                                    && d.path_suggestions_visible
+                                {
                                     d.complete_path_or_cycle(false);
                                 }
                                 return Ok(());
@@ -681,6 +696,7 @@ impl App {
                             d.path_last_edit = Instant::now();
                         }
                         NewSessionField::Title => d.title.push(ch),
+                        NewSessionField::Group => d.group_path.push(ch),
                         NewSessionField::Tool => {}
                         NewSessionField::Command => d.command.push(ch),
                     }
@@ -842,6 +858,34 @@ impl App {
                 }
                 _ => {}
             },
+            Dialog::MoveGroup(d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Enter => {
+                    let session_id = d.session_id.clone();
+                    let group_path = d.group_path.clone();
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                    self.apply_move_group(&session_id, &group_path).await?;
+                    self.refresh_sessions().await?;
+                    self.focus_session(&session_id).await?;
+                }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Backspace => {
+                    d.group_path.pop();
+                }
+                KeyCode::Char(ch) => {
+                    if !modifiers.contains(KeyModifiers::CONTROL) {
+                        d.group_path.push(ch);
+                    }
+                }
+                _ => {}
+            },
         }
 
         Ok(())
@@ -860,6 +904,19 @@ impl App {
             title,
             group_path: parent.group_path.clone(),
             field: ForkField::Title,
+        }));
+        self.state = AppState::Dialog;
+    }
+
+    fn open_move_group_dialog(&mut self) {
+        let Some(s) = self.selected_session() else {
+            return;
+        };
+
+        self.dialog = Some(Dialog::MoveGroup(MoveGroupDialog {
+            session_id: s.id.clone(),
+            title: s.title.clone(),
+            group_path: s.group_path.clone(),
         }));
         self.state = AppState::Dialog;
     }
@@ -929,6 +986,31 @@ impl App {
         storage.save(&instances, &tree).await?;
 
         Ok(inst.id)
+    }
+
+    async fn apply_move_group(&mut self, session_id: &str, group_path: &str) -> Result<()> {
+        let group_path = group_path.trim();
+
+        let storage = self.storage.lock().await;
+        let (mut instances, mut tree) = storage.load().await?;
+
+        if let Some(inst) = instances.iter_mut().find(|s| s.id == session_id) {
+            inst.group_path = group_path.to_string();
+        }
+
+        if !group_path.is_empty() {
+            tree.create_group(group_path.to_string());
+
+            // Auto-expand so it becomes visible immediately.
+            let parts: Vec<&str> = group_path.split('/').collect();
+            for i in 1..=parts.len() {
+                let p = parts[..i].join("/");
+                tree.set_expanded(&p, true);
+            }
+        }
+
+        storage.save(&instances, &tree).await?;
+        Ok(())
     }
 
     async fn apply_mcp_changes(
@@ -1009,9 +1091,15 @@ impl App {
         };
 
         let storage = self.storage.lock().await;
-        let (mut instances, tree) = storage.load().await?;
+        let (mut instances, mut tree) = storage.load().await?;
 
         let mut instance = Instance::new(title.clone(), project_path.clone());
+        let group_path = d.group_path.trim();
+        if !group_path.is_empty() {
+            instance.group_path = group_path.to_string();
+            tree.create_group(instance.group_path.clone());
+        }
+
         instance.command = d.command.trim().to_string();
         instance.tool = match d.tool {
             NewSessionTool::Claude => crate::tmux::Tool::Claude,
@@ -1570,6 +1658,13 @@ impl App {
     pub fn fork_dialog(&self) -> Option<&ForkDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::Fork(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn move_group_dialog(&self) -> Option<&MoveGroupDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::MoveGroup(d)) => Some(d),
             _ => None,
         }
     }

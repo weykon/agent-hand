@@ -205,6 +205,11 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
 
     if let Some(d) = app.fork_dialog() {
         render_fork_dialog(f, area, d);
+        return;
+    }
+
+    if let Some(d) = app.move_group_dialog() {
+        render_move_group_dialog(f, area, d);
     }
 }
 
@@ -223,6 +228,11 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
         Style::default()
     };
     let title_style = if d.field == crate::ui::NewSessionField::Title {
+        active_style
+    } else {
+        Style::default()
+    };
+    let group_style = if d.field == crate::ui::NewSessionField::Group {
         active_style
     } else {
         Style::default()
@@ -293,6 +303,10 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
             Span::styled(d.title.clone(), title_style),
         ]),
         Line::from(vec![
+            Span::raw("Group:  "),
+            Span::styled(d.group_path.clone(), group_style),
+        ]),
+        Line::from(vec![
             Span::raw("Tool:   "),
             Span::styled(d.tool.as_str(), tool_style),
         ]),
@@ -356,11 +370,11 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
         Line::from(Span::styled(
             "Path: auto-suggest (debounced) • ↑↓/jk select suggestion • Enter apply/next/submit",
             Style::default().fg(Color::DarkGray),
-        )), 
+        )),
         Line::from(Span::styled(
             "Enter: apply suggestion / next / submit • Tool/suggestions: ↑↓ or hjkl • Esc: cancel",
             Style::default().fg(Color::DarkGray),
-        )), 
+        )),
     ]);
 
     let p = Paragraph::new(lines)
@@ -416,6 +430,48 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .block(Block::default().borders(Borders::ALL).title("Fork"));
+
+    f.render_widget(p, popup_area);
+}
+
+fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupDialog) {
+    let popup_area = centered_rect(70, 35, area);
+    f.render_widget(Clear, popup_area);
+
+    let active_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            "Move Session to Group",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("Title: "),
+            Span::styled(
+                d.title.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::raw("Group: "),
+            Span::styled(d.group_path.clone(), active_style),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Enter: apply • Esc: cancel",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let p = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().borders(Borders::ALL).title("Group"));
 
     f.render_widget(p, popup_area);
 }
@@ -705,6 +761,10 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("        Fork session"),
         ]),
         Line::from(vec![
+            Span::styled("  g", Style::default().fg(Color::Cyan)),
+            Span::raw("        Move session to group"),
+        ]),
+        Line::from(vec![
             Span::styled("  /", Style::default().fg(Color::Cyan)),
             Span::raw("        Search"),
         ]),
@@ -794,6 +854,8 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         Span::raw(":mcp  "),
         Span::styled("f", Style::default().fg(Color::Cyan)),
         Span::raw(":fork  "),
+        Span::styled("g", Style::default().fg(Color::Cyan)),
+        Span::raw(":group  "),
         Span::styled("/", Style::default().fg(Color::Cyan)),
         Span::raw(":search  "),
         Span::styled("p", Style::default().fg(Color::Cyan)),

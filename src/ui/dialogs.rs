@@ -6,6 +6,7 @@ use crate::error::Result;
 pub enum NewSessionField {
     Path,
     Title,
+    Group,
     Tool,
     Command,
 }
@@ -57,6 +58,7 @@ impl NewSessionTool {
 pub struct NewSessionDialog {
     pub path: String,
     pub title: String,
+    pub group_path: String,
     pub tool: NewSessionTool,
     pub command: String,
     pub field: NewSessionField,
@@ -111,11 +113,19 @@ pub struct ForkDialog {
 }
 
 #[derive(Debug, Clone)]
+pub struct MoveGroupDialog {
+    pub session_id: String,
+    pub title: String,
+    pub group_path: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Dialog {
     NewSession(NewSessionDialog),
     DeleteConfirm(DeleteConfirmDialog),
     MCP(MCPDialog),
     Fork(ForkDialog),
+    MoveGroup(MoveGroupDialog),
 }
 
 impl NewSessionDialog {
@@ -129,6 +139,7 @@ impl NewSessionDialog {
         Self {
             path: default_path.to_string_lossy().to_string(),
             title,
+            group_path: String::new(),
             tool: NewSessionTool::Claude,
             command: "claude".to_string(),
             field: NewSessionField::Path,
@@ -234,28 +245,47 @@ impl NewSessionDialog {
             return;
         };
 
-        let mut matches: Vec<String> = rd
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let name = e.file_name().to_string_lossy().to_string();
-                if !prefix.is_empty() && !name.starts_with(&prefix) {
-                    return None;
-                }
-                let mut full = dir.join(&name).to_string_lossy().to_string();
-                if e.file_type().ok().map(|t| t.is_dir()).unwrap_or(false) {
-                    full.push('/');
-                }
-                Some(full)
-            })
-            .collect();
+        use std::time::UNIX_EPOCH;
 
-        matches.sort();
+        let q = prefix.to_lowercase();
+
+        let mut matches: Vec<(i64, i32, String)> = Vec::new();
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let name_lc = name.to_lowercase();
+
+            let score = if q.is_empty() {
+                Some(0)
+            } else {
+                Self::fuzzy_score(&q, &name_lc)
+            };
+            if score.is_none() {
+                continue;
+            }
+
+            let mtime = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+
+            let mut full = dir.join(&name).to_string_lossy().to_string();
+            if e.file_type().ok().map(|t| t.is_dir()).unwrap_or(false) {
+                full.push('/');
+            }
+
+            matches.push((mtime, score.unwrap_or(0), full));
+        }
+
+        matches.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
         if matches.is_empty() {
             return;
         }
 
         // Show suggestion list (do not auto-apply arbitrary choice)
-        self.path_suggestions = matches;
+        self.path_suggestions = matches.into_iter().map(|(_, _, p)| p).collect();
         self.path_suggestions_visible = true;
         self.path_suggestions_idx = 0;
 
