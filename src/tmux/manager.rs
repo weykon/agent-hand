@@ -123,6 +123,11 @@ impl TmuxManager {
         let output = cmd.output().await?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            // If the session already exists (cache can be stale), treat it as success.
+            if stderr.contains("duplicate session") {
+                self.register_session(name.to_string());
+                return Ok(());
+            }
             return Err(crate::Error::tmux(format!(
                 "Failed to create session: {}",
                 stderr

@@ -257,7 +257,24 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
             Span::raw("        "),
             Span::styled("Suggestions:", Style::default().fg(Color::DarkGray)),
         ]));
-        for (i, s) in d.path_suggestions.iter().take(8).enumerate() {
+        let max_show = 8usize;
+        let len = d.path_suggestions.len();
+        let idx = d.path_suggestions_idx.min(len.saturating_sub(1));
+        let start = if len <= max_show {
+            0
+        } else if idx + 1 >= max_show {
+            (idx + 1 - max_show).min(len - max_show)
+        } else {
+            0
+        };
+
+        for (i, s) in d
+            .path_suggestions
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(max_show)
+        {
             let style = if i == d.path_suggestions_idx {
                 Style::default().fg(Color::Black).bg(Color::Cyan)
             } else {
