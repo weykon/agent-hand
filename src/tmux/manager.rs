@@ -36,6 +36,14 @@ impl TmuxManager {
             .args(["bind-key", "-n", "C-q", "detach-client"])
             .status()
             .await;
+
+        // Align with Go version: enable mouse so scroll wheel drives tmux copy-mode/pane scrolling
+        // instead of falling back to terminal scrollback.
+        let _ = self
+            .tmux_cmd()
+            .args(["set-option", "-g", "mouse", "on"])
+            .status()
+            .await;
     }
 
     /// Check if tmux is available
