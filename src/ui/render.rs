@@ -358,9 +358,9 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
             Style::default().fg(Color::DarkGray),
         )),
         Line::from(Span::styled(
-            "Enter: apply suggestion / next / submit • ←/→/↑/↓: tool • Esc: cancel",
+            "Enter: apply suggestion / next / submit • Tool/suggestions: ↑↓ or hjkl • Esc: cancel",
             Style::default().fg(Color::DarkGray),
-        )),
+        )), 
     ]);
 
     let p = Paragraph::new(lines)

@@ -557,16 +557,21 @@ impl App {
                         };
                     }
                 }
-                KeyCode::Up | KeyCode::Char('k') | KeyCode::Left | KeyCode::Char('h') => {
+                KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
                     if d.field == NewSessionField::Tool {
                         let pos = NewSessionTool::ALL
                             .iter()
                             .position(|t| *t == d.tool)
                             .unwrap_or(0);
-                        let next = if pos == 0 {
-                            NewSessionTool::ALL.len() - 1
-                        } else {
-                            pos - 1
+                        let next = match key {
+                            KeyCode::Up | KeyCode::Left => {
+                                if pos == 0 {
+                                    NewSessionTool::ALL.len() - 1
+                                } else {
+                                    pos - 1
+                                }
+                            }
+                            _ => (pos + 1) % NewSessionTool::ALL.len(),
                         };
                         d.tool = NewSessionTool::ALL[next];
                         if let Some(cmd) = d.tool.default_command() {
@@ -575,24 +580,7 @@ impl App {
                             d.command.clear();
                         }
                     } else if d.field == NewSessionField::Path && d.path_suggestions_visible {
-                        d.complete_path_or_cycle(true);
-                    }
-                }
-                KeyCode::Down | KeyCode::Char('j') | KeyCode::Right | KeyCode::Char('l') => {
-                    if d.field == NewSessionField::Tool {
-                        let pos = NewSessionTool::ALL
-                            .iter()
-                            .position(|t| *t == d.tool)
-                            .unwrap_or(0);
-                        let next = (pos + 1) % NewSessionTool::ALL.len();
-                        d.tool = NewSessionTool::ALL[next];
-                        if let Some(cmd) = d.tool.default_command() {
-                            d.command = cmd.to_string();
-                        } else if d.tool == NewSessionTool::Shell {
-                            d.command.clear();
-                        }
-                    } else if d.field == NewSessionField::Path && d.path_suggestions_visible {
-                        d.complete_path_or_cycle(false);
+                        d.complete_path_or_cycle(matches!(key, KeyCode::Up | KeyCode::Left));
                     }
                 }
                 KeyCode::Enter => {
@@ -633,16 +621,68 @@ impl App {
                     };
                 }
                 KeyCode::Char(ch) => {
-                    if !modifiers.contains(KeyModifiers::CONTROL) {
-                        match d.field {
-                            NewSessionField::Path => {
-                                d.path.push(ch);
-                                d.clear_path_suggestions();
+                    if modifiers.contains(KeyModifiers::CONTROL) {
+                        return Ok(());
+                    }
+
+                    let selection_mode = d.field == NewSessionField::Tool
+                        || (d.field == NewSessionField::Path && d.path_suggestions_visible);
+
+                    if selection_mode {
+                        match ch {
+                            'k' | 'h' => {
+                                if d.field == NewSessionField::Tool {
+                                    let pos = NewSessionTool::ALL
+                                        .iter()
+                                        .position(|t| *t == d.tool)
+                                        .unwrap_or(0);
+                                    let next = if pos == 0 {
+                                        NewSessionTool::ALL.len() - 1
+                                    } else {
+                                        pos - 1
+                                    };
+                                    d.tool = NewSessionTool::ALL[next];
+                                    if let Some(cmd) = d.tool.default_command() {
+                                        d.command = cmd.to_string();
+                                    } else if d.tool == NewSessionTool::Shell {
+                                        d.command.clear();
+                                    }
+                                } else if d.field == NewSessionField::Path && d.path_suggestions_visible {
+                                    d.complete_path_or_cycle(true);
+                                }
+                                return Ok(());
                             }
-                            NewSessionField::Title => d.title.push(ch),
-                            NewSessionField::Tool => {}
-                            NewSessionField::Command => d.command.push(ch),
+                            'j' | 'l' => {
+                                if d.field == NewSessionField::Tool {
+                                    let pos = NewSessionTool::ALL
+                                        .iter()
+                                        .position(|t| *t == d.tool)
+                                        .unwrap_or(0);
+                                    let next = (pos + 1) % NewSessionTool::ALL.len();
+                                    d.tool = NewSessionTool::ALL[next];
+                                    if let Some(cmd) = d.tool.default_command() {
+                                        d.command = cmd.to_string();
+                                    } else if d.tool == NewSessionTool::Shell {
+                                        d.command.clear();
+                                    }
+                                } else if d.field == NewSessionField::Path && d.path_suggestions_visible {
+                                    d.complete_path_or_cycle(false);
+                                }
+                                return Ok(());
+                            }
+                            _ => {}
                         }
+                    }
+
+                    // Edit mode: all chars (including j/k) are inserted.
+                    match d.field {
+                        NewSessionField::Path => {
+                            d.path.push(ch);
+                            d.clear_path_suggestions();
+                        }
+                        NewSessionField::Title => d.title.push(ch),
+                        NewSessionField::Tool => {}
+                        NewSessionField::Command => d.command.push(ch),
                     }
                 }
                 _ => {}
