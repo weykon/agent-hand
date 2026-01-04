@@ -125,6 +125,7 @@ impl TmuxManager {
             let stderr = String::from_utf8_lossy(&output.stderr);
             // If the session already exists (cache can be stale), treat it as success.
             if stderr.contains("duplicate session") {
+                self.ensure_ctrl_q_detach().await;
                 self.register_session(name.to_string());
                 return Ok(());
             }
