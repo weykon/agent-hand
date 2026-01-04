@@ -210,6 +210,19 @@ impl App {
             self.is_navigating = false;
         }
 
+        // Debounced path suggestions in New Session dialog
+        if self.state == AppState::Dialog {
+            if let Some(Dialog::NewSession(d)) = self.dialog.as_mut() {
+                if d.field == NewSessionField::Path
+                    && d.path_dirty
+                    && d.path_last_edit.elapsed() >= Duration::from_millis(250)
+                {
+                    d.path_dirty = false;
+                    d.update_path_suggestions();
+                }
+            }
+        }
+
         // Cheap preview for non-session selections
         if self.selected_session().is_none() {
             return self.update_preview().await;
@@ -494,67 +507,19 @@ impl App {
                     self.state = AppState::Normal;
                 }
                 KeyCode::Tab => {
+                    // Tab is reserved for Path completion/suggestions (no field cycling).
                     if d.field == NewSessionField::Path {
-                        let old_path = d.path.clone();
-                        d.complete_path_or_cycle(false);
-                        // If nothing to complete, behave like "next field".
-                        if !d.path_suggestions_visible && d.path == old_path {
-                            d.field = NewSessionField::Title;
+                        if d.path_suggestions_visible {
+                            d.apply_selected_path_suggestion();
+                        } else {
+                            d.complete_path_or_cycle(false);
                         }
-                    } else if d.field == NewSessionField::Tool {
-                        // Tab cycles tools (more discoverable than only arrows)
-                        let pos = NewSessionTool::ALL
-                            .iter()
-                            .position(|t| *t == d.tool)
-                            .unwrap_or(0);
-                        let next = (pos + 1) % NewSessionTool::ALL.len();
-                        d.tool = NewSessionTool::ALL[next];
-                        if let Some(cmd) = d.tool.default_command() {
-                            d.command = cmd.to_string();
-                        } else if d.tool == NewSessionTool::Shell {
-                            d.command.clear();
-                        }
-                    } else {
-                        d.clear_path_suggestions();
-                        d.field = match d.field {
-                            NewSessionField::Path => NewSessionField::Title,
-                            NewSessionField::Title => NewSessionField::Tool,
-                            NewSessionField::Tool => NewSessionField::Command,
-                            NewSessionField::Command => NewSessionField::Path,
-                        };
                     }
                 }
                 KeyCode::BackTab => {
-                    if d.field == NewSessionField::Path {
-                        let old_path = d.path.clone();
+                    // No Shift-Tab field cycling.
+                    if d.field == NewSessionField::Path && d.path_suggestions_visible {
                         d.complete_path_or_cycle(true);
-                        if !d.path_suggestions_visible && d.path == old_path {
-                            d.field = NewSessionField::Command;
-                        }
-                    } else if d.field == NewSessionField::Tool {
-                        let pos = NewSessionTool::ALL
-                            .iter()
-                            .position(|t| *t == d.tool)
-                            .unwrap_or(0);
-                        let next = if pos == 0 {
-                            NewSessionTool::ALL.len() - 1
-                        } else {
-                            pos - 1
-                        };
-                        d.tool = NewSessionTool::ALL[next];
-                        if let Some(cmd) = d.tool.default_command() {
-                            d.command = cmd.to_string();
-                        } else if d.tool == NewSessionTool::Shell {
-                            d.command.clear();
-                        }
-                    } else {
-                        d.clear_path_suggestions();
-                        d.field = match d.field {
-                            NewSessionField::Path => NewSessionField::Command,
-                            NewSessionField::Title => NewSessionField::Path,
-                            NewSessionField::Tool => NewSessionField::Title,
-                            NewSessionField::Command => NewSessionField::Tool,
-                        };
                     }
                 }
                 KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
@@ -588,6 +553,7 @@ impl App {
                         d.apply_selected_path_suggestion();
                     } else if d.field != NewSessionField::Command {
                         d.clear_path_suggestions();
+                        d.path_dirty = false;
                         d.field = match d.field {
                             NewSessionField::Path => NewSessionField::Title,
                             NewSessionField::Title => NewSessionField::Tool,
@@ -610,6 +576,8 @@ impl App {
                         NewSessionField::Path => {
                             d.path.pop();
                             d.clear_path_suggestions();
+                            d.path_dirty = true;
+                            d.path_last_edit = Instant::now();
                         }
                         NewSessionField::Title => {
                             d.title.pop();
@@ -679,6 +647,8 @@ impl App {
                         NewSessionField::Path => {
                             d.path.push(ch);
                             d.clear_path_suggestions();
+                            d.path_dirty = true;
+                            d.path_last_edit = Instant::now();
                         }
                         NewSessionField::Title => d.title.push(ch),
                         NewSessionField::Tool => {}

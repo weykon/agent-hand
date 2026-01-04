@@ -64,6 +64,10 @@ pub struct NewSessionDialog {
     pub path_suggestions: Vec<String>,
     pub path_suggestions_idx: usize,
     pub path_suggestions_visible: bool,
+
+    // Debounced auto-suggest for the Path field.
+    pub path_dirty: bool,
+    pub path_last_edit: std::time::Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +135,8 @@ impl NewSessionDialog {
             path_suggestions: Vec::new(),
             path_suggestions_idx: 0,
             path_suggestions_visible: false,
+            path_dirty: false,
+            path_last_edit: std::time::Instant::now(),
         }
     }
 
@@ -168,6 +174,16 @@ impl NewSessionDialog {
             return;
         }
 
+        self.update_path_suggestions();
+
+        // Keep the original behavior for manual completion: if there's exactly one match, apply it.
+        if self.path_suggestions.len() == 1 {
+            self.path = self.path_suggestions[0].clone();
+            self.clear_path_suggestions();
+        }
+    }
+
+    pub fn update_path_suggestions(&mut self) {
         // Compute suggestions once
         self.clear_path_suggestions();
 
@@ -206,18 +222,13 @@ impl NewSessionDialog {
             return;
         }
 
-        if matches.len() == 1 {
-            self.path = matches[0].clone();
-            return;
-        }
-
         // Show suggestion list (do not auto-apply arbitrary choice)
         self.path_suggestions = matches;
         self.path_suggestions_visible = true;
         self.path_suggestions_idx = 0;
 
         // If the user didn't type a slash and is completing in CWD, keep relative feeling.
-        if !base_has_slash && self.path.starts_with("~") {
+        if !base_has_slash && self.path.starts_with('~') {
             // leave as-is
         }
     }
