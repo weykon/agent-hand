@@ -106,8 +106,6 @@ impl TmuxManager {
         working_dir: &str,
         command: Option<&str>,
     ) -> Result<()> {
-        self.ensure_ctrl_q_detach().await;
-
         let mut cmd = self.tmux_cmd();
         cmd.args(&[
             "new-session",
@@ -130,6 +128,9 @@ impl TmuxManager {
                 stderr
             )));
         }
+
+        // Set Ctrl+Q binding after tmux server is running
+        self.ensure_ctrl_q_detach().await;
 
         // Register in cache immediately
         self.register_session(name.to_string());
