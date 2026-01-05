@@ -1,4 +1,4 @@
-# Agent Hand
+# 🦀 Agent Deck (Rust) Agent Hand
 
 > Agent Hand is a Rust rewrite inspired by the original Go open-source project
 > [agent-deck](https://github.com/asheshgoplani/agent-deck).
