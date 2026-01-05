@@ -439,7 +439,7 @@ impl App {
             }
 
             // Move session to group
-            KeyCode::Char('g') => {
+            KeyCode::Char('g') | KeyCode::Char('m') => {
                 if self.selected_session().is_some() {
                     self.open_move_group_dialog();
                 }

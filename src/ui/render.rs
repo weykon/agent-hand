@@ -757,7 +757,7 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("        Fork session"),
         ]),
         Line::from(vec![
-            Span::styled("  g", Style::default().fg(Color::Cyan)),
+            Span::styled("  m", Style::default().fg(Color::Cyan)),
             Span::raw("        Move session to group"),
         ]),
         Line::from(vec![
@@ -848,7 +848,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         Span::raw(":del  "),
         Span::styled("f", Style::default().fg(Color::Cyan)),
         Span::raw(":fork  "),
-        Span::styled("g", Style::default().fg(Color::Cyan)),
+        Span::styled("m", Style::default().fg(Color::Cyan)),
         Span::raw(":group  "),
         Span::styled("/", Style::default().fg(Color::Cyan)),
         Span::raw(":search  "),
