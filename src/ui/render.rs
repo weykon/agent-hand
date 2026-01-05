@@ -210,6 +210,11 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
 
     if let Some(d) = app.move_group_dialog() {
         render_move_group_dialog(f, area, d);
+        return;
+    }
+
+    if let Some(d) = app.rename_group_dialog() {
+        render_rename_group_dialog(f, area, d);
     }
 }
 
@@ -461,6 +466,45 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
         Line::from(vec![
             Span::raw("Group: "),
             Span::styled(d.group_path.clone(), active_style),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Enter: apply • Esc: cancel",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let p = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().borders(Borders::ALL).title("Group"));
+
+    f.render_widget(p, popup_area);
+}
+
+fn render_rename_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameGroupDialog) {
+    let popup_area = centered_rect(70, 35, area);
+    f.render_widget(Clear, popup_area);
+
+    let active_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            "Rename Group",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("From:  "),
+            Span::styled(d.old_path.clone(), Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(vec![
+            Span::raw("To:    "),
+            Span::styled(d.new_path.clone(), active_style),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -742,7 +786,7 @@ fn render_help(f: &mut Frame, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("  r", Style::default().fg(Color::Yellow)),
-            Span::raw("        Restart session"),
+            Span::raw("        Restart session / Rename group"),
         ]),
         Line::from(vec![
             Span::styled("  n", Style::default().fg(Color::Cyan)),
@@ -842,23 +886,41 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         Span::styled("○", Style::default().fg(Color::DarkGray)),
         Span::raw(format!("{}", idle)),
         Span::raw("  |  "),
-        Span::styled("n", Style::default().fg(Color::Cyan)),
-        Span::raw(":new  "),
-        Span::styled("d", Style::default().fg(Color::Cyan)),
-        Span::raw(":del  "),
-        Span::styled("f", Style::default().fg(Color::Cyan)),
-        Span::raw(":fork  "),
-        Span::styled("m", Style::default().fg(Color::Cyan)),
-        Span::raw(":move  "),
-        Span::styled("/", Style::default().fg(Color::Cyan)),
-        Span::raw(":search  "),
-        Span::styled("p", Style::default().fg(Color::Cyan)),
-        Span::raw(":preview  "),
-        Span::styled("?", Style::default().fg(Color::Magenta)),
-        Span::raw(":help  "),
-        Span::styled("q", Style::default().fg(Color::Red)),
-        Span::raw(":quit"),
     ];
+
+    match app.selected_item() {
+        Some(TreeItem::Group { .. }) => {
+            spans.push(Span::styled("Enter", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":toggle  "));
+            spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
+            spans.push(Span::raw(":rename  "));
+            spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":new  "));
+        }
+        Some(TreeItem::Session { .. }) => {
+            spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":new  "));
+            spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":del  "));
+            spans.push(Span::styled("f", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":fork  "));
+            spans.push(Span::styled("m", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":move  "));
+        }
+        _ => {
+            spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":new  "));
+        }
+    }
+
+    spans.push(Span::styled("/", Style::default().fg(Color::Cyan)));
+    spans.push(Span::raw(":search  "));
+    spans.push(Span::styled("p", Style::default().fg(Color::Cyan)));
+    spans.push(Span::raw(":preview  "));
+    spans.push(Span::styled("?", Style::default().fg(Color::Magenta)));
+    spans.push(Span::raw(":help  "));
+    spans.push(Span::styled("q", Style::default().fg(Color::Red)));
+    spans.push(Span::raw(":quit"));
 
     if app.state() == crate::ui::AppState::Search {
         spans.push(Span::raw("  |  "));

@@ -21,7 +21,8 @@ use crate::tmux::{TmuxManager, SESSION_PREFIX};
 
 use super::{
     AppState, DeleteConfirmDialog, Dialog, ForkDialog, ForkField, MCPColumn, MCPDialog,
-    MoveGroupDialog, NewSessionDialog, NewSessionField, NewSessionTool, TreeItem,
+    MoveGroupDialog, NewSessionDialog, NewSessionField, NewSessionTool, RenameGroupDialog,
+    TreeItem,
 };
 
 /// Main TUI application
@@ -409,7 +410,11 @@ impl App {
                 self.stop_selected().await?;
             }
             KeyCode::Char('r') => {
-                self.restart_selected().await?;
+                if matches!(self.selected_tree_item(), Some(TreeItem::Group { .. })) {
+                    self.open_rename_group_dialog();
+                } else {
+                    self.restart_selected().await?;
+                }
             }
 
             // New session
@@ -851,6 +856,34 @@ impl App {
                 }
                 _ => {}
             },
+            Dialog::RenameGroup(d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Enter => {
+                    let old_path = d.old_path.clone();
+                    let new_path = d.new_path.clone();
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                    self.apply_rename_group(&old_path, &new_path).await?;
+                    self.refresh_sessions().await?;
+                    self.focus_group(&new_path).await?;
+                }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Backspace => {
+                    d.new_path.pop();
+                }
+                KeyCode::Char(ch) => {
+                    if !modifiers.contains(KeyModifiers::CONTROL) {
+                        d.new_path.push(ch);
+                    }
+                }
+                _ => {}
+            },
             Dialog::MoveGroup(d) => match key {
                 KeyCode::Esc => {
                     self.dialog = None;
@@ -910,6 +943,18 @@ impl App {
             session_id: s.id.clone(),
             title: s.title.clone(),
             group_path: s.group_path.clone(),
+        }));
+        self.state = AppState::Dialog;
+    }
+
+    fn open_rename_group_dialog(&mut self) {
+        let Some(TreeItem::Group { path, .. }) = self.selected_tree_item() else {
+            return;
+        };
+
+        self.dialog = Some(Dialog::RenameGroup(RenameGroupDialog {
+            old_path: path.clone(),
+            new_path: path.clone(),
         }));
         self.state = AppState::Dialog;
     }
@@ -1003,6 +1048,29 @@ impl App {
             }
         }
 
+        storage.save(&instances, &tree).await?;
+        Ok(())
+    }
+
+    async fn apply_rename_group(&mut self, old_path: &str, new_path: &str) -> Result<()> {
+        let old_path = old_path.trim();
+        let new_path = new_path.trim();
+        if old_path.is_empty() || new_path.is_empty() || old_path == new_path {
+            return Ok(());
+        }
+
+        let storage = self.storage.lock().await;
+        let (mut instances, mut tree) = storage.load().await?;
+
+        let old_slash = format!("{}/", old_path);
+        for inst in instances.iter_mut() {
+            if inst.group_path == old_path || inst.group_path.starts_with(&old_slash) {
+                let suffix = &inst.group_path[old_path.len()..];
+                inst.group_path = format!("{new_path}{suffix}");
+            }
+        }
+
+        tree.rename_prefix(old_path, new_path);
         storage.save(&instances, &tree).await?;
         Ok(())
     }
@@ -1360,6 +1428,21 @@ impl App {
         Ok(())
     }
 
+    async fn focus_group(&mut self, path: &str) -> Result<()> {
+        self.rebuild_tree();
+
+        if let Some((idx, _)) = self.tree.iter().enumerate().find(|(_, item)| match item {
+            TreeItem::Group { path: p, .. } => p == path,
+            _ => false,
+        }) {
+            self.selected_index = idx;
+            self.preview.clear();
+            self.update_preview().await?;
+        }
+
+        Ok(())
+    }
+
     /// Move selection up
     fn move_selection_up(&mut self) {
         if self.selected_index > 0 {
@@ -1659,6 +1742,13 @@ impl App {
     pub fn move_group_dialog(&self) -> Option<&MoveGroupDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::MoveGroup(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn rename_group_dialog(&self) -> Option<&RenameGroupDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::RenameGroup(d)) => Some(d),
             _ => None,
         }
     }

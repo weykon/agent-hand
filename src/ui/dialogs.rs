@@ -120,12 +120,19 @@ pub struct MoveGroupDialog {
 }
 
 #[derive(Debug, Clone)]
+pub struct RenameGroupDialog {
+    pub old_path: String,
+    pub new_path: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Dialog {
     NewSession(NewSessionDialog),
     DeleteConfirm(DeleteConfirmDialog),
     MCP(MCPDialog),
     Fork(ForkDialog),
     MoveGroup(MoveGroupDialog),
+    RenameGroup(RenameGroupDialog),
 }
 
 impl NewSessionDialog {

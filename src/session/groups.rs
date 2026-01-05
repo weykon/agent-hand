@@ -123,6 +123,47 @@ impl GroupTree {
     pub fn has_children(&self, path: &str) -> bool {
         !self.children(path).is_empty()
     }
+
+    /// Rename a group path prefix (renames the group and any descendants).
+    pub fn rename_prefix(&mut self, old_prefix: &str, new_prefix: &str) -> bool {
+        let old_prefix = old_prefix.trim();
+        let new_prefix = new_prefix.trim();
+        if old_prefix.is_empty() || old_prefix == new_prefix {
+            return false;
+        }
+
+        let old_slash = format!("{}/", old_prefix);
+
+        let mut updates: Vec<(String, GroupData)> = Vec::new();
+        let mut removes: Vec<String> = Vec::new();
+
+        for (path, data) in self.groups.iter() {
+            if path == old_prefix || path.starts_with(&old_slash) {
+                let suffix = &path[old_prefix.len()..];
+                let new_path = format!("{new_prefix}{suffix}");
+
+                let mut next = data.clone();
+                next.path = new_path.clone();
+                next.name = new_path.split('/').last().unwrap_or(&new_path).to_string();
+
+                updates.push((new_path, next));
+                removes.push(path.clone());
+            }
+        }
+
+        for p in removes {
+            self.groups.remove(&p);
+        }
+
+        for (p, g) in updates {
+            self.groups.insert(p.clone(), g);
+            if let Some(parent) = self.parent_path(&p) {
+                self.create_group(parent);
+            }
+        }
+
+        true
+    }
 }
 
 impl Default for GroupTree {
@@ -166,5 +207,19 @@ mod tests {
         assert!(tree.is_expanded("work"));
         tree.toggle_expanded("work");
         assert!(!tree.is_expanded("work"));
+    }
+
+    #[test]
+    fn test_rename_prefix() {
+        let mut tree = GroupTree::new();
+        tree.create_group("work".to_string());
+        tree.create_group("work/frontend".to_string());
+        tree.set_expanded("work/frontend", false);
+
+        assert!(tree.rename_prefix("work", "jobs"));
+        assert!(tree.get_group("jobs").is_some());
+        assert!(tree.get_group("jobs/frontend").is_some());
+        assert!(!tree.is_expanded("jobs/frontend"));
+        assert!(tree.get_group("work").is_none());
     }
 }
