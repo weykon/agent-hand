@@ -431,13 +431,6 @@ impl App {
                 }
             }
 
-            // MCP
-            KeyCode::Char('m') => {
-                if self.selected_session().is_some() {
-                    self.open_mcp_dialog().await?;
-                }
-            }
-
             // Fork
             KeyCode::Char('f') => {
                 if self.selected_session().is_some() {
@@ -921,6 +914,7 @@ impl App {
         self.state = AppState::Dialog;
     }
 
+    #[allow(dead_code)]
     async fn open_mcp_dialog(&mut self) -> Result<()> {
         let Some(session) = self.selected_session() else {
             return Ok(());

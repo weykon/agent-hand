@@ -753,10 +753,6 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("        Delete session"),
         ]),
         Line::from(vec![
-            Span::styled("  m", Style::default().fg(Color::Cyan)),
-            Span::raw("        MCP manager"),
-        ]),
-        Line::from(vec![
             Span::styled("  f", Style::default().fg(Color::Cyan)),
             Span::raw("        Fork session"),
         ]),
@@ -850,8 +846,6 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         Span::raw(":new  "),
         Span::styled("d", Style::default().fg(Color::Cyan)),
         Span::raw(":del  "),
-        Span::styled("m", Style::default().fg(Color::Cyan)),
-        Span::raw(":mcp  "),
         Span::styled("f", Style::default().fg(Color::Cyan)),
         Span::raw(":fork  "),
         Span::styled("g", Style::default().fg(Color::Cyan)),
