@@ -116,7 +116,48 @@ pub struct ForkDialog {
 pub struct MoveGroupDialog {
     pub session_id: String,
     pub title: String,
-    pub group_path: String,
+    pub input: String,
+    pub all_groups: Vec<String>,
+    pub matches: Vec<String>,
+    pub selected: usize,
+}
+
+impl MoveGroupDialog {
+    fn fuzzy_match(query: &str, text: &str) -> bool {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return true;
+        }
+        let t = text.to_lowercase();
+        let mut pos = 0usize;
+        for ch in q.chars() {
+            if let Some(found) = t[pos..].find(ch) {
+                pos += found + 1;
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn update_matches(&mut self) {
+        let q = self.input.trim();
+        let mut out: Vec<String> = self
+            .all_groups
+            .iter()
+            .filter(|g| Self::fuzzy_match(q, g))
+            .cloned()
+            .collect();
+        out.sort();
+        self.matches = out;
+        if self.selected >= self.matches.len() {
+            self.selected = 0;
+        }
+    }
+
+    pub fn selected_value(&self) -> Option<&str> {
+        self.matches.get(self.selected).map(|s| s.as_str())
+    }
 }
 
 #[derive(Debug, Clone)]

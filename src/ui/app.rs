@@ -889,25 +889,44 @@ impl App {
                     self.dialog = None;
                     self.state = AppState::Normal;
                 }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if !d.matches.is_empty() {
+                        if d.selected == 0 {
+                            d.selected = d.matches.len() - 1;
+                        } else {
+                            d.selected -= 1;
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if !d.matches.is_empty() {
+                        d.selected = (d.selected + 1) % d.matches.len();
+                    }
+                }
                 KeyCode::Enter => {
                     let session_id = d.session_id.clone();
-                    let group_path = d.group_path.clone();
+                    let group_path = d
+                        .selected_value()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| d.input.trim().to_string());
                     self.dialog = None;
                     self.state = AppState::Normal;
                     self.apply_move_group(&session_id, &group_path).await?;
                     self.refresh_sessions().await?;
                     self.focus_session(&session_id).await?;
                 }
-                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.dialog = None;
-                    self.state = AppState::Normal;
-                }
                 KeyCode::Backspace => {
-                    d.group_path.pop();
+                    d.input.pop();
+                    d.update_matches();
                 }
                 KeyCode::Char(ch) => {
                     if !modifiers.contains(KeyModifiers::CONTROL) {
-                        d.group_path.push(ch);
+                        d.input.push(ch);
+                        d.update_matches();
                     }
                 }
                 _ => {}
@@ -939,11 +958,27 @@ impl App {
             return;
         };
 
-        self.dialog = Some(Dialog::MoveGroup(MoveGroupDialog {
+        let mut all_groups: Vec<String> = self
+            .groups
+            .all_groups()
+            .into_iter()
+            .map(|g| g.path)
+            .collect();
+        all_groups.sort();
+        all_groups.dedup();
+        all_groups.insert(0, String::new());
+
+        let mut d = MoveGroupDialog {
             session_id: s.id.clone(),
             title: s.title.clone(),
-            group_path: s.group_path.clone(),
-        }));
+            input: s.group_path.clone(),
+            all_groups,
+            matches: Vec::new(),
+            selected: 0,
+        };
+        d.update_matches();
+
+        self.dialog = Some(Dialog::MoveGroup(d));
         self.state = AppState::Dialog;
     }
 

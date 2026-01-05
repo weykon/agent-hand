@@ -440,7 +440,7 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
 }
 
 fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupDialog) {
-    let popup_area = centered_rect(70, 35, area);
+    let popup_area = centered_rect(75, 60, area);
     f.render_widget(Clear, popup_area);
 
     let active_style = Style::default()
@@ -448,7 +448,7 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
         .bg(Color::Cyan)
         .add_modifier(Modifier::BOLD);
 
-    let lines = vec![
+    let mut lines = vec![
         Line::from(Span::styled(
             "Move Session to Group",
             Style::default()
@@ -457,22 +457,59 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
         )),
         Line::from(""),
         Line::from(vec![
-            Span::raw("Title: "),
+            Span::raw("Title:  "),
             Span::styled(
                 d.title.clone(),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::raw("Group: "),
-            Span::styled(d.group_path.clone(), active_style),
+            Span::raw("Filter: "),
+            Span::styled(d.input.clone(), active_style),
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Enter: apply • Esc/Ctrl+C: cancel",
+            "Groups (↑/↓ to select):",
             Style::default().fg(Color::DarkGray),
         )),
     ];
+
+    if d.matches.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "(no matches)",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        let max_show = 10usize;
+        let len = d.matches.len();
+        let idx = d.selected.min(len.saturating_sub(1));
+        let start = if len <= max_show {
+            0
+        } else if idx + 1 >= max_show {
+            (idx + 1 - max_show).min(len - max_show)
+        } else {
+            0
+        };
+
+        for (i, g) in d.matches.iter().enumerate().skip(start).take(max_show) {
+            let label = if g.is_empty() { "(none)" } else { g.as_str() };
+            let style = if i == d.selected {
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(label.to_string(), style),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Type to filter • Enter: apply • Esc/Ctrl+C: cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
