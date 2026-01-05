@@ -373,11 +373,7 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Path: auto-suggest (debounced) • ↑↓/jk select suggestion • Enter apply/next/submit",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(Span::styled(
-            "Enter: apply suggestion / next / submit • Tool/suggestions: ↑↓ or hjkl • Esc/Ctrl+C: cancel",
+            "Tab: complete • ↑↓: pick • Enter: apply/next • Esc/Ctrl+C: cancel",
             Style::default().fg(Color::DarkGray),
         )),
     ]);
