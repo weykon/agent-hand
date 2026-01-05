@@ -5,6 +5,8 @@
 
 Chinese README: [README.zh-CN.md](README.zh-CN.md)
 
+![Preview](docs/preview.jpg)
+
 ## What it is
 
 Agent Hand is a terminal session manager (tmux-based) for AI coding agents, with a CLI and a TUI (work-in-progress but already usable).
