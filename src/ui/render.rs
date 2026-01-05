@@ -377,7 +377,7 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
             Style::default().fg(Color::DarkGray),
         )),
         Line::from(Span::styled(
-            "Enter: apply suggestion / next / submit • Tool/suggestions: ↑↓ or hjkl • Esc: cancel",
+            "Enter: apply suggestion / next / submit • Tool/suggestions: ↑↓ or hjkl • Esc/Ctrl+C: cancel",
             Style::default().fg(Color::DarkGray),
         )),
     ]);
@@ -427,7 +427,7 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Tab: switch field • Enter: next/submit • Esc: cancel",
+            "Tab: switch field • Enter: next/submit • Esc/Ctrl+C: cancel",
             Style::default().fg(Color::DarkGray),
         )),
     ];
@@ -469,7 +469,7 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Enter: apply • Esc: cancel",
+            "Enter: apply • Esc/Ctrl+C: cancel",
             Style::default().fg(Color::DarkGray),
         )),
     ];
@@ -508,7 +508,7 @@ fn render_rename_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameGr
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Enter: apply • Esc: cancel",
+            "Enter: apply • Esc/Ctrl+C: cancel",
             Style::default().fg(Color::DarkGray),
         )),
     ];
@@ -560,7 +560,7 @@ fn render_delete_confirm_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Delete
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "y/Enter: confirm • n/Esc: cancel",
+            "y/Enter: confirm • n/Esc/Ctrl+C: cancel",
             Style::default().fg(Color::DarkGray),
         )),
     ];
@@ -759,6 +759,12 @@ fn render_help(f: &mut Frame, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
+        Line::from(Span::styled(
+            "Navigation",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(vec![
             Span::styled("  ↑/k", Style::default().fg(Color::Yellow)),
             Span::raw("      Move selection up"),
@@ -767,14 +773,20 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::styled("  ↓/j", Style::default().fg(Color::Yellow)),
             Span::raw("      Move selection down"),
         ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Enter", Style::default().fg(Color::Green)),
-            Span::raw("    Attach to session / Toggle group"),
-        ]),
         Line::from(vec![
             Span::styled("  ←/→/Space", Style::default().fg(Color::Yellow)),
             Span::raw(" Toggle group expand/collapse"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "When a session is selected",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  Enter", Style::default().fg(Color::Green)),
+            Span::raw("    Attach to session"),
         ]),
         Line::from(vec![
             Span::styled("  s", Style::default().fg(Color::Green)),
@@ -786,23 +798,45 @@ fn render_help(f: &mut Frame, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("  r", Style::default().fg(Color::Yellow)),
-            Span::raw("        Restart session / Rename group"),
+            Span::raw("        Restart session"),
         ]),
         Line::from(vec![
-            Span::styled("  n", Style::default().fg(Color::Cyan)),
-            Span::raw("        New session"),
-        ]),
-        Line::from(vec![
-            Span::styled("  d", Style::default().fg(Color::Cyan)),
-            Span::raw("        Delete session"),
+            Span::styled("  m", Style::default().fg(Color::Cyan)),
+            Span::raw("        Move session to group"),
         ]),
         Line::from(vec![
             Span::styled("  f", Style::default().fg(Color::Cyan)),
             Span::raw("        Fork session"),
         ]),
         Line::from(vec![
-            Span::styled("  m", Style::default().fg(Color::Cyan)),
-            Span::raw("        Move session to group"),
+            Span::styled("  d", Style::default().fg(Color::Cyan)),
+            Span::raw("        Delete session"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "When a group is selected",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  Enter", Style::default().fg(Color::Green)),
+            Span::raw("    Toggle group"),
+        ]),
+        Line::from(vec![
+            Span::styled("  r", Style::default().fg(Color::Yellow)),
+            Span::raw("        Rename group"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Global",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  n", Style::default().fg(Color::Cyan)),
+            Span::raw("        New session"),
         ]),
         Line::from(vec![
             Span::styled("  /", Style::default().fg(Color::Cyan)),
@@ -812,7 +846,6 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::styled("  p", Style::default().fg(Color::Cyan)),
             Span::raw("        Capture preview snapshot"),
         ]),
-        Line::from(""),
         Line::from(vec![
             Span::styled("  R", Style::default().fg(Color::Cyan)),
             Span::raw("        Refresh"),
