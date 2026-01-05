@@ -849,7 +849,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         Span::styled("f", Style::default().fg(Color::Cyan)),
         Span::raw(":fork  "),
         Span::styled("m", Style::default().fg(Color::Cyan)),
-        Span::raw(":group  "),
+        Span::raw(":move  "),
         Span::styled("/", Style::default().fg(Color::Cyan)),
         Span::raw(":search  "),
         Span::styled("p", Style::default().fg(Color::Cyan)),
