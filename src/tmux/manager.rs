@@ -41,7 +41,7 @@ impl TmuxManager {
                 "-g",
                 "AGENTHAND_LAST_SESSION",
                 "#{session_name}",
-                ";",
+                "\\;",
                 "detach-client",
             ])
             .status()
