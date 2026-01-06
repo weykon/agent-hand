@@ -5,8 +5,8 @@ mod render;
 
 pub use app::App;
 pub use dialogs::{
-    DeleteConfirmDialog, Dialog, ForkDialog, ForkField, MCPColumn, MCPDialog, MoveGroupDialog,
-    NewSessionDialog, NewSessionField, RenameGroupDialog,
+    CreateGroupDialog, DeleteConfirmDialog, Dialog, ForkDialog, ForkField, MCPColumn, MCPDialog,
+    MoveGroupDialog, NewSessionDialog, NewSessionField, RenameGroupDialog,
 };
 
 use crossterm::event::{KeyCode, KeyModifiers};

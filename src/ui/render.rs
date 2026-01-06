@@ -208,6 +208,11 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    if let Some(d) = app.create_group_dialog() {
+        render_create_group_dialog(f, area, d);
+        return;
+    }
+
     if let Some(d) = app.move_group_dialog() {
         render_move_group_dialog(f, area, d);
         return;
@@ -407,6 +412,77 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .block(Block::default().borders(Borders::ALL).title("Fork"));
+
+    f.render_widget(p, popup_area);
+}
+
+fn render_create_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::CreateGroupDialog) {
+    let popup_area = centered_rect(75, 60, area);
+    f.render_widget(Clear, popup_area);
+
+    let active_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "Create Group",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("Name:   "),
+            Span::styled(d.input.clone(), active_style),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Existing (↑/↓ to select):",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    if d.matches.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "(no matches)",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        let max_show = 10usize;
+        let len = d.matches.len();
+        let idx = d.selected.min(len.saturating_sub(1));
+        let start = if len <= max_show {
+            0
+        } else if idx + 1 >= max_show {
+            (idx + 1 - max_show).min(len - max_show)
+        } else {
+            0
+        };
+
+        for (i, g) in d.matches.iter().enumerate().skip(start).take(max_show) {
+            let style = if i == d.selected {
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(g.to_string(), style),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Type to filter/name • Enter: create • Esc/Ctrl+C: cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let p = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().borders(Borders::ALL).title("Group"));
 
     f.render_widget(p, popup_area);
 }
@@ -848,6 +924,10 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("        New session"),
         ]),
         Line::from(vec![
+            Span::styled("  g", Style::default().fg(Color::Cyan)),
+            Span::raw("        Create group"),
+        ]),
+        Line::from(vec![
             Span::styled("  /", Style::default().fg(Color::Cyan)),
             Span::raw("        Search"),
         ]),
@@ -936,12 +1016,16 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
             spans.push(Span::raw(":toggle  "));
             spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
             spans.push(Span::raw(":rename  "));
+            spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":group+  "));
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":new  "));
         }
         Some(TreeItem::Session { .. }) => {
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":new  "));
+            spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":group+  "));
             spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":del  "));
             spans.push(Span::styled("f", Style::default().fg(Color::Cyan)));
@@ -952,6 +1036,8 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         _ => {
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":new  "));
+            spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":group+  "));
         }
     }
 
