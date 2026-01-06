@@ -1,39 +1,41 @@
 # 🦀 Agent Hand
 
-A fast tmux-backed terminal session manager for AI coding agents.
+> English: [README.md](README.md)
 
-> Agent Hand is a Rust rewrite inspired by the original Go open-source project
-> [agent-deck](https://github.com/asheshgoplani/agent-deck).
+**多开 AI agent 窗口做 vibecoding 时很容易乱套？Agent Hand 帮你管理。**
 
-Chinese README: [README.zh.md](README.zh.md)
+一个基于 tmux 的快速终端会话管理器，用于 AI 编程代理（Claude / Copilot / OpenCode 等）。
+
+> Agent Hand 是受原始 Go 开源项目
+> [agent-deck](https://github.com/asheshgoplani/agent-deck) 启发的 Rust 重写版本。
 
 ![Preview](docs/preview.jpg)
 
 ## Why Agent Hand?
 
-When you run multiple AI agents (Claude, Copilot, OpenCode, etc.) at the same time:
-- too many panes to track (who needs confirmation, who is still working, who just finished)
-- constant context switching to find “that session from a minute ago”
-- easy to miss a permission/confirmation prompt and waste time waiting
+当你同时跑多个 AI agent（Claude、Copilot、OpenCode 等）做 vibecoding 时：
+- 🤯 窗口太多，不知道哪个在等你确认、哪个跑完了
+- 🔄 切来切去找不到刚才那个 session
+- 😵 错过了 agent 的确认提示，白白等了半天
 
-Agent Hand makes this manageable with clear status icons:
+Agent Hand 解决这些问题：
 
-| Icon | Meaning | What you should do |
-|------|---------|--------------------|
-| `!` (blue, blinking) | **WAITING** – the agent is blocked on a Yes/No style prompt | go check it now |
-| `●` (yellow, animated) | **RUNNING** – the agent is thinking/executing | you can do something else |
-| `✓` (cyan) | **READY** – finished within the last ~20 minutes | read the output |
-| `○` (gray) | **IDLE** – not started yet or already seen | continue anytime |
+| 状态图标 | 含义 | 你需要做什么 |
+|---------|------|-------------|
+| `!` 蓝色闪烁 | **需要确认** - agent 等你选 Yes/No | 赶紧去看！ |
+| `●` 黄色动画 | **正在运行** - agent 在思考/执行 | 可以先做别的 |
+| `✓` 青色 | **刚跑完** - 20分钟内完成的 | 去看看结果 |
+| `○` 灰色 | **空闲** - 还没启动或已经看过了 | 随时可以继续 |
 
 ## Highlights
 
-- **At-a-glance status list** for all sessions
-- **Fast switching**: `Ctrl+G` popup → fuzzy search and jump to any session
-- **TUI dashboard**: run `agent-hand`
-- **Groups**: organize by project/use case
-- **Labels**: custom title + colored labels
-- **tmux-friendly**: `Ctrl+Q` detach back to the dashboard
-- **Self-upgrade**: `agent-hand upgrade`
+- **一目了然的状态列表**：所有 session 的状态实时显示
+- **快速跳转**：`Ctrl+G` 弹出搜索框，秒切到任意 session
+- **TUI dashboard**：运行 `agent-hand` 统一管理
+- **分组管理**：按项目/用途组织你的 session
+- **Session 标签**：自定义标题和颜色标签
+- **tmux 加持**：`Ctrl+Q` 一键回 dashboard
+- **自动升级**：`agent-hand upgrade`
 
 ## Install
 
