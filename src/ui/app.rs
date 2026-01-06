@@ -299,13 +299,18 @@ impl App {
             let prev_activity = self.last_tmux_activity.get(&session.id).copied();
 
             // Cheap gating: if activity moved forward, assume running and skip capture-pane.
-            if prev_activity.is_none() || prev_activity.is_some_and(|a| activity > a) {
+            // Skip first observation (prev_activity == None) to avoid false Running on startup.
+            if prev_activity.is_some_and(|a| activity > a) {
                 self.last_tmux_activity.insert(session.id.clone(), activity);
                 self.last_tmux_activity_change
                     .insert(session.id.clone(), now);
                 session.status = Status::Running;
                 self.attention_until.remove(&session.id);
                 continue;
+            }
+            // Record activity baseline if first observation
+            if prev_activity.is_none() {
+                self.last_tmux_activity.insert(session.id.clone(), activity);
             }
 
             let need_fallback_probe = self
