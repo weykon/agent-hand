@@ -49,8 +49,18 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
 
     let update_matches = |query: &str, matches: &mut Vec<usize>, selected: &mut usize| {
         let q = query.trim();
+
+        // Default view: show sessions immediately (most-recent first)
         if q.is_empty() {
+            let mut all: Vec<usize> = (0..instances.len()).collect();
+            all.sort_by(|&a, &b| {
+                instances[b]
+                    .last_accessed_at
+                    .cmp(&instances[a].last_accessed_at)
+                    .then(instances[a].title.cmp(&instances[b].title))
+            });
             matches.clear();
+            matches.extend(all.into_iter().take(50));
             *selected = 0;
             return;
         }
@@ -161,16 +171,32 @@ fn draw(
     let list_area = chunks[1];
     f.render_widget(Clear, list_area);
 
+    let q = query.trim();
+
     let mut items: Vec<ListItem> = Vec::new();
     for (row, &idx) in matches.iter().enumerate() {
         let inst = &instances[idx];
+
+        // Ranking highlight when user is typing:
+        // - best match: green
+        // - other matches: yellow
+        let rank_style = if q.is_empty() {
+            Style::default().fg(Color::DarkGray)
+        } else if row == 0 {
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Yellow)
+        };
+
         let style = if row == selected {
             Style::default()
                 .fg(Color::Black)
                 .bg(Color::Cyan)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default()
+            rank_style
         };
 
         let group = if inst.group_path.is_empty() {
@@ -186,7 +212,20 @@ fn draw(
             Span::raw("  "),
             Span::styled(
                 inst.project_path.to_string_lossy().to_string(),
-                Style::default().fg(Color::DarkGray),
+                if row == selected {
+                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                },
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!("({})", inst.id),
+                if row == selected {
+                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                },
             ),
         ]);
 
@@ -195,7 +234,7 @@ fn draw(
 
     if matches.is_empty() {
         items.push(ListItem::new(Span::styled(
-            "(type to search)",
+            "(no matches)",
             Style::default().fg(Color::DarkGray),
         )));
     }
@@ -215,7 +254,9 @@ fn draw(
         Span::styled("Enter", Style::default().fg(Color::Cyan)),
         Span::raw(": switch  "),
         Span::styled("Esc", Style::default().fg(Color::Cyan)),
-        Span::raw(": close"),
+        Span::raw(": close  "),
+        Span::styled("tmux", Style::default().fg(Color::DarkGray)),
+        Span::raw(": agentdeck_rs_<id>"),
     ]))
     .wrap(Wrap { trim: true })
     .alignment(Alignment::Center)
