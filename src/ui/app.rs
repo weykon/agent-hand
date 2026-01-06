@@ -88,7 +88,7 @@ impl App {
     const CACHE_REFRESH: Duration = Duration::from_secs(2);
 
     const STATUS_COOLDOWN: Duration = Duration::from_secs(2);
-    const STATUS_FALLBACK: Duration = Duration::from_secs(60);
+    const STATUS_FALLBACK: Duration = Duration::from_secs(10);
 
     const ATTENTION_TTL: Duration = Duration::from_secs(20 * 60);
 
