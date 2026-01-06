@@ -20,8 +20,9 @@ use crate::session::{GroupTree, Instance, Status, Storage};
 use crate::tmux::{TmuxManager, SESSION_PREFIX};
 
 use super::{
-    AppState, CreateGroupDialog, DeleteConfirmDialog, Dialog, ForkDialog, ForkField, MCPColumn,
-    MCPDialog, MoveGroupDialog, NewSessionDialog, NewSessionField, RenameGroupDialog, TreeItem,
+    AppState, CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
+    ForkDialog, ForkField, MCPColumn, MCPDialog, MoveGroupDialog, NewSessionDialog,
+    NewSessionField, RenameGroupDialog, TreeItem,
 };
 
 /// Main TUI application
@@ -446,7 +447,7 @@ impl App {
                 self.state = AppState::Dialog;
             }
 
-            // Delete session
+            // Delete session / group
             KeyCode::Char('d') => {
                 if let Some(session) = self.selected_session() {
                     self.dialog = Some(Dialog::DeleteConfirm(DeleteConfirmDialog {
@@ -455,6 +456,20 @@ impl App {
                         kill_tmux: true,
                     }));
                     self.state = AppState::Dialog;
+                } else if let Some(TreeItem::Group { path, .. }) = self.selected_tree_item() {
+                    let path = path.clone();
+                    let session_ids = self.group_session_ids(&path);
+                    if session_ids.is_empty() {
+                        self.apply_delete_group_prefix(&path).await?;
+                        self.refresh_sessions().await?;
+                    } else {
+                        self.dialog = Some(Dialog::DeleteGroup(DeleteGroupDialog {
+                            group_path: path,
+                            session_count: session_ids.len(),
+                            choice: DeleteGroupChoice::DeleteGroupKeepSessions,
+                        }));
+                        self.state = AppState::Dialog;
+                    }
                 }
             }
 
@@ -707,6 +722,54 @@ impl App {
                     self.dialog = None;
                     self.state = AppState::Normal;
                     self.delete_session(&session_id, kill_tmux).await?;
+                    self.refresh_sessions().await?;
+                }
+                _ => {}
+            },
+            Dialog::DeleteGroup(d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    d.choice = match d.choice {
+                        DeleteGroupChoice::DeleteGroupKeepSessions => {
+                            DeleteGroupChoice::DeleteGroupAndSessions
+                        }
+                        DeleteGroupChoice::Cancel => DeleteGroupChoice::DeleteGroupKeepSessions,
+                        DeleteGroupChoice::DeleteGroupAndSessions => DeleteGroupChoice::Cancel,
+                    };
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    d.choice = match d.choice {
+                        DeleteGroupChoice::DeleteGroupKeepSessions => DeleteGroupChoice::Cancel,
+                        DeleteGroupChoice::Cancel => DeleteGroupChoice::DeleteGroupAndSessions,
+                        DeleteGroupChoice::DeleteGroupAndSessions => {
+                            DeleteGroupChoice::DeleteGroupKeepSessions
+                        }
+                    };
+                }
+                KeyCode::Char('1') => d.choice = DeleteGroupChoice::DeleteGroupKeepSessions,
+                KeyCode::Char('2') => d.choice = DeleteGroupChoice::Cancel,
+                KeyCode::Char('3') => d.choice = DeleteGroupChoice::DeleteGroupAndSessions,
+                KeyCode::Enter => {
+                    let group_path = d.group_path.clone();
+                    let choice = d.choice;
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                    match choice {
+                        DeleteGroupChoice::DeleteGroupKeepSessions => {
+                            self.apply_delete_group_keep_sessions(&group_path).await?;
+                        }
+                        DeleteGroupChoice::Cancel => {}
+                        DeleteGroupChoice::DeleteGroupAndSessions => {
+                            self.apply_delete_group_and_sessions(&group_path).await?;
+                        }
+                    }
                     self.refresh_sessions().await?;
                 }
                 _ => {}
@@ -977,6 +1040,15 @@ impl App {
         Ok(())
     }
 
+    fn group_session_ids(&self, group_path: &str) -> Vec<String> {
+        let prefix = format!("{}/", group_path);
+        self.sessions
+            .iter()
+            .filter(|s| s.group_path == group_path || s.group_path.starts_with(&prefix))
+            .map(|s| s.id.clone())
+            .collect()
+    }
+
     fn open_fork_dialog(&mut self) {
         let Some(parent) = self.selected_session() else {
             return;
@@ -1142,6 +1214,71 @@ impl App {
             tree.set_expanded(&p, true);
         }
 
+        storage.save(&instances, &tree).await?;
+        Ok(())
+    }
+
+    async fn apply_delete_group_prefix(&mut self, group_path: &str) -> Result<()> {
+        let group_path = group_path.trim();
+        if group_path.is_empty() {
+            return Ok(());
+        }
+
+        let storage = self.storage.lock().await;
+        let (instances, mut tree) = storage.load().await?;
+
+        tree.delete_group_prefix(group_path);
+
+        storage.save(&instances, &tree).await?;
+        Ok(())
+    }
+
+    async fn apply_delete_group_keep_sessions(&mut self, group_path: &str) -> Result<()> {
+        let group_path = group_path.trim();
+        if group_path.is_empty() {
+            return Ok(());
+        }
+
+        let prefix = format!("{}/", group_path);
+
+        let storage = self.storage.lock().await;
+        let (mut instances, mut tree) = storage.load().await?;
+
+        for inst in instances.iter_mut() {
+            if inst.group_path == group_path || inst.group_path.starts_with(&prefix) {
+                inst.group_path.clear();
+            }
+        }
+
+        tree.delete_group_prefix(group_path);
+        storage.save(&instances, &tree).await?;
+        Ok(())
+    }
+
+    async fn apply_delete_group_and_sessions(&mut self, group_path: &str) -> Result<()> {
+        let group_path = group_path.trim();
+        if group_path.is_empty() {
+            return Ok(());
+        }
+
+        let prefix = format!("{}/", group_path);
+
+        let storage = self.storage.lock().await;
+        let (mut instances, mut tree) = storage.load().await?;
+
+        // Kill tmux sessions (best-effort) before removing from storage.
+        for inst in instances.iter() {
+            if inst.group_path == group_path || inst.group_path.starts_with(&prefix) {
+                let tmux_name = TmuxManager::session_name(&inst.id);
+                if self.tmux.session_exists(&tmux_name).unwrap_or(false) {
+                    let _ = self.tmux.kill_session(&tmux_name).await;
+                }
+            }
+        }
+
+        instances.retain(|s| !(s.group_path == group_path || s.group_path.starts_with(&prefix)));
+
+        tree.delete_group_prefix(group_path);
         storage.save(&instances, &tree).await?;
         Ok(())
     }
@@ -1833,6 +1970,13 @@ impl App {
     pub fn delete_confirm_dialog(&self) -> Option<&DeleteConfirmDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::DeleteConfirm(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn delete_group_dialog(&self) -> Option<&DeleteGroupDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::DeleteGroup(d)) => Some(d),
             _ => None,
         }
     }

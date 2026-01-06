@@ -198,6 +198,11 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    if let Some(d) = app.delete_group_dialog() {
+        render_delete_group_dialog(f, area, d);
+        return;
+    }
+
     if let Some(d) = app.mcp_dialog() {
         render_mcp_dialog(f, area, d);
         return;
@@ -657,6 +662,80 @@ fn render_delete_confirm_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Delete
     f.render_widget(p, popup_area);
 }
 
+fn render_delete_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DeleteGroupDialog) {
+    let popup_area = centered_rect(70, 35, area);
+    f.render_widget(Clear, popup_area);
+
+    let active = Style::default().fg(Color::Black).bg(Color::Cyan);
+
+    let opt1_style = if d.choice == crate::ui::DeleteGroupChoice::DeleteGroupKeepSessions {
+        active
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let opt2_style = if d.choice == crate::ui::DeleteGroupChoice::Cancel {
+        active
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let opt3_style = if d.choice == crate::ui::DeleteGroupChoice::DeleteGroupAndSessions {
+        active
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let lines = vec![
+        Line::from(Span::styled(
+            "Delete group?",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("Group: "),
+            Span::styled(
+                d.group_path.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::raw("Sessions: "),
+            Span::styled(
+                d.session_count.to_string(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("1", Style::default().fg(Color::Yellow)),
+            Span::raw(" "),
+            Span::styled("Delete group only (keep sessions)", opt1_style),
+        ]),
+        Line::from(vec![
+            Span::styled("2", Style::default().fg(Color::Yellow)),
+            Span::raw(" "),
+            Span::styled("Cancel", opt2_style),
+        ]),
+        Line::from(vec![
+            Span::styled("3", Style::default().fg(Color::Yellow)),
+            Span::raw(" "),
+            Span::styled("Delete group + sessions", opt3_style),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "1/2/3 or ↑/↓ • Enter: confirm • Esc/Ctrl+C: cancel",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let p = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().borders(Borders::ALL).title("Confirm"));
+
+    f.render_widget(p, popup_area);
+}
+
 fn render_search_popup(f: &mut Frame, area: Rect, app: &App) {
     let popup_area = centered_rect(80, 60, area);
     f.render_widget(Clear, popup_area);
@@ -912,6 +991,10 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::styled("  r", Style::default().fg(Color::Yellow)),
             Span::raw("        Rename group"),
         ]),
+        Line::from(vec![
+            Span::styled("  d", Style::default().fg(Color::Red)),
+            Span::raw("        Delete group"),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
             "Global",
@@ -1016,6 +1099,8 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
             spans.push(Span::raw(":toggle  "));
             spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
             spans.push(Span::raw(":rename  "));
+            spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":del  "));
             spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":group+  "));
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));

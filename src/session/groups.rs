@@ -66,6 +66,26 @@ impl GroupTree {
         self.groups.remove(path).is_some()
     }
 
+    /// Delete a group and all descendants.
+    pub fn delete_group_prefix(&mut self, path: &str) -> usize {
+        let path = path.trim();
+        if path.is_empty() {
+            return 0;
+        }
+        let slash = format!("{}/", path);
+        let to_remove: Vec<String> = self
+            .groups
+            .keys()
+            .filter(|p| *p == path || p.starts_with(&slash))
+            .cloned()
+            .collect();
+        let n = to_remove.len();
+        for p in to_remove {
+            self.groups.remove(&p);
+        }
+        n
+    }
+
     /// Get a group
     pub fn get_group(&self, path: &str) -> Option<&GroupData> {
         self.groups.get(path)

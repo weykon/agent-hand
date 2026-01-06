@@ -77,6 +77,20 @@ pub struct DeleteConfirmDialog {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteGroupChoice {
+    DeleteGroupKeepSessions,
+    Cancel,
+    DeleteGroupAndSessions,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeleteGroupDialog {
+    pub group_path: String,
+    pub session_count: usize,
+    pub choice: DeleteGroupChoice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MCPColumn {
     Attached,
     Available,
@@ -213,6 +227,7 @@ pub struct RenameGroupDialog {
 pub enum Dialog {
     NewSession(NewSessionDialog),
     DeleteConfirm(DeleteConfirmDialog),
+    DeleteGroup(DeleteGroupDialog),
     MCP(MCPDialog),
     Fork(ForkDialog),
     CreateGroup(CreateGroupDialog),
