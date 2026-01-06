@@ -82,6 +82,17 @@ pub enum Command {
         action: McpSubAction,
     },
 
+    /// Upgrade agent-hand from GitHub Releases
+    Upgrade {
+        /// Install directory (default: /usr/local/bin if writable, else ~/.local/bin)
+        #[arg(long)]
+        prefix: Option<String>,
+
+        /// Release tag (default: latest)
+        #[arg(long)]
+        version: Option<String>,
+    },
+
     /// Show version
     Version,
 }

@@ -1,5 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use tokio::process::Command as TokioCommand;
 
 use crate::cli::{Args, Command, McpSubAction, PoolAction, ProfileAction, SessionAction};
 use crate::error::Result;
@@ -39,6 +41,8 @@ pub async fn run_cli(args: Args) -> Result<()> {
 
         Some(Command::Mcp { action }) => handle_mcp(action).await,
 
+        Some(Command::Upgrade { prefix, version }) => handle_upgrade(prefix, version).await,
+
         Some(Command::Version) => {
             println!("agent-hand v{}", crate::VERSION);
             Ok(())
@@ -50,6 +54,130 @@ pub async fn run_cli(args: Args) -> Result<()> {
             app.run().await
         }
     }
+}
+
+async fn handle_upgrade(prefix: Option<String>, version: Option<String>) -> Result<()> {
+    const REPO: &str = "weykon/agent-hand";
+    const BIN_NAME: &str = "agent-hand";
+
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+
+    let os = match os {
+        "macos" => "apple-darwin",
+        "linux" => "unknown-linux-gnu",
+        _ => return Err(crate::Error::InvalidInput(format!("Unsupported OS: {os}"))),
+    };
+
+    let arch = match arch {
+        "x86_64" | "amd64" => "x86_64",
+        "aarch64" | "arm64" => "aarch64",
+        _ => {
+            return Err(crate::Error::InvalidInput(format!(
+                "Unsupported arch: {arch}"
+            )))
+        }
+    };
+
+    let target = format!("{arch}-{os}");
+    let asset = format!("{BIN_NAME}-{target}.tar.gz");
+
+    let version = version.unwrap_or_else(|| "latest".to_string());
+    let url_base = format!("https://github.com/{REPO}/releases");
+    let url = if version == "latest" {
+        format!("{url_base}/latest/download/{asset}")
+    } else {
+        format!("{url_base}/download/{version}/{asset}")
+    };
+
+    let prefix = if let Some(p) = prefix {
+        PathBuf::from(p)
+    } else if is_dir_writable(Path::new("/usr/local/bin")) {
+        PathBuf::from("/usr/local/bin")
+    } else {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".local/bin")
+    };
+
+    std::fs::create_dir_all(&prefix)?;
+
+    let tmpdir = std::env::temp_dir().join(format!("agent-hand-upgrade-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmpdir)?;
+
+    let tar_path = tmpdir.join(&asset);
+
+    eprintln!("Downloading {url}");
+    let status = TokioCommand::new("curl")
+        .args(["-fsSL", &url, "-o"])
+        .arg(&tar_path)
+        .status()
+        .await?;
+    if !status.success() {
+        return Err(crate::Error::InvalidInput(
+            "Failed to download release asset".to_string(),
+        ));
+    }
+
+    let status = TokioCommand::new("tar")
+        .args(["-xzf"])
+        .arg(&tar_path)
+        .args(["-C"])
+        .arg(&tmpdir)
+        .status()
+        .await?;
+    if !status.success() {
+        return Err(crate::Error::InvalidInput(
+            "Failed to extract release archive".to_string(),
+        ));
+    }
+
+    let tmp_bin = tmpdir.join(BIN_NAME);
+    if !tmp_bin.is_file() {
+        return Err(crate::Error::InvalidInput(format!(
+            "Malformed archive: {asset} (missing {BIN_NAME})"
+        )));
+    }
+
+    let dest = prefix.join(BIN_NAME);
+    let status = TokioCommand::new("install")
+        .args(["-m", "0755"])
+        .arg(&tmp_bin)
+        .arg(&dest)
+        .status()
+        .await;
+
+    if status.as_ref().ok().map(|s| s.success()).unwrap_or(false) {
+        eprintln!("Installed {BIN_NAME} to {}", dest.display());
+        let _ = std::fs::remove_dir_all(&tmpdir);
+        return Ok(());
+    }
+
+    // Fallback if `install` is unavailable.
+    std::fs::copy(&tmp_bin, &dest)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
+    }
+
+    eprintln!("Installed {BIN_NAME} to {}", dest.display());
+    let _ = std::fs::remove_dir_all(&tmpdir);
+    Ok(())
+}
+
+fn is_dir_writable(dir: &Path) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    let test = dir.join(format!(".agent-hand-write-test-{}", uuid::Uuid::new_v4()));
+    let ok = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&test)
+        .is_ok();
+    let _ = std::fs::remove_file(&test);
+    ok
 }
 
 async fn handle_add(
