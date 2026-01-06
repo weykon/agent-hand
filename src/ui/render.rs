@@ -11,6 +11,12 @@ use crate::session::Status;
 use super::app::App;
 use super::TreeItem;
 
+fn running_anim(tick: u64) -> &'static str {
+    // Claude-style small/medium/large dot pulse.
+    const FRAMES: [&str; 4] = ["·", "●", "⬤", "●"];
+    FRAMES[(tick as usize) % FRAMES.len()]
+}
+
 /// Main render function
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -124,7 +130,7 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
                         if let Some(session) = s {
                             let status_icon = match session.status {
                                 Status::Waiting => "!",
-                                Status::Running => "▶",
+                                Status::Running => running_anim(app.tick_count()),
                                 Status::Idle => "○",
                                 Status::Error => "✕",
                                 Status::Starting => "⋯",
@@ -1159,7 +1165,7 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("  WAITING  - Needs your input"),
         ]),
         Line::from(vec![
-            Span::styled("  ▶ ", Style::default().fg(Color::Yellow)),
+            Span::styled("  ● ", Style::default().fg(Color::Yellow)),
             Span::raw("  RUNNING  - Agent is busy"),
         ]),
         Line::from(vec![
@@ -1200,7 +1206,10 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         Span::styled("!", Style::default().fg(Color::Blue)),
         Span::raw(format!("{}", waiting)),
         Span::raw("  "),
-        Span::styled("▶", Style::default().fg(Color::Yellow)),
+        Span::styled(
+            running_anim(app.tick_count()),
+            Style::default().fg(Color::Yellow),
+        ),
         Span::raw(format!("{}", running)),
         Span::raw("  "),
         Span::styled("○", Style::default().fg(Color::DarkGray)),

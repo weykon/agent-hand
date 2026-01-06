@@ -70,6 +70,9 @@ pub struct App {
     last_tmux_activity_change: HashMap<String, Instant>,
     last_status_probe: HashMap<String, Instant>,
 
+    // UI animation
+    tick_count: u64,
+
     // Backend
     storage: Arc<Mutex<Storage>>,
     tmux: Arc<TmuxManager>,
@@ -117,6 +120,7 @@ impl App {
             last_tmux_activity: HashMap::new(),
             last_tmux_activity_change: HashMap::new(),
             last_status_probe: HashMap::new(),
+            tick_count: 0,
             storage: Arc::new(Mutex::new(storage)),
             tmux: Arc::new(tmux),
         };
@@ -216,6 +220,7 @@ impl App {
     }
 
     async fn tick(&mut self) -> Result<()> {
+        self.tick_count = self.tick_count.wrapping_add(1);
         if self.is_navigating && self.last_navigation_time.elapsed() > Self::NAVIGATION_SETTLE {
             self.is_navigating = false;
         }
@@ -2216,5 +2221,9 @@ impl App {
 
     pub fn height(&self) -> u16 {
         self.height
+    }
+
+    pub fn tick_count(&self) -> u64 {
+        self.tick_count
     }
 }
