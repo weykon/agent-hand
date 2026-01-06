@@ -39,7 +39,7 @@ impl NewSessionDialog {
         let mut pos = 0usize;
         for ch in q.chars() {
             if let Some(found) = t[pos..].find(ch) {
-                pos += found + 1;
+                pos += found + ch.len_utf8();
             } else {
                 return false;
             }
@@ -129,7 +129,7 @@ impl MoveGroupDialog {
         let mut pos = 0usize;
         for ch in q.chars() {
             if let Some(found) = t[pos..].find(ch) {
-                pos += found + 1;
+                pos += found + ch.len_utf8();
             } else {
                 return false;
             }
