@@ -46,7 +46,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 /// Render title bar
 fn render_title(f: &mut Frame, area: Rect) {
-    let title = Paragraph::new("🦀 Agent Deck (Rust)")
+    let title = Paragraph::new("🦀 Agent Deck (Rust) Agent Hand")
         .style(
             Style::default()
                 .fg(Color::Cyan)
