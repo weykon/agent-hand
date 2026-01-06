@@ -1373,7 +1373,7 @@ impl App {
                     score -= idx.min(15) as i32; // earlier is better
                 }
                 last_match = Some(idx);
-                pos = idx + 1;
+                pos = idx + ch.len_utf8();
             } else {
                 return None;
             }
