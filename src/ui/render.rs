@@ -123,7 +123,7 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
                     let (status_icon, status_color, title, label, label_color) =
                         if let Some(session) = s {
                             let status_icon = match session.status {
-                                Status::Waiting => "⏸",
+                                Status::Waiting => "!",
                                 Status::Running => "▶",
                                 Status::Idle => "○",
                                 Status::Error => "✕",
@@ -131,8 +131,8 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
                             };
 
                             let status_color = match session.status {
-                                Status::Waiting => Color::Yellow,
-                                Status::Running => Color::Green,
+                                Status::Waiting => Color::Blue,
+                                Status::Running => Color::Yellow,
                                 Status::Idle => Color::DarkGray,
                                 Status::Error => Color::Red,
                                 Status::Starting => Color::Cyan,
@@ -1155,11 +1155,11 @@ fn render_help(f: &mut Frame, area: Rect) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  ⏸ ", Style::default().fg(Color::Yellow)),
-            Span::raw("  WAITING  - Agent waiting for input"),
+            Span::styled("  ! ", Style::default().fg(Color::Blue)),
+            Span::raw("  WAITING  - Needs your input"),
         ]),
         Line::from(vec![
-            Span::styled("  ▶ ", Style::default().fg(Color::Green)),
+            Span::styled("  ▶ ", Style::default().fg(Color::Yellow)),
             Span::raw("  RUNNING  - Agent is busy"),
         ]),
         Line::from(vec![
@@ -1197,10 +1197,10 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
 
     let mut spans = vec![
         Span::raw("  "),
-        Span::styled("⏸", Style::default().fg(Color::Yellow)),
+        Span::styled("!", Style::default().fg(Color::Blue)),
         Span::raw(format!("{}", waiting)),
         Span::raw("  "),
-        Span::styled("▶", Style::default().fg(Color::Green)),
+        Span::styled("▶", Style::default().fg(Color::Yellow)),
         Span::raw(format!("{}", running)),
         Span::raw("  "),
         Span::styled("○", Style::default().fg(Color::DarkGray)),
