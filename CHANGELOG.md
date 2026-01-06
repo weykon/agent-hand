@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-01-06
+
+### Fixed
+- Status: On `Ctrl+Q` detach, dashboard now forces an immediate probe for the detached session to reduce stale/incorrect status.
+
+### Added
+- tmux: `Ctrl+Q` now records `AGENTHAND_LAST_DETACH_AT` for detach-triggered UX.
+- tmux: Added `get_environment_global()` helper to read tmux server env.
+
 ## [0.1.5] - 2026-01-06
 
 ### Added

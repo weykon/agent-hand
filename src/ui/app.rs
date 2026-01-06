@@ -69,6 +69,8 @@ pub struct App {
     last_tmux_activity: HashMap<String, i64>,
     last_tmux_activity_change: HashMap<String, Instant>,
     last_status_probe: HashMap<String, Instant>,
+    last_seen_detach_at: Option<String>,
+    force_probe_tmux: Option<String>,
 
     // UI animation
     tick_count: u64,
@@ -127,6 +129,8 @@ impl App {
             last_tmux_activity: HashMap::new(),
             last_tmux_activity_change: HashMap::new(),
             last_status_probe: HashMap::new(),
+            last_seen_detach_at: None,
+            force_probe_tmux: None,
             tick_count: 0,
             storage: Arc::new(Mutex::new(storage)),
             tmux: Arc::new(tmux),
@@ -258,6 +262,16 @@ impl App {
             }
 
             if self.last_status_refresh.elapsed() >= Self::STATUS_REFRESH {
+                if let Ok(Some(detach_at)) = self.tmux.get_environment_global("AGENTHAND_LAST_DETACH_AT").await {
+                    if self.last_seen_detach_at.as_deref() != Some(detach_at.as_str()) {
+                        self.last_seen_detach_at = Some(detach_at);
+                        // Use cached session name (written by Ctrl+Q binding).
+                        if let Ok(Some(name)) = self.tmux.get_environment_global("AGENTHAND_LAST_SESSION").await {
+                            self.force_probe_tmux = Some(name);
+                        }
+                    }
+                }
+
                 self.refresh_statuses().await?;
                 self.last_status_refresh = Instant::now();
             }
@@ -318,7 +332,9 @@ impl App {
             // - Selected session with recent activity that has settled
             // - Activity just changed (something happened, check it)
             // - First observation (need initial status)
-            let should_probe = need_fallback_probe
+            let force_probe = self.force_probe_tmux.as_deref() == Some(tmux_session.as_str());
+            let should_probe = force_probe
+                || need_fallback_probe
                 || (is_selected && activity_settled)
                 || activity_changed
                 || prev_activity.is_none();
@@ -348,6 +364,9 @@ impl App {
 
             session.status = new_status;
             self.last_status_probe.insert(session.id.clone(), now);
+            if force_probe {
+                self.force_probe_tmux = None;
+            }
         }
 
         // Persist last_running_at changes

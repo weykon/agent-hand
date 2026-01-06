@@ -42,6 +42,11 @@ impl TmuxManager {
                 "AGENTHAND_LAST_SESSION",
                 "#{session_name}",
                 "\\;",
+                "set-environment",
+                "-g",
+                "AGENTHAND_LAST_DETACH_AT",
+                "#{client_activity}",
+                "\\;",
                 "detach-client",
             ])
             .status()
@@ -287,6 +292,27 @@ impl TmuxManager {
         }
 
         Ok(())
+    }
+
+    /// Get a global tmux environment variable from our dedicated server.
+    pub async fn get_environment_global(&self, key: &str) -> Result<Option<String>> {
+        let output = self
+            .tmux_cmd()
+            .args(["show-environment", "-g", key])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        let line = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let prefix = format!("{key}=");
+        if line.starts_with(&prefix) {
+            Ok(Some(line[prefix.len()..].to_string()))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Switch current tmux client to a target session
