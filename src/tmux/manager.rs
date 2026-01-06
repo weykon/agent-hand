@@ -37,7 +37,11 @@ impl TmuxManager {
             .status()
             .await;
 
-        // Popup switcher: Ctrl+G
+        // Popup switcher: Ctrl+G (use absolute path so tmux PATH doesn't matter)
+        let switch_bin = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "agent-hand".to_string());
         let _ = self
             .tmux_cmd()
             .args([
@@ -50,7 +54,7 @@ impl TmuxManager {
                 "90%",
                 "-h",
                 "70%",
-                "agent-hand",
+                &switch_bin,
                 "switch",
             ])
             .status()
