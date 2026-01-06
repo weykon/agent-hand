@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-01-06
+
 ### Added
 - TUI: Create empty groups (`g`) via a filterable list + Enter to create.
 - TUI: Group rename (`r` on a group) and move session to group (`m` on a session).
