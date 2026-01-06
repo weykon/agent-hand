@@ -102,6 +102,7 @@ impl PromptDetector {
             "Yes, allow always",
             "Allow once",
             "Allow always",
+            "Do you want to create",
             "│ Do you want",
             "│ Would you like",
             "│ Allow",
@@ -176,8 +177,6 @@ impl PromptDetector {
             "esc to interrupt",
             "(esc to interrupt)",
             "· esc to interrupt",
-            "esc to cancel",
-            "(esc to cancel)",
         ];
         if busy_indicators.iter().any(|m| recent_lower.contains(m)) {
             return true;
@@ -322,6 +321,9 @@ mod tests {
     fn test_claude_waiting_detection() {
         let detector = PromptDetector::new(Tool::Claude);
         assert!(detector.has_prompt("Yes, allow once\nNo, and tell Claude what to do differently"));
+        assert!(
+            detector.has_prompt("Do you want to create explore_db.py?\n❯ 1. Yes\nEsc to cancel")
+        );
         assert!(!detector.has_prompt(">"));
         assert!(!detector.has_prompt("> "));
     }

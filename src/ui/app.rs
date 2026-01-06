@@ -333,10 +333,10 @@ impl App {
                 .await
                 .unwrap_or_default();
             let detector = crate::tmux::PromptDetector::new(session.tool);
-            let new_status = if detector.is_busy(&content) {
-                Status::Running
-            } else if detector.has_prompt(&content) {
+            let new_status = if detector.has_prompt(&content) {
                 Status::Waiting
+            } else if detector.is_busy(&content) {
+                Status::Running
             } else {
                 Status::Idle
             };
