@@ -13,8 +13,9 @@ Chinese README: [README.zh-CN.md](README.zh-CN.md)
 
 - **TUI-first workflow**: run `agent-hand` and manage everything from the dashboard.
 - **Groups**: create (`g`), rename (`r`), move session (`m`), delete (`d`, with safe options).
+- **Session labels**: press `r` on a session to edit title + label + label color.
 - **New Session UX**: path suggestions + group picker (filter + list selection).
-- **Jump between running sessions**: inside tmux, `Ctrl+G` opens a popup switcher.
+- **Jump between running sessions**: inside tmux, `Ctrl+G` opens a popup switcher (shows sessions immediately; type to filter).
 - **tmux QoL**: `Ctrl+Q` detaches back to the dashboard.
 - **CLI + profiles** + self-upgrade (`agent-hand upgrade`).
 
