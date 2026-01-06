@@ -95,7 +95,12 @@ impl App {
     /// Create new application
     pub async fn new(profile: &str) -> Result<Self> {
         let storage = Storage::new(profile).await?;
-        let (sessions, groups) = storage.load().await?;
+        let (mut sessions, groups) = storage.load().await?;
+        // Status is derived from tmux probes; the persisted value can be stale across restarts.
+        // Reset to avoid treating old Running→Idle as a fresh completion.
+        for s in &mut sessions {
+            s.status = Status::Idle;
+        }
 
         let tmux = TmuxManager::new();
 
