@@ -48,151 +48,37 @@ impl Tool {
 }
 
 /// Prompt detector - identifies when AI agents are waiting for input
-/// Based on Claude Squad's implementation with enhancements
-pub struct PromptDetector {
-    tool: Tool,
-}
+/// Uses unified pattern matching across all tools (Claude, Copilot, OpenCode, etc.)
+pub struct PromptDetector;
 
 impl PromptDetector {
-    pub fn new(tool: Tool) -> Self {
-        Self { tool }
+    pub fn new(_tool: Tool) -> Self {
+        // Tool parameter kept for API compatibility but no longer used for dispatch
+        Self
     }
 
-    /// Check if terminal content shows the agent is currently busy.
+    /// Check if terminal content shows the agent is currently busy (running/thinking).
     pub fn is_busy(&self, content: &str) -> bool {
-        match self.tool {
-            Tool::Claude => self.is_claude_busy(content),
-            Tool::Gemini | Tool::OpenCode | Tool::Codex | Tool::Shell => {
-                self.is_generic_busy(content)
-            }
-        }
-    }
-
-    /// Check if terminal content shows a prompt waiting for input.
-    pub fn has_prompt(&self, content: &str) -> bool {
-        match self.tool {
-            Tool::Claude => self.has_claude_prompt(content),
-            Tool::Gemini => self.has_gemini_prompt(content),
-            Tool::OpenCode => self.has_opencode_prompt(content),
-            Tool::Codex => self.has_codex_prompt(content),
-            Tool::Shell => self.has_shell_prompt(content),
-        }
-    }
-
-    /// Detect Claude Code prompt states
-    ///
-    /// States:
-    /// - BUSY: "esc to interrupt" with spinner (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏)
-    /// - WAITING (normal): Permission dialogs with Yes/No
-    /// - WAITING (skip-permissions): Just ">" prompt
-    /// - THINKING: Extended reasoning with "think" keywords
-    fn has_claude_prompt(&self, content: &str) -> bool {
-        let lines = get_last_lines(content, 15);
-        let recent = lines.join("\n");
-
-        // BUSY indicators - if present, Claude is NOT waiting
-        if self.is_claude_busy(content) {
-            return false;
-        }
-
-        // WAITING indicators - Permission prompts
-        let permission_prompts = [
-            "No, and tell Claude what to do differently",
-            "Yes, allow once",
-            "Yes, allow always",
-            "Allow once",
-            "Allow always",
-            "Do you want to create",
-            "│ Do you want",
-            "│ Would you like",
-            "│ Allow",
-            "❯ Yes",
-            "❯ No",
-            "❯ Allow",
-            "❯ 1.",
-            "❯ 2.",
-            "❯ 3.",
-            "Do you trust the files in this folder?",
-            "Allow this MCP server",
-            "Run this command?",
-            "Execute this?",
-        ];
-
-        for prompt in &permission_prompts {
-            if content.contains(prompt) {
-                return true;
-            }
-        }
-
-        // Question prompts
-        let question_prompts = [
-            "Continue?",
-            "Proceed?",
-            "(Y/n)",
-            "(y/N)",
-            "[Y/n]",
-            "[y/N]",
-            "(yes/no)",
-            "[yes/no]",
-            "Approve this plan?",
-            "Execute plan?",
-        ];
-
-        for prompt in &question_prompts {
-            if recent.contains(prompt) {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    fn is_generic_busy(&self, content: &str) -> bool {
         let lines = get_last_lines(content, 15);
         let recent = strip_ansi(&lines.join("\n")).to_lowercase();
 
-        // Common "busy" markers across tools.
-        let busy_indicators = [
-            "(esc to cancel)",
-            "esc to cancel",
-            "esc to interrupt",
-            "(esc to interrupt)",
-            "esc to stop",
-            "(esc to stop)",
-            "esc interrupt",
-        ];
-        if busy_indicators.iter().any(|m| recent.contains(m)) {
-            return true;
-        }
-
-        // OpenCode/Copilot progress indicator (e.g. ⬝⬝⬝⬝⬝⬝)
-        let dots = recent.chars().filter(|&c| c == '⬝').count();
-        dots >= 3
-    }
-
-    fn is_claude_busy(&self, content: &str) -> bool {
-        let lines = get_last_lines(content, 15);
-        let recent = lines.join("\n");
-        let recent_lower = recent.to_lowercase();
-
-        // BUSY indicators
+        // Busy indicators across all tools
         let busy_indicators = [
             "esc to interrupt",
             "(esc to interrupt)",
             "· esc to interrupt",
         ];
-        if busy_indicators.iter().any(|m| recent_lower.contains(m)) {
+        if busy_indicators.iter().any(|m| recent.contains(m)) {
             return true;
         }
 
-        // Check for spinner characters (braille dots from cli-spinners)
+        // Spinner characters (Claude braille dots)
         let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let last_3 = if lines.len() > 3 {
             &lines[lines.len() - 3..]
         } else {
             &lines[..]
         };
-
         for line in last_3 {
             for c in &spinner_chars {
                 if line.contains(*c) {
@@ -201,86 +87,76 @@ impl PromptDetector {
             }
         }
 
-        // thinking/connecting indicators
-        (recent_lower.contains("thinking") && recent_lower.contains("tokens"))
-            || (recent_lower.contains("connecting") && recent_lower.contains("tokens"))
+        // OpenCode/Copilot progress dots
+        let dots = recent.chars().filter(|&c| c == '⬝').count();
+        if dots >= 3 {
+            return true;
+        }
+
+        // Thinking/connecting indicators
+        if (recent.contains("thinking") && recent.contains("tokens"))
+            || (recent.contains("connecting") && recent.contains("tokens"))
+        {
+            return true;
+        }
+
+        false
     }
 
-    fn has_gemini_prompt(&self, content: &str) -> bool {
-        let recent = strip_ansi(&get_last_lines(content, 15).join("\n")).to_lowercase();
-        let prompts = [
+    /// Check if terminal content shows a prompt waiting for user input.
+    pub fn has_prompt(&self, content: &str) -> bool {
+        let lines = get_last_lines(content, 15);
+        let recent = strip_ansi(&lines.join("\n"));
+        let recent_lower = recent.to_lowercase();
+
+        // Blocking confirmation prompts (all tools)
+        let blocking_prompts = [
+            // Claude permission dialogs
+            "no, and tell claude what to do differently",
             "yes, allow once",
             "yes, allow always",
             "allow once",
             "allow always",
+            "do you want to create",
+            "do you want to run this command",
+            "do you trust the files in this folder",
+            "allow this mcp server",
+            "run this command?",
+            "execute this?",
+            // Copilot/Codex
+            "confirm with number keys",
+            // Generic y/n prompts
             "continue?",
             "proceed?",
             "(y/n)",
             "[y/n]",
             "(yes/no)",
             "[yes/no]",
+            "approve this plan?",
+            "execute plan?",
             "enter to continue",
-            "press enter",
         ];
-        prompts.iter().any(|p| recent.contains(p))
-    }
 
-    fn has_opencode_prompt(&self, content: &str) -> bool {
-        let recent = strip_ansi(&get_last_lines(content, 15).join("\n")).to_lowercase();
-        if recent.contains("confirm with number keys") {
+        if blocking_prompts.iter().any(|p| recent_lower.contains(p)) {
             return true;
         }
 
-        // OpenCode often shows "press enter" even when it's just idle/ready for input.
-        // We only treat explicit blocking prompts as WAITING.
-        let prompts = [
-            "continue?",
-            "proceed?",
-            "(y/n)",
-            "[y/n]",
-            "(yes/no)",
-            "[yes/no]",
-            "enter to continue",
-        ];
-        prompts.iter().any(|p| recent.contains(p))
-    }
-
-    fn has_codex_prompt(&self, content: &str) -> bool {
-        let recent = strip_ansi(&get_last_lines(content, 15).join("\n")).to_lowercase();
-        // Copilot CLI uses "confirm with number keys" and numbered prompts
-        if recent.contains("confirm with number keys") {
+        // Selection prompts with arrow indicator (Claude/Copilot numbered options)
+        let selection_indicators = ["❯ yes", "❯ no", "❯ allow", "❯ 1.", "❯ 2.", "❯ 3."];
+        if selection_indicators
+            .iter()
+            .any(|p| recent_lower.contains(p))
+        {
             return true;
         }
-        if recent.contains("do you want to run this command") {
+
+        // Box-drawing prompts (Claude dialog boxes)
+        let box_prompts = ["│ do you want", "│ would you like", "│ allow"];
+        if box_prompts.iter().any(|p| recent_lower.contains(p)) {
             return true;
         }
-        let prompts = [
-            "continue?",
-            "proceed?",
-            "(y/n)",
-            "[y/n]",
-            "(yes/no)",
-            "[yes/no]",
-            "enter to continue",
-        ];
-        prompts.iter().any(|p| recent.contains(p))
-    }
 
-    fn has_shell_prompt(&self, content: &str) -> bool {
-        let recent = strip_ansi(&get_last_lines(content, 15).join("\n")).to_lowercase();
-        let prompts = [
-            "(y/n)",
-            "[y/n]",
-            "(y/n)",
-            "[y/n]",
-            "(yes/no)",
-            "[yes/no]",
-            "continue?",
-            "proceed?",
-            "enter to continue",
-            "press enter",
-        ];
-        prompts.iter().any(|p| recent.contains(p))
+        false
     }
 }
 
@@ -311,37 +187,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_claude_busy_detection() {
-        let detector = PromptDetector::new(Tool::Claude);
+    fn test_busy_detection() {
+        let detector = PromptDetector::new(Tool::Shell);
+        // Spinner and "esc to interrupt" = busy
         assert!(detector.is_busy("Thinking… (45s · 1234 tokens · esc to interrupt)"));
         assert!(detector.is_busy("⠋ Processing..."));
+        // Progress dots = busy
+        assert!(detector.is_busy("⬝⬝⬝⬝⬝⬝⬝⬝"));
+        // Prompts should not be busy
         assert!(!detector.has_prompt("Thinking… (45s · 1234 tokens · esc to interrupt)"));
         assert!(!detector.has_prompt("⠋ Processing..."));
     }
 
     #[test]
-    fn test_opencode_busy_detection() {
-        let detector = PromptDetector::new(Tool::OpenCode);
-        assert!(detector.is_busy("Running... (Esc to cancel)"));
-        assert!(detector.is_busy("⬝⬝⬝⬝⬝⬝⬝⬝"));
-    }
-
-    #[test]
-    fn test_claude_waiting_detection() {
-        let detector = PromptDetector::new(Tool::Claude);
+    fn test_waiting_detection() {
+        let detector = PromptDetector::new(Tool::Shell);
+        // Claude permission dialogs
         assert!(detector.has_prompt("Yes, allow once\nNo, and tell Claude what to do differently"));
         assert!(
             detector.has_prompt("Do you want to create explore_db.py?\n❯ 1. Yes\nEsc to cancel")
         );
+        // Copilot confirmation
+        assert!(detector.has_prompt("Confirm with number keys or ↑↓ keys and Enter"));
+        assert!(detector.has_prompt("Do you want to run this command?\n❯ 1. Yes"));
+        // y/n prompts
+        assert!(detector.has_prompt("Continue? (y/n)"));
+        // Plain prompts should NOT be waiting
         assert!(!detector.has_prompt(">"));
         assert!(!detector.has_prompt("> "));
-    }
-
-    #[test]
-    fn test_opencode_waiting_detection() {
-        let detector = PromptDetector::new(Tool::OpenCode);
-        assert!(detector.has_prompt("Confirm with number keys or ↑↓ keys and Enter"));
-        assert!(!detector.has_prompt(">"));
     }
 
     #[test]
