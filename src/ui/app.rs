@@ -325,8 +325,11 @@ impl App {
             // - Fallback timer expired (infrequent probe for all sessions)
             // - Selected session with recent activity that has settled
             // - Activity just changed (something happened, check it)
-            let should_probe =
-                need_fallback_probe || (is_selected && activity_settled) || activity_changed;
+            // - First observation (need initial status)
+            let should_probe = need_fallback_probe
+                || (is_selected && activity_settled)
+                || activity_changed
+                || prev_activity.is_none();
 
             if !should_probe {
                 continue;
