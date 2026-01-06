@@ -33,7 +33,17 @@ impl TmuxManager {
         // Best-effort: bind keys on our dedicated tmux server.
         let _ = self
             .tmux_cmd()
-            .args(["bind-key", "-n", "C-q", "detach-client"])
+            .args([
+                "bind-key",
+                "-n",
+                "C-q",
+                "set-environment",
+                "-g",
+                "AGENTHAND_LAST_SESSION",
+                "#{session_name}",
+                ";",
+                "detach-client",
+            ])
             .status()
             .await;
 
@@ -255,6 +265,25 @@ impl TmuxManager {
 
         if !status.success() {
             return Err(crate::Error::tmux("Failed to attach to session"));
+        }
+
+        Ok(())
+    }
+
+    /// Set a global tmux environment variable on our dedicated server.
+    pub async fn set_environment_global(&self, key: &str, value: &str) -> Result<()> {
+        let output = self
+            .tmux_cmd()
+            .args(["set-environment", "-g", key, value])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::tmux(format!(
+                "Failed to set tmux env {key}: {}",
+                stderr
+            )));
         }
 
         Ok(())

@@ -103,6 +103,10 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
                     KeyCode::Enter => {
                         if let Some(&idx) = matches.get(selected) {
                             let tmux_name = instances[idx].tmux_name();
+                            // Record last active session for future dashboard UX/features.
+                            let _ = manager
+                                .set_environment_global("AGENTHAND_LAST_SESSION", &tmux_name)
+                                .await;
                             manager.switch_client(&tmux_name).await?;
                         }
                         break Ok(());
