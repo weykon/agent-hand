@@ -255,11 +255,7 @@ pub enum Dialog {
 
 impl NewSessionDialog {
     pub fn new(default_path: PathBuf, default_group: String, all_groups: Vec<String>) -> Self {
-        let title = default_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("Untitled")
-            .to_string();
+        let title = String::new();
 
         let mut d = Self {
             path: default_path.to_string_lossy().to_string(),

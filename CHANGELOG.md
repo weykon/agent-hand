@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - TUI: New Session flow simplified (default shell; group selection is a filterable list; default group comes from current selection).
+- TUI: New Session title defaults to empty (falls back to directory name on create).
 - TUI: Contextual key hints updated (e.g. `g` is consistently “create group”, `m` is “move” only for sessions).
 - TUI: Title bar updated to match project name.
 
