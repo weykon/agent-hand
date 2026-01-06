@@ -199,7 +199,13 @@ impl PromptDetector {
             "esc to interrupt",
             "(esc to interrupt)",
         ];
-        busy_indicators.iter().any(|m| recent.contains(m))
+        if busy_indicators.iter().any(|m| recent.contains(m)) {
+            return true;
+        }
+
+        // OpenCode/Copilot progress indicator (e.g. ⬝⬝⬝⬝⬝⬝)
+        let dots = recent.chars().filter(|&c| c == '⬝').count();
+        dots >= 3
     }
 
     fn is_claude_busy(&self, content: &str) -> bool {
@@ -357,6 +363,7 @@ mod tests {
     fn test_opencode_busy_detection() {
         let detector = PromptDetector::new(Tool::OpenCode);
         assert!(detector.is_busy("Running... (Esc to cancel)"));
+        assert!(detector.is_busy("⬝⬝⬝⬝⬝⬝⬝⬝"));
     }
 
     #[test]
