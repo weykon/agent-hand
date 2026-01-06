@@ -219,7 +219,7 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessionDialog) {
-    let popup_area = centered_rect(70, 50, area);
+    let popup_area = centered_rect(75, 60, area);
     f.render_widget(Clear, popup_area);
 
     let active_style = Style::default()
@@ -238,16 +238,6 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
         Style::default()
     };
     let group_style = if d.field == crate::ui::NewSessionField::Group {
-        active_style
-    } else {
-        Style::default()
-    };
-    let tool_style = if d.field == crate::ui::NewSessionField::Tool {
-        active_style
-    } else {
-        Style::default()
-    };
-    let cmd_style = if d.field == crate::ui::NewSessionField::Command {
         active_style
     } else {
         Style::default()
@@ -311,72 +301,58 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
             Span::raw("Group:  "),
             Span::styled(d.group_path.clone(), group_style),
         ]),
-        Line::from(vec![
-            Span::raw("Tool:   "),
-            Span::styled(d.tool.as_str(), tool_style),
-        ]),
-        Line::from(vec![
-            Span::raw("        "),
-            Span::styled("Tools: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "claude ",
-                if d.tool == crate::ui::NewSessionTool::Claude {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ),
-            Span::styled(
-                "gemini ",
-                if d.tool == crate::ui::NewSessionTool::Gemini {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ),
-            Span::styled(
-                "opencode ",
-                if d.tool == crate::ui::NewSessionTool::OpenCode {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ),
-            Span::styled(
-                "codex ",
-                if d.tool == crate::ui::NewSessionTool::Codex {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ),
-            Span::styled(
-                "shell ",
-                if d.tool == crate::ui::NewSessionTool::Shell {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ),
-            Span::styled(
-                "custom",
-                if d.tool == crate::ui::NewSessionTool::Custom {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("Cmd:    "),
-            Span::styled(d.command.clone(), cmd_style),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled(
-            "Tab: complete • ↑↓: pick • Enter: apply/next • Esc/Ctrl+C: cancel",
-            Style::default().fg(Color::DarkGray),
-        )),
     ]);
+
+    if d.field == crate::ui::NewSessionField::Group {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Groups (↑/↓ to select):",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        if d.group_matches.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "(no matches)",
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else {
+            let max_show = 8usize;
+            let len = d.group_matches.len();
+            let idx = d.group_selected.min(len.saturating_sub(1));
+            let start = if len <= max_show {
+                0
+            } else if idx + 1 >= max_show {
+                (idx + 1 - max_show).min(len - max_show)
+            } else {
+                0
+            };
+
+            for (i, g) in d
+                .group_matches
+                .iter()
+                .enumerate()
+                .skip(start)
+                .take(max_show)
+            {
+                let label = if g.is_empty() { "(none)" } else { g.as_str() };
+                let style = if i == d.group_selected {
+                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(label.to_string(), style),
+                ]));
+            }
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Tab: complete path • ↑↓: pick • Enter: next/submit • Esc/Ctrl+C: cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })

@@ -21,8 +21,7 @@ use crate::tmux::{TmuxManager, SESSION_PREFIX};
 
 use super::{
     AppState, DeleteConfirmDialog, Dialog, ForkDialog, ForkField, MCPColumn, MCPDialog,
-    MoveGroupDialog, NewSessionDialog, NewSessionField, NewSessionTool, RenameGroupDialog,
-    TreeItem,
+    MoveGroupDialog, NewSessionDialog, NewSessionField, RenameGroupDialog, TreeItem,
 };
 
 /// Main TUI application
@@ -420,7 +419,30 @@ impl App {
             // New session
             KeyCode::Char('n') => {
                 let default_path = std::env::current_dir()?;
-                self.dialog = Some(Dialog::NewSession(NewSessionDialog::new(default_path)));
+
+                let default_group = match self.selected_tree_item() {
+                    Some(TreeItem::Group { path, .. }) => path.clone(),
+                    _ => self
+                        .selected_session()
+                        .map(|s| s.group_path.clone())
+                        .unwrap_or_default(),
+                };
+
+                let mut all_groups: Vec<String> = self
+                    .groups
+                    .all_groups()
+                    .into_iter()
+                    .map(|g| g.path)
+                    .collect();
+                all_groups.sort();
+                all_groups.dedup();
+                all_groups.insert(0, String::new());
+
+                self.dialog = Some(Dialog::NewSession(NewSessionDialog::new(
+                    default_path,
+                    default_group,
+                    all_groups,
+                )));
                 self.state = AppState::Dialog;
             }
 
@@ -558,26 +580,18 @@ impl App {
                     }
                 }
                 KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
-                    if d.field == NewSessionField::Tool {
-                        let pos = NewSessionTool::ALL
-                            .iter()
-                            .position(|t| *t == d.tool)
-                            .unwrap_or(0);
-                        let next = match key {
-                            KeyCode::Up | KeyCode::Left => {
-                                if pos == 0 {
-                                    NewSessionTool::ALL.len() - 1
-                                } else {
-                                    pos - 1
-                                }
+                    if d.field == NewSessionField::Group {
+                        if d.group_matches.is_empty() {
+                            return Ok(());
+                        }
+                        if matches!(key, KeyCode::Up | KeyCode::Left) {
+                            if d.group_selected == 0 {
+                                d.group_selected = d.group_matches.len() - 1;
+                            } else {
+                                d.group_selected -= 1;
                             }
-                            _ => (pos + 1) % NewSessionTool::ALL.len(),
-                        };
-                        d.tool = NewSessionTool::ALL[next];
-                        if let Some(cmd) = d.tool.default_command() {
-                            d.command = cmd.to_string();
-                        } else if d.tool == NewSessionTool::Shell {
-                            d.command.clear();
+                        } else {
+                            d.group_selected = (d.group_selected + 1) % d.group_matches.len();
                         }
                     } else if d.field == NewSessionField::Path && d.path_suggestions_visible {
                         d.complete_path_or_cycle(matches!(key, KeyCode::Up | KeyCode::Left));
@@ -586,17 +600,23 @@ impl App {
                 KeyCode::Enter => {
                     if d.field == NewSessionField::Path && d.path_suggestions_visible {
                         d.apply_selected_path_suggestion();
-                    } else if d.field != NewSessionField::Command {
+                    } else if d.field != NewSessionField::Group {
                         d.clear_path_suggestions();
                         d.path_dirty = false;
                         d.field = match d.field {
                             NewSessionField::Path => NewSessionField::Title,
                             NewSessionField::Title => NewSessionField::Group,
-                            NewSessionField::Group => NewSessionField::Tool,
-                            NewSessionField::Tool => NewSessionField::Command,
-                            NewSessionField::Command => NewSessionField::Command,
+                            NewSessionField::Group => NewSessionField::Group,
                         };
                     } else {
+                        if let Some(sel) = d.selected_group_value() {
+                            d.group_path = sel.to_string();
+                            d.update_group_matches();
+                        } else {
+                            d.group_path = d.group_path.trim().to_string();
+                            d.update_group_matches();
+                        }
+
                         self.create_session_from_dialog().await?;
                         self.dialog = None;
                         self.state = AppState::Normal;
@@ -620,10 +640,7 @@ impl App {
                         }
                         NewSessionField::Group => {
                             d.group_path.pop();
-                        }
-                        NewSessionField::Tool => {}
-                        NewSessionField::Command => {
-                            d.command.pop();
+                            d.update_group_matches();
                         }
                     };
                 }
@@ -632,52 +649,22 @@ impl App {
                         return Ok(());
                     }
 
-                    let selection_mode = d.field == NewSessionField::Tool
-                        || (d.field == NewSessionField::Path && d.path_suggestions_visible);
-
-                    if selection_mode {
+                    if d.field == NewSessionField::Group {
                         match ch {
-                            'k' | 'h' => {
-                                if d.field == NewSessionField::Tool {
-                                    let pos = NewSessionTool::ALL
-                                        .iter()
-                                        .position(|t| *t == d.tool)
-                                        .unwrap_or(0);
-                                    let next = if pos == 0 {
-                                        NewSessionTool::ALL.len() - 1
+                            'k' => {
+                                if !d.group_matches.is_empty() {
+                                    if d.group_selected == 0 {
+                                        d.group_selected = d.group_matches.len() - 1;
                                     } else {
-                                        pos - 1
-                                    };
-                                    d.tool = NewSessionTool::ALL[next];
-                                    if let Some(cmd) = d.tool.default_command() {
-                                        d.command = cmd.to_string();
-                                    } else if d.tool == NewSessionTool::Shell {
-                                        d.command.clear();
+                                        d.group_selected -= 1;
                                     }
-                                } else if d.field == NewSessionField::Path
-                                    && d.path_suggestions_visible
-                                {
-                                    d.complete_path_or_cycle(true);
                                 }
                                 return Ok(());
                             }
-                            'j' | 'l' => {
-                                if d.field == NewSessionField::Tool {
-                                    let pos = NewSessionTool::ALL
-                                        .iter()
-                                        .position(|t| *t == d.tool)
-                                        .unwrap_or(0);
-                                    let next = (pos + 1) % NewSessionTool::ALL.len();
-                                    d.tool = NewSessionTool::ALL[next];
-                                    if let Some(cmd) = d.tool.default_command() {
-                                        d.command = cmd.to_string();
-                                    } else if d.tool == NewSessionTool::Shell {
-                                        d.command.clear();
-                                    }
-                                } else if d.field == NewSessionField::Path
-                                    && d.path_suggestions_visible
-                                {
-                                    d.complete_path_or_cycle(false);
+                            'j' => {
+                                if !d.group_matches.is_empty() {
+                                    d.group_selected =
+                                        (d.group_selected + 1) % d.group_matches.len();
                                 }
                                 return Ok(());
                             }
@@ -685,7 +672,6 @@ impl App {
                         }
                     }
 
-                    // Edit mode: all chars (including j/k) are inserted.
                     match d.field {
                         NewSessionField::Path => {
                             d.path.push(ch);
@@ -694,9 +680,10 @@ impl App {
                             d.path_last_edit = Instant::now();
                         }
                         NewSessionField::Title => d.title.push(ch),
-                        NewSessionField::Group => d.group_path.push(ch),
-                        NewSessionField::Tool => {}
-                        NewSessionField::Command => d.command.push(ch),
+                        NewSessionField::Group => {
+                            d.group_path.push(ch);
+                            d.update_group_matches();
+                        }
                     }
                 }
                 _ => {}
@@ -1197,15 +1184,8 @@ impl App {
             tree.create_group(instance.group_path.clone());
         }
 
-        instance.command = d.command.trim().to_string();
-        instance.tool = match d.tool {
-            NewSessionTool::Claude => crate::tmux::Tool::Claude,
-            NewSessionTool::Gemini => crate::tmux::Tool::Gemini,
-            NewSessionTool::OpenCode => crate::tmux::Tool::OpenCode,
-            NewSessionTool::Codex => crate::tmux::Tool::Codex,
-            NewSessionTool::Shell => crate::tmux::Tool::Shell,
-            NewSessionTool::Custom => crate::tmux::Tool::from_command(&instance.command),
-        };
+        instance.command.clear();
+        instance.tool = crate::tmux::Tool::Shell;
 
         instances.push(instance);
         storage.save(&instances, &tree).await?;

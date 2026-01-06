@@ -7,51 +7,6 @@ pub enum NewSessionField {
     Path,
     Title,
     Group,
-    Tool,
-    Command,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NewSessionTool {
-    Claude,
-    Gemini,
-    OpenCode,
-    Codex,
-    Shell,
-    Custom,
-}
-
-impl NewSessionTool {
-    pub const ALL: [NewSessionTool; 6] = [
-        NewSessionTool::Claude,
-        NewSessionTool::Gemini,
-        NewSessionTool::OpenCode,
-        NewSessionTool::Codex,
-        NewSessionTool::Shell,
-        NewSessionTool::Custom,
-    ];
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            NewSessionTool::Claude => "claude",
-            NewSessionTool::Gemini => "gemini",
-            NewSessionTool::OpenCode => "opencode",
-            NewSessionTool::Codex => "codex",
-            NewSessionTool::Shell => "shell",
-            NewSessionTool::Custom => "custom",
-        }
-    }
-
-    pub fn default_command(&self) -> Option<&'static str> {
-        match self {
-            NewSessionTool::Claude => Some("claude"),
-            NewSessionTool::Gemini => Some("gemini"),
-            NewSessionTool::OpenCode => Some("opencode"),
-            NewSessionTool::Codex => Some("codex"),
-            NewSessionTool::Shell => None,
-            NewSessionTool::Custom => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -59,9 +14,11 @@ pub struct NewSessionDialog {
     pub path: String,
     pub title: String,
     pub group_path: String,
-    pub tool: NewSessionTool,
-    pub command: String,
     pub field: NewSessionField,
+
+    pub group_all_groups: Vec<String>,
+    pub group_matches: Vec<String>,
+    pub group_selected: usize,
 
     pub path_suggestions: Vec<String>,
     pub path_suggestions_idx: usize,
@@ -70,6 +27,46 @@ pub struct NewSessionDialog {
     // Debounced auto-suggest for the Path field.
     pub path_dirty: bool,
     pub path_last_edit: std::time::Instant,
+}
+
+impl NewSessionDialog {
+    fn fuzzy_match(query: &str, text: &str) -> bool {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return true;
+        }
+        let t = text.to_lowercase();
+        let mut pos = 0usize;
+        for ch in q.chars() {
+            if let Some(found) = t[pos..].find(ch) {
+                pos += found + 1;
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn update_group_matches(&mut self) {
+        let q = self.group_path.trim();
+        let mut out: Vec<String> = self
+            .group_all_groups
+            .iter()
+            .filter(|g| Self::fuzzy_match(q, g))
+            .cloned()
+            .collect();
+        out.sort();
+        self.group_matches = out;
+        if self.group_selected >= self.group_matches.len() {
+            self.group_selected = 0;
+        }
+    }
+
+    pub fn selected_group_value(&self) -> Option<&str> {
+        self.group_matches
+            .get(self.group_selected)
+            .map(|s| s.as_str())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -177,26 +174,29 @@ pub enum Dialog {
 }
 
 impl NewSessionDialog {
-    pub fn new(default_path: PathBuf) -> Self {
+    pub fn new(default_path: PathBuf, default_group: String, all_groups: Vec<String>) -> Self {
         let title = default_path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("Untitled")
             .to_string();
 
-        Self {
+        let mut d = Self {
             path: default_path.to_string_lossy().to_string(),
             title,
-            group_path: String::new(),
-            tool: NewSessionTool::Claude,
-            command: "claude".to_string(),
+            group_path: default_group,
             field: NewSessionField::Path,
+            group_all_groups: all_groups,
+            group_matches: Vec::new(),
+            group_selected: 0,
             path_suggestions: Vec::new(),
             path_suggestions_idx: 0,
             path_suggestions_visible: false,
             path_dirty: false,
             path_last_edit: std::time::Instant::now(),
-        }
+        };
+        d.update_group_matches();
+        d
     }
 
     pub fn clear_path_suggestions(&mut self) {
