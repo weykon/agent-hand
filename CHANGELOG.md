@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-01-06
+
+### Added
+- Status: `last_running_at` field persisted to storage - Ready (`✓`) now survives dashboard restarts.
+- Status: Added `(Esc to cancel)` as busy indicator for Copilot/OpenCode.
+
+### Changed
+- Status: Ready (`✓`) is now based on persisted `last_running_at` timestamp, not just in-memory state transitions.
+- Status: Fallback probe interval reduced from 60s to 10s for faster status updates on non-selected sessions.
+- Status: First observation now immediately triggers a probe (fixes delayed status on dashboard startup).
+
+### Fixed
+- TUI: Switcher popup no longer shows all sessions as Running on initial load.
+- Status: Sessions that were Running before dashboard restart now correctly show Ready (`✓`) if within 20 minutes.
+
 ## [0.1.4] - 2026-01-06
 
 ### Added
