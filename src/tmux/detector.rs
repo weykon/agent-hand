@@ -137,6 +137,7 @@ impl PromptDetector {
             "approve this plan?",
             "execute plan?",
             "enter to continue",
+            "enter to select",
         ];
 
         if blocking_prompts.iter().any(|p| recent_lower.contains(p)) {
