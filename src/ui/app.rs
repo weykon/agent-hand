@@ -70,6 +70,9 @@ pub struct App {
     last_tmux_activity_change: HashMap<String, Instant>,
     last_status_probe: HashMap<String, Instant>,
 
+    // Post-run attention: when Running ends, keep a reminder for a while.
+    attention_until: HashMap<String, Instant>,
+
     // UI animation
     tick_count: u64,
 
@@ -86,6 +89,8 @@ impl App {
 
     const STATUS_COOLDOWN: Duration = Duration::from_secs(2);
     const STATUS_FALLBACK: Duration = Duration::from_secs(60);
+
+    const ATTENTION_TTL: Duration = Duration::from_secs(20 * 60);
 
     /// Create new application
     pub async fn new(profile: &str) -> Result<Self> {
@@ -120,6 +125,7 @@ impl App {
             last_tmux_activity: HashMap::new(),
             last_tmux_activity_change: HashMap::new(),
             last_status_probe: HashMap::new(),
+            attention_until: HashMap::new(),
             tick_count: 0,
             storage: Arc::new(Mutex::new(storage)),
             tmux: Arc::new(tmux),
@@ -221,6 +227,9 @@ impl App {
 
     async fn tick(&mut self) -> Result<()> {
         self.tick_count = self.tick_count.wrapping_add(1);
+        let now = Instant::now();
+        self.attention_until.retain(|_, until| *until > now);
+
         if self.is_navigating && self.last_navigation_time.elapsed() > Self::NAVIGATION_SETTLE {
             self.is_navigating = false;
         }
@@ -270,9 +279,11 @@ impl App {
         let selected_id = self.selected_session().map(|s| s.id.clone());
 
         for session in &mut self.sessions {
+            let prev_status = session.status;
             let tmux_session = TmuxManager::session_name(&session.id);
             if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
                 session.status = Status::Idle;
+                self.attention_until.remove(&session.id);
                 self.last_tmux_activity.remove(&session.id);
                 self.last_tmux_activity_change.remove(&session.id);
                 self.last_status_probe.remove(&session.id);
@@ -288,6 +299,7 @@ impl App {
                 self.last_tmux_activity_change
                     .insert(session.id.clone(), now);
                 session.status = Status::Running;
+                self.attention_until.remove(&session.id);
                 continue;
             }
 
@@ -316,13 +328,23 @@ impl App {
                 .await
                 .unwrap_or_default();
             let detector = crate::tmux::PromptDetector::new(session.tool);
-            session.status = if detector.is_busy(&content) {
+            let new_status = if detector.is_busy(&content) {
                 Status::Running
             } else if detector.has_prompt(&content) {
                 Status::Waiting
             } else {
                 Status::Idle
             };
+
+            if prev_status == Status::Running && new_status == Status::Idle {
+                self.attention_until
+                    .insert(session.id.clone(), now + Self::ATTENTION_TTL);
+            }
+            if new_status != Status::Idle {
+                self.attention_until.remove(&session.id);
+            }
+
+            session.status = new_status;
             self.last_status_probe.insert(session.id.clone(), now);
         }
         Ok(())
@@ -2226,6 +2248,12 @@ impl App {
 
     pub fn height(&self) -> u16 {
         self.height
+    }
+
+    pub fn is_attention_active(&self, id: &str) -> bool {
+        self.attention_until
+            .get(id)
+            .is_some_and(|until| Instant::now() < *until)
     }
 
     pub fn tick_count(&self) -> u64 {

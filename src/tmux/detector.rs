@@ -89,18 +89,11 @@ impl PromptDetector {
     fn has_claude_prompt(&self, content: &str) -> bool {
         let lines = get_last_lines(content, 15);
         let recent = lines.join("\n");
-        let recent_lower = recent.to_lowercase();
 
         // BUSY indicators - if present, Claude is NOT waiting
         if self.is_claude_busy(content) {
             return false;
         }
-
-        let last_3 = if lines.len() > 3 {
-            &lines[lines.len() - 3..]
-        } else {
-            &lines[..]
-        };
 
         // WAITING indicators - Permission prompts
         let permission_prompts = [
@@ -127,20 +120,6 @@ impl PromptDetector {
             }
         }
 
-        // WAITING - Input prompt (skip-permissions mode)
-        if let Some(last_line) = lines.last() {
-            let cleaned = strip_ansi(last_line);
-            let clean = cleaned.trim();
-            if clean == ">" || clean == "> " {
-                return true;
-            }
-
-            // Prompt with partial user input
-            if clean.starts_with("> ") && !clean.contains("esc") && clean.len() < 100 {
-                return true;
-            }
-        }
-
         // Question prompts
         let question_prompts = [
             "Continue?",
@@ -158,30 +137,6 @@ impl PromptDetector {
         for prompt in &question_prompts {
             if recent.contains(prompt) {
                 return true;
-            }
-        }
-
-        // Completion indicators + prompt
-        let completion_indicators = [
-            "Task completed",
-            "Done!",
-            "Finished",
-            "What would you like",
-            "What else",
-            "Anything else",
-            "Let me know if",
-        ];
-
-        for indicator in &completion_indicators {
-            if recent_lower.contains(&indicator.to_lowercase()) {
-                // Check if ">" prompt is nearby
-                for line in last_3 {
-                    let cleaned = strip_ansi(line);
-                    let clean = cleaned.trim();
-                    if clean == ">" || clean == "> " {
-                        return true;
-                    }
-                }
             }
         }
 
@@ -250,72 +205,73 @@ impl PromptDetector {
     }
 
     fn has_gemini_prompt(&self, content: &str) -> bool {
-        content.contains("Yes, allow once")
-            || content.contains("gemini>")
-            || has_line_ending_with(content, ">")
+        let recent = strip_ansi(&get_last_lines(content, 15).join("\n")).to_lowercase();
+        let prompts = [
+            "yes, allow once",
+            "yes, allow always",
+            "allow once",
+            "allow always",
+            "continue?",
+            "proceed?",
+            "(y/n)",
+            "[y/n]",
+            "(yes/no)",
+            "[yes/no]",
+            "enter to continue",
+            "press enter",
+        ];
+        prompts.iter().any(|p| recent.contains(p))
     }
 
     fn has_opencode_prompt(&self, content: &str) -> bool {
-        if content.to_lowercase().contains("confirm with number keys") {
+        let recent = strip_ansi(&get_last_lines(content, 15).join("\n")).to_lowercase();
+        if recent.contains("confirm with number keys") {
             return true;
         }
 
-        content.contains("Ask anything")
-            || content.contains("┃")
-            || content.contains("open code")
-            || content.contains("Build")
-            || content.contains("Plan")
-            || has_line_ending_with(content, ">")
+        let prompts = [
+            "continue?",
+            "proceed?",
+            "(y/n)",
+            "[y/n]",
+            "(yes/no)",
+            "[yes/no]",
+            "enter to continue",
+            "press enter",
+        ];
+        prompts.iter().any(|p| recent.contains(p))
     }
 
     fn has_codex_prompt(&self, content: &str) -> bool {
-        content.contains("codex>")
-            || content.contains("Continue?")
-            || has_line_ending_with(content, ">")
+        let recent = strip_ansi(&get_last_lines(content, 15).join("\n")).to_lowercase();
+        let prompts = [
+            "continue?",
+            "proceed?",
+            "(y/n)",
+            "[y/n]",
+            "(yes/no)",
+            "[yes/no]",
+            "enter to continue",
+            "press enter",
+        ];
+        prompts.iter().any(|p| recent.contains(p))
     }
 
     fn has_shell_prompt(&self, content: &str) -> bool {
-        let lines = get_last_lines(content, 5);
-        if lines.is_empty() {
-            return false;
-        }
-
-        // Get last non-empty line
-        let last_line = lines
-            .iter()
-            .rev()
-            .find(|l| !l.trim().is_empty())
-            .map(|s| s.as_str())
-            .unwrap_or("");
-
-        // Common shell prompt endings
-        let shell_prompts = ["$ ", "# ", "% ", "❯ ", "➜ ", "> "];
-        for prompt in &shell_prompts {
-            if last_line.trim_end().ends_with(prompt.trim()) {
-                return true;
-            }
-        }
-
-        // Confirmation prompts
-        let confirm_patterns = [
-            "(Y/n)",
-            "[Y/n]",
-            "(y/N)",
-            "[y/N]",
+        let recent = strip_ansi(&get_last_lines(content, 15).join("\n")).to_lowercase();
+        let prompts = [
+            "(y/n)",
+            "[y/n]",
+            "(y/n)",
+            "[y/n]",
             "(yes/no)",
             "[yes/no]",
-            "Continue?",
-            "Proceed?",
+            "continue?",
+            "proceed?",
+            "enter to continue",
+            "press enter",
         ];
-
-        let recent = lines.join("\n");
-        for pattern in &confirm_patterns {
-            if recent.contains(pattern) {
-                return true;
-            }
-        }
-
-        false
+        prompts.iter().any(|p| recent.contains(p))
     }
 }
 
@@ -339,18 +295,6 @@ fn get_last_lines(content: &str, n: usize) -> Vec<String> {
         .into_iter()
         .rev()
         .collect()
-}
-
-/// Check if any recent line ends with suffix
-fn has_line_ending_with(content: &str, suffix: &str) -> bool {
-    let lines = get_last_lines(content, 5);
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed == suffix || trimmed.ends_with(&format!("{} ", suffix)) {
-            return true;
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -377,8 +321,15 @@ mod tests {
     fn test_claude_waiting_detection() {
         let detector = PromptDetector::new(Tool::Claude);
         assert!(detector.has_prompt("Yes, allow once\nNo, and tell Claude what to do differently"));
-        assert!(detector.has_prompt(">"));
-        assert!(detector.has_prompt("> "));
+        assert!(!detector.has_prompt(">"));
+        assert!(!detector.has_prompt("> "));
+    }
+
+    #[test]
+    fn test_opencode_waiting_detection() {
+        let detector = PromptDetector::new(Tool::OpenCode);
+        assert!(detector.has_prompt("Confirm with number keys or ↑↓ keys and Enter"));
+        assert!(!detector.has_prompt(">"));
     }
 
     #[test]

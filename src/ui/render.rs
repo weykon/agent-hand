@@ -137,7 +137,13 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
                             let status_icon = match session.status {
                                 Status::Waiting => waiting_anim(app.tick_count()),
                                 Status::Running => running_anim(app.tick_count()),
-                                Status::Idle => "○",
+                                Status::Idle => {
+                                    if app.is_attention_active(&session.id) {
+                                        "✓"
+                                    } else {
+                                        "○"
+                                    }
+                                }
                                 Status::Error => "✕",
                                 Status::Starting => "⋯",
                             };
@@ -145,7 +151,13 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
                             let status_color = match session.status {
                                 Status::Waiting => Color::Blue,
                                 Status::Running => Color::Yellow,
-                                Status::Idle => Color::DarkGray,
+                                Status::Idle => {
+                                    if app.is_attention_active(&session.id) {
+                                        Color::Cyan
+                                    } else {
+                                        Color::DarkGray
+                                    }
+                                }
                                 Status::Error => Color::Red,
                                 Status::Starting => Color::Cyan,
                             };
@@ -1168,7 +1180,11 @@ fn render_help(f: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(vec![
             Span::styled("  ! ", Style::default().fg(Color::Blue)),
-            Span::raw("  WAITING  - Needs your input"),
+            Span::raw("  WAITING  - Needs your input (blocked prompt)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  ✓ ", Style::default().fg(Color::Cyan)),
+            Span::raw("  READY    - Agent finished recently"),
         ]),
         Line::from(vec![
             Span::styled("  ● ", Style::default().fg(Color::Yellow)),
@@ -1201,11 +1217,18 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         .iter()
         .filter(|s| s.status == Status::Waiting)
         .count();
+    let attention = sessions
+        .iter()
+        .filter(|s| s.status == Status::Idle && app.is_attention_active(&s.id))
+        .count();
     let running = sessions
         .iter()
         .filter(|s| s.status == Status::Running)
         .count();
-    let idle = sessions.iter().filter(|s| s.status == Status::Idle).count();
+    let idle = sessions
+        .iter()
+        .filter(|s| s.status == Status::Idle && !app.is_attention_active(&s.id))
+        .count();
 
     let mut spans = vec![
         Span::raw("  "),
@@ -1214,6 +1237,9 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(Color::Blue),
         ),
         Span::raw(format!("{}", waiting)),
+        Span::raw("  "),
+        Span::styled("✓", Style::default().fg(Color::Cyan)),
+        Span::raw(format!("{}", attention)),
         Span::raw("  "),
         Span::styled(
             running_anim(app.tick_count()),
