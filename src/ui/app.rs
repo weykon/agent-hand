@@ -991,7 +991,7 @@ impl App {
                     }
                     SessionEditField::Color => {}
                 },
-                KeyCode::Left | KeyCode::Char('h') => {
+                KeyCode::Left => {
                     if d.field == SessionEditField::Color {
                         d.label_color = match d.label_color {
                             crate::session::LabelColor::Gray => crate::session::LabelColor::Blue,
@@ -1004,7 +1004,7 @@ impl App {
                         };
                     }
                 }
-                KeyCode::Right | KeyCode::Char('l') => {
+                KeyCode::Right => {
                     if d.field == SessionEditField::Color {
                         d.label_color = match d.label_color {
                             crate::session::LabelColor::Gray => crate::session::LabelColor::Magenta,
@@ -1019,10 +1019,66 @@ impl App {
                 }
                 KeyCode::Char(ch) => {
                     if !modifiers.contains(KeyModifiers::CONTROL) {
-                        match d.field {
-                            SessionEditField::Title => d.new_title.push(ch),
-                            SessionEditField::Label => d.label.push(ch),
-                            SessionEditField::Color => {}
+                        if d.field == SessionEditField::Color {
+                            match ch {
+                                'h' => {
+                                    d.label_color = match d.label_color {
+                                        crate::session::LabelColor::Gray => {
+                                            crate::session::LabelColor::Blue
+                                        }
+                                        crate::session::LabelColor::Magenta => {
+                                            crate::session::LabelColor::Gray
+                                        }
+                                        crate::session::LabelColor::Cyan => {
+                                            crate::session::LabelColor::Magenta
+                                        }
+                                        crate::session::LabelColor::Green => {
+                                            crate::session::LabelColor::Cyan
+                                        }
+                                        crate::session::LabelColor::Yellow => {
+                                            crate::session::LabelColor::Green
+                                        }
+                                        crate::session::LabelColor::Red => {
+                                            crate::session::LabelColor::Yellow
+                                        }
+                                        crate::session::LabelColor::Blue => {
+                                            crate::session::LabelColor::Red
+                                        }
+                                    };
+                                }
+                                'l' => {
+                                    d.label_color = match d.label_color {
+                                        crate::session::LabelColor::Gray => {
+                                            crate::session::LabelColor::Magenta
+                                        }
+                                        crate::session::LabelColor::Magenta => {
+                                            crate::session::LabelColor::Cyan
+                                        }
+                                        crate::session::LabelColor::Cyan => {
+                                            crate::session::LabelColor::Green
+                                        }
+                                        crate::session::LabelColor::Green => {
+                                            crate::session::LabelColor::Yellow
+                                        }
+                                        crate::session::LabelColor::Yellow => {
+                                            crate::session::LabelColor::Red
+                                        }
+                                        crate::session::LabelColor::Red => {
+                                            crate::session::LabelColor::Blue
+                                        }
+                                        crate::session::LabelColor::Blue => {
+                                            crate::session::LabelColor::Gray
+                                        }
+                                    };
+                                }
+                                _ => {}
+                            }
+                        } else {
+                            match d.field {
+                                SessionEditField::Title => d.new_title.push(ch),
+                                SessionEditField::Label => d.label.push(ch),
+                                SessionEditField::Color => {}
+                            }
                         }
                     }
                 }
