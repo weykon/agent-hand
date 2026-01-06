@@ -223,6 +223,11 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    if let Some(d) = app.rename_session_dialog() {
+        render_rename_session_dialog(f, area, d);
+        return;
+    }
+
     if let Some(d) = app.rename_group_dialog() {
         render_rename_group_dialog(f, area, d);
     }
@@ -567,6 +572,45 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .block(Block::default().borders(Borders::ALL).title("Group"));
+
+    f.render_widget(p, popup_area);
+}
+
+fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameSessionDialog) {
+    let popup_area = centered_rect(70, 35, area);
+    f.render_widget(Clear, popup_area);
+
+    let active_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            "Rename Session",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("From:  "),
+            Span::styled(d.old_title.clone(), Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(vec![
+            Span::raw("To:    "),
+            Span::styled(d.new_title.clone(), active_style),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Enter: apply • Esc/Ctrl+C: cancel",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let p = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().borders(Borders::ALL).title("Session"));
 
     f.render_widget(p, popup_area);
 }
@@ -962,6 +1006,10 @@ fn render_help(f: &mut Frame, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("  r", Style::default().fg(Color::Yellow)),
+            Span::raw("        Rename session"),
+        ]),
+        Line::from(vec![
+            Span::styled("  R", Style::default().fg(Color::Yellow)),
             Span::raw("        Restart session"),
         ]),
         Line::from(vec![
@@ -1111,6 +1159,10 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
             spans.push(Span::raw(":new  "));
             spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":group+  "));
+            spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
+            spans.push(Span::raw(":rename  "));
+            spans.push(Span::styled("R", Style::default().fg(Color::Yellow)));
+            spans.push(Span::raw(":restart  "));
             spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":del  "));
             spans.push(Span::styled("f", Style::default().fg(Color::Cyan)));

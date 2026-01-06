@@ -224,6 +224,13 @@ pub struct RenameGroupDialog {
 }
 
 #[derive(Debug, Clone)]
+pub struct RenameSessionDialog {
+    pub session_id: String,
+    pub old_title: String,
+    pub new_title: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Dialog {
     NewSession(NewSessionDialog),
     DeleteConfirm(DeleteConfirmDialog),
@@ -233,6 +240,7 @@ pub enum Dialog {
     CreateGroup(CreateGroupDialog),
     MoveGroup(MoveGroupDialog),
     RenameGroup(RenameGroupDialog),
+    RenameSession(RenameSessionDialog),
 }
 
 impl NewSessionDialog {

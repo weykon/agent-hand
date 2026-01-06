@@ -22,7 +22,7 @@ use crate::tmux::{TmuxManager, SESSION_PREFIX};
 use super::{
     AppState, CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
     ForkDialog, ForkField, MCPColumn, MCPDialog, MoveGroupDialog, NewSessionDialog,
-    NewSessionField, RenameGroupDialog, TreeItem,
+    NewSessionField, RenameGroupDialog, RenameSessionDialog, TreeItem,
 };
 
 /// Main TUI application
@@ -409,11 +409,14 @@ impl App {
             KeyCode::Char('x') => {
                 self.stop_selected().await?;
             }
+            KeyCode::Char('r') if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.refresh_sessions().await?;
+            }
             KeyCode::Char('r') => {
                 if matches!(self.selected_tree_item(), Some(TreeItem::Group { .. })) {
                     self.open_rename_group_dialog();
-                } else {
-                    self.restart_selected().await?;
+                } else if self.selected_session().is_some() {
+                    self.open_rename_session_dialog();
                 }
             }
 
@@ -516,9 +519,11 @@ impl App {
                 };
             }
 
-            // Refresh
+            // Restart selected session
             KeyCode::Char('R') => {
-                self.refresh_sessions().await?;
+                if self.selected_session().is_some() {
+                    self.restart_selected().await?;
+                }
             }
 
             _ => {}
@@ -939,6 +944,34 @@ impl App {
                 }
                 _ => {}
             },
+            Dialog::RenameSession(d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Enter => {
+                    let session_id = d.session_id.clone();
+                    let new_title = d.new_title.clone();
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                    self.apply_rename_session(&session_id, &new_title).await?;
+                    self.refresh_sessions().await?;
+                    self.focus_session(&session_id).await?;
+                }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Backspace => {
+                    d.new_title.pop();
+                }
+                KeyCode::Char(ch) => {
+                    if !modifiers.contains(KeyModifiers::CONTROL) {
+                        d.new_title.push(ch);
+                    }
+                }
+                _ => {}
+            },
             Dialog::CreateGroup(d) => match key {
                 KeyCode::Esc => {
                     self.dialog = None;
@@ -1114,6 +1147,19 @@ impl App {
         d.update_matches();
 
         self.dialog = Some(Dialog::MoveGroup(d));
+        self.state = AppState::Dialog;
+    }
+
+    fn open_rename_session_dialog(&mut self) {
+        let Some(s) = self.selected_session() else {
+            return;
+        };
+
+        self.dialog = Some(Dialog::RenameSession(RenameSessionDialog {
+            session_id: s.id.clone(),
+            old_title: s.title.clone(),
+            new_title: s.title.clone(),
+        }));
         self.state = AppState::Dialog;
     }
 
@@ -1302,6 +1348,23 @@ impl App {
                 let p = parts[..i].join("/");
                 tree.set_expanded(&p, true);
             }
+        }
+
+        storage.save(&instances, &tree).await?;
+        Ok(())
+    }
+
+    async fn apply_rename_session(&mut self, session_id: &str, new_title: &str) -> Result<()> {
+        let new_title = new_title.trim();
+        if new_title.is_empty() {
+            return Ok(());
+        }
+
+        let storage = self.storage.lock().await;
+        let (mut instances, tree) = storage.load().await?;
+
+        if let Some(inst) = instances.iter_mut().find(|s| s.id == session_id) {
+            inst.title = new_title.to_string();
         }
 
         storage.save(&instances, &tree).await?;
@@ -2012,6 +2075,13 @@ impl App {
     pub fn rename_group_dialog(&self) -> Option<&RenameGroupDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::RenameGroup(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn rename_session_dialog(&self) -> Option<&RenameSessionDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::RenameSession(d)) => Some(d),
             _ => None,
         }
     }
