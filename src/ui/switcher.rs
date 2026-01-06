@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crossterm::{
     event::{self, Event as CrosstermEvent, KeyCode, KeyModifiers},
@@ -16,8 +18,8 @@ use ratatui::{
 };
 
 use crate::error::Result;
-use crate::session::Storage;
-use crate::tmux::TmuxManager;
+use crate::session::{Status, Storage};
+use crate::tmux::{PromptDetector, TmuxManager};
 
 struct TermGuard;
 
@@ -46,6 +48,15 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
     let mut query = String::new();
     let mut matches: Vec<usize> = Vec::new();
     let mut selected: usize = 0;
+
+    let mut tick_count: u64 = 0;
+    let mut last_cache_refresh = Instant::now();
+
+    // Status probing state (same idea as dashboard: cheap activity gating + occasional capture-pane).
+    let mut status_by_id: HashMap<String, Status> = HashMap::new();
+    let mut last_tmux_activity: HashMap<String, i64> = HashMap::new();
+    let mut last_tmux_activity_change: HashMap<String, Instant> = HashMap::new();
+    let mut last_status_probe: HashMap<String, Instant> = HashMap::new();
 
     let update_matches = |query: &str, matches: &mut Vec<usize>, selected: &mut usize| {
         let q = query.trim();
@@ -89,9 +100,79 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
 
     update_matches(&query, &mut matches, &mut selected);
 
-    let tick_rate = std::time::Duration::from_millis(250);
+    let tick_rate = Duration::from_millis(250);
     let result = loop {
-        terminal.draw(|f| draw(f, &instances, &query, &matches, selected))?;
+        tick_count = tick_count.wrapping_add(1);
+
+        // Keep tmux cache fresh.
+        if last_cache_refresh.elapsed() >= Duration::from_secs(1) {
+            let _ = manager.refresh_cache().await;
+            last_cache_refresh = Instant::now();
+        }
+
+        // Probe statuses for visible rows (bounded so switcher stays snappy).
+        let now = Instant::now();
+        for &idx in matches.iter().take(20) {
+            let inst = &instances[idx];
+            let id = inst.id.as_str();
+            let tmux_session = inst.tmux_name();
+
+            if !manager.session_exists(&tmux_session).unwrap_or(false) {
+                status_by_id.insert(inst.id.clone(), Status::Idle);
+                last_tmux_activity.remove(id);
+                last_tmux_activity_change.remove(id);
+                last_status_probe.remove(id);
+                continue;
+            }
+
+            let activity = manager.session_activity(&tmux_session).unwrap_or(0);
+            let prev_activity = last_tmux_activity.get(id).copied();
+            if prev_activity.is_none() || prev_activity.is_some_and(|a| activity > a) {
+                last_tmux_activity.insert(inst.id.clone(), activity);
+                last_tmux_activity_change.insert(inst.id.clone(), now);
+                status_by_id.insert(inst.id.clone(), Status::Running);
+                continue;
+            }
+
+            let settled = last_tmux_activity_change
+                .get(id)
+                .is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(2));
+            let need_probe = last_status_probe
+                .get(id)
+                .is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2));
+
+            if !(settled && need_probe) {
+                continue;
+            }
+
+            let content = manager
+                .capture_pane(&tmux_session, 15)
+                .await
+                .unwrap_or_default();
+            let detector = PromptDetector::new(inst.tool);
+            let new_status = if detector.has_prompt(&content) {
+                Status::Waiting
+            } else if detector.is_busy(&content) {
+                Status::Running
+            } else {
+                Status::Idle
+            };
+
+            status_by_id.insert(inst.id.clone(), new_status);
+            last_status_probe.insert(inst.id.clone(), now);
+        }
+
+        terminal.draw(|f| {
+            draw(
+                f,
+                &instances,
+                &query,
+                &matches,
+                selected,
+                &status_by_id,
+                tick_count,
+            )
+        })?;
 
         if event::poll(tick_rate)? {
             match event::read()? {
@@ -145,12 +226,24 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
     result
 }
 
+fn running_anim(tick: u64) -> &'static str {
+    const FRAMES: [&str; 4] = ["·", "●", "⬤", "●"];
+    FRAMES[(tick as usize) % FRAMES.len()]
+}
+
+fn waiting_anim(tick: u64) -> &'static str {
+    const FRAMES: [&str; 5] = ["!", "!", "!", "!", " "];
+    FRAMES[(tick as usize) % FRAMES.len()]
+}
+
 fn draw(
     f: &mut Frame,
     instances: &[crate::session::Instance],
     query: &str,
     matches: &[usize],
     selected: usize,
+    status_by_id: &HashMap<String, Status>,
+    tick: u64,
 ) {
     let area = f.area();
     let chunks = Layout::default()
@@ -209,7 +302,23 @@ fn draw(
             inst.group_path.as_str()
         };
 
+        let status = status_by_id.get(&inst.id).copied().unwrap_or(Status::Idle);
+        let (icon, color) = match status {
+            Status::Waiting => (waiting_anim(tick), Color::Blue),
+            Status::Running => (running_anim(tick), Color::Yellow),
+            Status::Idle => ("○", Color::DarkGray),
+            Status::Error => ("✕", Color::Red),
+            Status::Starting => ("⋯", Color::Cyan),
+        };
+        let icon_style = if row == selected {
+            Style::default().fg(color).bg(Color::Cyan)
+        } else {
+            Style::default().fg(color)
+        };
+
         let line = Line::from(vec![
+            Span::styled(icon, icon_style),
+            Span::raw(" "),
             Span::styled(inst.title.clone(), style),
             Span::raw("  "),
             Span::styled(format!("[{group}]"), Style::default().fg(Color::Magenta)),
