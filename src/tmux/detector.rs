@@ -229,6 +229,8 @@ impl PromptDetector {
             return true;
         }
 
+        // OpenCode often shows "press enter" even when it's just idle/ready for input.
+        // We only treat explicit blocking prompts as WAITING.
         let prompts = [
             "continue?",
             "proceed?",
@@ -237,7 +239,6 @@ impl PromptDetector {
             "(yes/no)",
             "[yes/no]",
             "enter to continue",
-            "press enter",
         ];
         prompts.iter().any(|p| recent.contains(p))
     }

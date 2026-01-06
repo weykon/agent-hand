@@ -1158,8 +1158,8 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("        Capture preview snapshot"),
         ]),
         Line::from(vec![
-            Span::styled("  R", Style::default().fg(Color::Cyan)),
-            Span::raw("        Refresh"),
+            Span::styled("  Ctrl+r", Style::default().fg(Color::Cyan)),
+            Span::raw("   Refresh"),
         ]),
         Line::from(vec![
             Span::styled("  ?", Style::default().fg(Color::Magenta)),
