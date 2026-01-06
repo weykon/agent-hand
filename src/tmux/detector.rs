@@ -67,6 +67,8 @@ impl PromptDetector {
             "esc to interrupt",
             "(esc to interrupt)",
             "· esc to interrupt",
+            "esc to cancel",
+            "(esc to cancel)",
         ];
         if busy_indicators.iter().any(|m| recent.contains(m)) {
             return true;
