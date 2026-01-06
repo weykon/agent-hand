@@ -58,7 +58,17 @@ impl PromptDetector {
         Self { tool }
     }
 
-    /// Check if terminal content shows a prompt waiting for input
+    /// Check if terminal content shows the agent is currently busy.
+    pub fn is_busy(&self, content: &str) -> bool {
+        match self.tool {
+            Tool::Claude => self.is_claude_busy(content),
+            Tool::Gemini | Tool::OpenCode | Tool::Codex | Tool::Shell => {
+                self.is_generic_busy(content)
+            }
+        }
+    }
+
+    /// Check if terminal content shows a prompt waiting for input.
     pub fn has_prompt(&self, content: &str) -> bool {
         match self.tool {
             Tool::Claude => self.has_claude_prompt(content),
@@ -82,41 +92,15 @@ impl PromptDetector {
         let recent_lower = recent.to_lowercase();
 
         // BUSY indicators - if present, Claude is NOT waiting
-        let busy_indicators = [
-            "esc to interrupt",
-            "(esc to interrupt)",
-            "· esc to interrupt",
-        ];
-
-        for indicator in &busy_indicators {
-            if recent_lower.contains(indicator) {
-                return false; // Actively working
-            }
+        if self.is_claude_busy(content) {
+            return false;
         }
 
-        // Check for spinner characters (braille dots from cli-spinners)
-        let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let last_3 = if lines.len() > 3 {
             &lines[lines.len() - 3..]
         } else {
             &lines[..]
         };
-
-        for line in last_3 {
-            for c in &spinner_chars {
-                if line.contains(*c) {
-                    return false; // Spinner = actively processing
-                }
-            }
-        }
-
-        // Check for thinking/connecting indicators
-        if recent_lower.contains("thinking") && recent_lower.contains("tokens") {
-            return false;
-        }
-        if recent_lower.contains("connecting") && recent_lower.contains("tokens") {
-            return false;
-        }
 
         // WAITING indicators - Permission prompts
         let permission_prompts = [
@@ -202,6 +186,58 @@ impl PromptDetector {
         }
 
         false
+    }
+
+    fn is_generic_busy(&self, content: &str) -> bool {
+        let lines = get_last_lines(content, 15);
+        let recent = strip_ansi(&lines.join("\n")).to_lowercase();
+
+        // Common "busy" markers across tools.
+        let busy_indicators = [
+            "(esc to cancel)",
+            "esc to cancel",
+            "esc to interrupt",
+            "(esc to interrupt)",
+        ];
+        busy_indicators.iter().any(|m| recent.contains(m))
+    }
+
+    fn is_claude_busy(&self, content: &str) -> bool {
+        let lines = get_last_lines(content, 15);
+        let recent = lines.join("\n");
+        let recent_lower = recent.to_lowercase();
+
+        // BUSY indicators
+        let busy_indicators = [
+            "esc to interrupt",
+            "(esc to interrupt)",
+            "· esc to interrupt",
+            "esc to cancel",
+            "(esc to cancel)",
+        ];
+        if busy_indicators.iter().any(|m| recent_lower.contains(m)) {
+            return true;
+        }
+
+        // Check for spinner characters (braille dots from cli-spinners)
+        let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let last_3 = if lines.len() > 3 {
+            &lines[lines.len() - 3..]
+        } else {
+            &lines[..]
+        };
+
+        for line in last_3 {
+            for c in &spinner_chars {
+                if line.contains(*c) {
+                    return true;
+                }
+            }
+        }
+
+        // thinking/connecting indicators
+        (recent_lower.contains("thinking") && recent_lower.contains("tokens"))
+            || (recent_lower.contains("connecting") && recent_lower.contains("tokens"))
     }
 
     fn has_gemini_prompt(&self, content: &str) -> bool {
@@ -311,8 +347,16 @@ mod tests {
     #[test]
     fn test_claude_busy_detection() {
         let detector = PromptDetector::new(Tool::Claude);
+        assert!(detector.is_busy("Thinking… (45s · 1234 tokens · esc to interrupt)"));
+        assert!(detector.is_busy("⠋ Processing..."));
         assert!(!detector.has_prompt("Thinking… (45s · 1234 tokens · esc to interrupt)"));
         assert!(!detector.has_prompt("⠋ Processing..."));
+    }
+
+    #[test]
+    fn test_opencode_busy_detection() {
+        let detector = PromptDetector::new(Tool::OpenCode);
+        assert!(detector.is_busy("Running... (Esc to cancel)"));
     }
 
     #[test]
