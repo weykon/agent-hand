@@ -39,7 +39,7 @@ impl Tool {
             Self::Gemini
         } else if cmd_lower.contains("opencode") || cmd_lower.contains("open-code") {
             Self::OpenCode
-        } else if cmd_lower.contains("codex") {
+        } else if cmd_lower.contains("codex") || cmd_lower.contains("copilot") {
             Self::Codex
         } else {
             Self::Shell
@@ -247,6 +247,13 @@ impl PromptDetector {
 
     fn has_codex_prompt(&self, content: &str) -> bool {
         let recent = strip_ansi(&get_last_lines(content, 15).join("\n")).to_lowercase();
+        // Copilot CLI uses "confirm with number keys" and numbered prompts
+        if recent.contains("confirm with number keys") {
+            return true;
+        }
+        if recent.contains("do you want to run this command") {
+            return true;
+        }
         let prompts = [
             "continue?",
             "proceed?",
@@ -255,7 +262,6 @@ impl PromptDetector {
             "(yes/no)",
             "[yes/no]",
             "enter to continue",
-            "press enter",
         ];
         prompts.iter().any(|p| recent.contains(p))
     }
