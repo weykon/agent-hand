@@ -17,6 +17,12 @@ fn running_anim(tick: u64) -> &'static str {
     FRAMES[(tick as usize) % FRAMES.len()]
 }
 
+fn waiting_anim(tick: u64) -> &'static str {
+    // Blink to draw attention: ~1s on, ~0.3s off (tick is 250ms).
+    const FRAMES: [&str; 5] = ["!", "!", "!", "!", " "];
+    FRAMES[(tick as usize) % FRAMES.len()]
+}
+
 /// Main render function
 pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -129,7 +135,7 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
                     let (status_icon, status_color, title, label, label_color) =
                         if let Some(session) = s {
                             let status_icon = match session.status {
-                                Status::Waiting => "!",
+                                Status::Waiting => waiting_anim(app.tick_count()),
                                 Status::Running => running_anim(app.tick_count()),
                                 Status::Idle => "○",
                                 Status::Error => "✕",
@@ -1203,7 +1209,10 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
 
     let mut spans = vec![
         Span::raw("  "),
-        Span::styled("!", Style::default().fg(Color::Blue)),
+        Span::styled(
+            waiting_anim(app.tick_count()),
+            Style::default().fg(Color::Blue),
+        ),
         Span::raw(format!("{}", waiting)),
         Span::raw("  "),
         Span::styled(

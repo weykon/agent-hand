@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - TUI: New Session title defaults to empty (falls back to directory name on create).
 - TUI: Contextual key hints updated (e.g. `g` is consistently “create group”, `m` is “move” only for sessions).
 - TUI: Title bar updated to match project name.
+- TUI: Waiting indicator blinks (~1s on / ~0.3s off).
 
 ### Fixed
 - TUI: Unicode-safe fuzzy filtering/scoring (avoid UTF-8 slice panics).
