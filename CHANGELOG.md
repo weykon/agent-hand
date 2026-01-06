@@ -25,6 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - TUI: Contextual key hints updated (e.g. `g` is consistently “create group”, `m` is “move” only for sessions).
 - TUI: Title bar updated to match project name.
 - TUI: Waiting indicator blinks (~1s on / ~0.3s off).
+- Status: Waiting only triggers for blocked prompts (e.g. confirmations), not a plain `>` input prompt.
+- TUI: After Running ends, show a temporary `✓` READY reminder (~20m) to help you notice and read the agent output.
 
 ### Fixed
 - TUI: Unicode-safe fuzzy filtering/scoring (avoid UTF-8 slice panics).

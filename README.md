@@ -16,6 +16,7 @@ Chinese README: [README.zh-CN.md](README.zh-CN.md)
 - **Session labels**: press `r` on a session to edit title + label + label color.
 - **New Session UX**: path suggestions + group picker (filter + list selection).
 - **Jump between running sessions**: inside tmux, `Ctrl+G` opens a popup switcher (shows sessions immediately; type to filter).
+- **Completion reminder**: after an agent finishes, the session shows a temporary `✓` READY indicator (~20 min).
 - **tmux QoL**: `Ctrl+Q` detaches back to the dashboard.
 - **CLI + profiles** + self-upgrade (`agent-hand upgrade`).
 
