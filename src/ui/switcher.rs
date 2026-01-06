@@ -127,13 +127,17 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
 
             let activity = manager.session_activity(&tmux_session).unwrap_or(0);
             let prev_activity = last_tmux_activity.get(id).copied();
-            if prev_activity.is_none() || prev_activity.is_some_and(|a| activity > a) {
+
+            // Track activity changes (but don't infer Running from it)
+            let activity_changed = prev_activity.is_some_and(|a| activity > a);
+            if activity_changed || prev_activity.is_none() {
                 last_tmux_activity.insert(inst.id.clone(), activity);
-                last_tmux_activity_change.insert(inst.id.clone(), now);
-                status_by_id.insert(inst.id.clone(), Status::Running);
-                continue;
+                if activity_changed {
+                    last_tmux_activity_change.insert(inst.id.clone(), now);
+                }
             }
 
+            // Decide whether to probe
             let settled = last_tmux_activity_change
                 .get(id)
                 .is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(2));
@@ -141,7 +145,10 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
                 .get(id)
                 .is_none_or(|t| now.duration_since(*t) >= Duration::from_secs(2));
 
-            if !(settled && need_probe) {
+            let should_probe =
+                (settled && need_probe) || activity_changed || prev_activity.is_none();
+
+            if !should_probe {
                 continue;
             }
 
