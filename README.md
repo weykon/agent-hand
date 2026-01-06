@@ -55,7 +55,7 @@ From the dashboard:
 ## Keybindings (TUI)
 
 - Navigation: `↑/↓` or `j/k`, `Space` toggle expand/collapse group
-- Session selected: `Enter` attach, `s` start, `x` stop, `r` rename, `R` restart, `m` move, `f` fork, `d` delete
+- Session selected: `Enter` attach, `s` start, `x` stop, `r` edit (title/label), `R` restart, `m` move, `f` fork, `d` delete
 - Group selected: `Enter` toggle, `g` create, `r` rename, `d` delete (empty = delete immediately; non-empty = confirm options)
 - Global: `/` search, `p` capture preview snapshot, `?` help
 

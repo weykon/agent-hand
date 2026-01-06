@@ -22,7 +22,7 @@ use crate::tmux::{TmuxManager, SESSION_PREFIX};
 use super::{
     AppState, CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
     ForkDialog, ForkField, MCPColumn, MCPDialog, MoveGroupDialog, NewSessionDialog,
-    NewSessionField, RenameGroupDialog, RenameSessionDialog, TreeItem,
+    NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, TreeItem,
 };
 
 /// Main TUI application
@@ -949,12 +949,32 @@ impl App {
                     self.dialog = None;
                     self.state = AppState::Normal;
                 }
+                KeyCode::Tab => {
+                    d.field = match d.field {
+                        SessionEditField::Title => SessionEditField::Label,
+                        SessionEditField::Label => SessionEditField::Color,
+                        SessionEditField::Color => SessionEditField::Title,
+                    };
+                }
                 KeyCode::Enter => {
+                    if d.field != SessionEditField::Color {
+                        d.field = match d.field {
+                            SessionEditField::Title => SessionEditField::Label,
+                            SessionEditField::Label => SessionEditField::Color,
+                            SessionEditField::Color => SessionEditField::Title,
+                        };
+                        return Ok(());
+                    }
+
                     let session_id = d.session_id.clone();
-                    let new_title = d.new_title.clone();
+                    let old_title = d.old_title.clone();
+                    let title = d.new_title.clone();
+                    let label = d.label.clone();
+                    let label_color = d.label_color;
                     self.dialog = None;
                     self.state = AppState::Normal;
-                    self.apply_rename_session(&session_id, &new_title).await?;
+                    self.apply_edit_session(&session_id, &old_title, &title, &label, label_color)
+                        .await?;
                     self.refresh_sessions().await?;
                     self.focus_session(&session_id).await?;
                 }
@@ -962,12 +982,48 @@ impl App {
                     self.dialog = None;
                     self.state = AppState::Normal;
                 }
-                KeyCode::Backspace => {
-                    d.new_title.pop();
+                KeyCode::Backspace => match d.field {
+                    SessionEditField::Title => {
+                        d.new_title.pop();
+                    }
+                    SessionEditField::Label => {
+                        d.label.pop();
+                    }
+                    SessionEditField::Color => {}
+                },
+                KeyCode::Left | KeyCode::Char('h') => {
+                    if d.field == SessionEditField::Color {
+                        d.label_color = match d.label_color {
+                            crate::session::LabelColor::Gray => crate::session::LabelColor::Blue,
+                            crate::session::LabelColor::Magenta => crate::session::LabelColor::Gray,
+                            crate::session::LabelColor::Cyan => crate::session::LabelColor::Magenta,
+                            crate::session::LabelColor::Green => crate::session::LabelColor::Cyan,
+                            crate::session::LabelColor::Yellow => crate::session::LabelColor::Green,
+                            crate::session::LabelColor::Red => crate::session::LabelColor::Yellow,
+                            crate::session::LabelColor::Blue => crate::session::LabelColor::Red,
+                        };
+                    }
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    if d.field == SessionEditField::Color {
+                        d.label_color = match d.label_color {
+                            crate::session::LabelColor::Gray => crate::session::LabelColor::Magenta,
+                            crate::session::LabelColor::Magenta => crate::session::LabelColor::Cyan,
+                            crate::session::LabelColor::Cyan => crate::session::LabelColor::Green,
+                            crate::session::LabelColor::Green => crate::session::LabelColor::Yellow,
+                            crate::session::LabelColor::Yellow => crate::session::LabelColor::Red,
+                            crate::session::LabelColor::Red => crate::session::LabelColor::Blue,
+                            crate::session::LabelColor::Blue => crate::session::LabelColor::Gray,
+                        };
+                    }
                 }
                 KeyCode::Char(ch) => {
                     if !modifiers.contains(KeyModifiers::CONTROL) {
-                        d.new_title.push(ch);
+                        match d.field {
+                            SessionEditField::Title => d.new_title.push(ch),
+                            SessionEditField::Label => d.label.push(ch),
+                            SessionEditField::Color => {}
+                        }
                     }
                 }
                 _ => {}
@@ -1159,6 +1215,9 @@ impl App {
             session_id: s.id.clone(),
             old_title: s.title.clone(),
             new_title: s.title.clone(),
+            label: s.label.clone(),
+            label_color: s.label_color,
+            field: SessionEditField::Title,
         }));
         self.state = AppState::Dialog;
     }
@@ -1354,17 +1413,25 @@ impl App {
         Ok(())
     }
 
-    async fn apply_rename_session(&mut self, session_id: &str, new_title: &str) -> Result<()> {
-        let new_title = new_title.trim();
-        if new_title.is_empty() {
-            return Ok(());
-        }
+    async fn apply_edit_session(
+        &mut self,
+        session_id: &str,
+        old_title: &str,
+        new_title: &str,
+        label: &str,
+        label_color: crate::session::LabelColor,
+    ) -> Result<()> {
+        let title = new_title.trim();
+        let title = if title.is_empty() { old_title } else { title };
+        let label = label.trim();
 
         let storage = self.storage.lock().await;
         let (mut instances, tree) = storage.load().await?;
 
         if let Some(inst) = instances.iter_mut().find(|s| s.id == session_id) {
-            inst.title = new_title.to_string();
+            inst.title = title.to_string();
+            inst.label = label.to_string();
+            inst.label_color = label_color;
         }
 
         storage.save(&instances, &tree).await?;
@@ -1919,18 +1986,18 @@ impl App {
                     self.preview = cached.clone();
                 } else {
                     self.preview = format!(
-                        "{}\n\nPath: {}\nTool: {}\n\nPreview not cached. Press 'p' to capture a snapshot.",
+                        "{}\n\nPath: {}\nLabel: {}\n\nPreview not cached. Press 'p' to capture a snapshot.",
                         session.title,
                         session.project_path.to_string_lossy(),
-                        session.tool
+                        session.label
                     );
                 }
             } else {
                 self.preview = format!(
-                    "{}\n\nPath: {}\nTool: {}\n\nNot running. Press 's' to start, Enter to start+attach.",
+                    "{}\n\nPath: {}\nLabel: {}\n\nNot running. Press 's' to start, Enter to start+attach.",
                     session.title,
                     session.project_path.to_string_lossy(),
-                    session.tool
+                    session.label
                 );
             }
 

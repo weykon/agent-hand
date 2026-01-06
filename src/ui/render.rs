@@ -120,41 +120,68 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
                     let indent = "  ".repeat(*depth);
                     let s = app.session_by_id(id);
 
-                    let (status_icon, status_color, title, tool) = if let Some(session) = s {
-                        let status_icon = match session.status {
-                            Status::Waiting => "⏸",
-                            Status::Running => "▶",
-                            Status::Idle => "○",
-                            Status::Error => "✕",
-                            Status::Starting => "⋯",
+                    let (status_icon, status_color, title, label, label_color) =
+                        if let Some(session) = s {
+                            let status_icon = match session.status {
+                                Status::Waiting => "⏸",
+                                Status::Running => "▶",
+                                Status::Idle => "○",
+                                Status::Error => "✕",
+                                Status::Starting => "⋯",
+                            };
+
+                            let status_color = match session.status {
+                                Status::Waiting => Color::Yellow,
+                                Status::Running => Color::Green,
+                                Status::Idle => Color::DarkGray,
+                                Status::Error => Color::Red,
+                                Status::Starting => Color::Cyan,
+                            };
+
+                            (
+                                status_icon,
+                                status_color,
+                                session.title.as_str(),
+                                session.label.as_str(),
+                                session.label_color,
+                            )
+                        } else {
+                            (
+                                "?",
+                                Color::Red,
+                                "<missing>",
+                                "",
+                                crate::session::LabelColor::Gray,
+                            )
                         };
 
-                        let status_color = match session.status {
-                            Status::Waiting => Color::Yellow,
-                            Status::Running => Color::Green,
-                            Status::Idle => Color::DarkGray,
-                            Status::Error => Color::Red,
-                            Status::Starting => Color::Cyan,
-                        };
-
-                        (
-                            status_icon,
-                            status_color,
-                            session.title.as_str(),
-                            session.tool.to_string(),
-                        )
-                    } else {
-                        ("?", Color::Red, "<missing>", "".to_string())
+                    let label_color = match label_color {
+                        crate::session::LabelColor::Gray => Color::DarkGray,
+                        crate::session::LabelColor::Magenta => Color::Magenta,
+                        crate::session::LabelColor::Cyan => Color::Cyan,
+                        crate::session::LabelColor::Green => Color::Green,
+                        crate::session::LabelColor::Yellow => Color::Yellow,
+                        crate::session::LabelColor::Red => Color::Red,
+                        crate::session::LabelColor::Blue => Color::Blue,
                     };
 
-                    let line = Line::from(vec![
+                    let mut spans = vec![
                         Span::styled(indent, Style::default()),
                         Span::styled(status_icon, Style::default().fg(status_color)),
                         Span::raw(" "),
                         Span::styled(title, base.add_modifier(Modifier::BOLD)),
-                        Span::raw(" "),
-                        Span::styled(format!("({})", tool), Style::default().fg(Color::DarkGray)),
-                    ]);
+                    ];
+
+                    let label = label.trim();
+                    if !label.is_empty() {
+                        spans.push(Span::raw("  "));
+                        spans.push(Span::styled(
+                            format!("[{label}]"),
+                            Style::default().fg(label_color),
+                        ));
+                    }
+
+                    let line = Line::from(spans);
                     ListItem::new(line)
                 }
             }
@@ -577,7 +604,7 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
 }
 
 fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameSessionDialog) {
-    let popup_area = centered_rect(70, 35, area);
+    let popup_area = centered_rect(70, 40, area);
     f.render_widget(Clear, popup_area);
 
     let active_style = Style::default()
@@ -585,27 +612,67 @@ fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Rename
         .bg(Color::Cyan)
         .add_modifier(Modifier::BOLD);
 
+    let title_style = if d.field == crate::ui::SessionEditField::Title {
+        active_style
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let label_style = if d.field == crate::ui::SessionEditField::Label {
+        active_style
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let (color_name, color_fg) = match d.label_color {
+        crate::session::LabelColor::Gray => ("gray", Color::DarkGray),
+        crate::session::LabelColor::Magenta => ("magenta", Color::Magenta),
+        crate::session::LabelColor::Cyan => ("cyan", Color::Cyan),
+        crate::session::LabelColor::Green => ("green", Color::Green),
+        crate::session::LabelColor::Yellow => ("yellow", Color::Yellow),
+        crate::session::LabelColor::Red => ("red", Color::Red),
+        crate::session::LabelColor::Blue => ("blue", Color::Blue),
+    };
+
+    let color_style = if d.field == crate::ui::SessionEditField::Color {
+        active_style
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
     let lines = vec![
         Line::from(Span::styled(
-            "Rename Session",
+            "Edit Session",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::raw("From:  "),
-            Span::styled(d.old_title.clone(), Style::default().fg(Color::DarkGray)),
+            Span::raw("Title:  "),
+            Span::styled(d.new_title.clone(), title_style),
         ]),
         Line::from(vec![
-            Span::raw("To:    "),
-            Span::styled(d.new_title.clone(), active_style),
+            Span::raw("Label:  "),
+            Span::styled(d.label.clone(), label_style),
+        ]),
+        Line::from(vec![
+            Span::raw("Color:  "),
+            Span::styled(
+                format!("{color_name}"),
+                color_style.fg(color_fg).add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
-        Line::from(Span::styled(
-            "Enter: apply • Esc/Ctrl+C: cancel",
-            Style::default().fg(Color::DarkGray),
-        )),
+        Line::from(vec![
+            Span::styled("Tab", Style::default().fg(Color::Yellow)),
+            Span::raw(":next field  "),
+            Span::styled("Enter", Style::default().fg(Color::Green)),
+            Span::raw(":next/apply  "),
+            Span::styled("←/→", Style::default().fg(Color::Yellow)),
+            Span::raw(":color  "),
+            Span::styled("Esc", Style::default().fg(Color::DarkGray)),
+            Span::raw(":cancel"),
+        ]),
     ];
 
     let p = Paragraph::new(lines)
@@ -1006,7 +1073,7 @@ fn render_help(f: &mut Frame, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("  r", Style::default().fg(Color::Yellow)),
-            Span::raw("        Rename session"),
+            Span::raw("        Edit session (title/label)"),
         ]),
         Line::from(vec![
             Span::styled("  R", Style::default().fg(Color::Yellow)),

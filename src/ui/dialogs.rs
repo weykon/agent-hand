@@ -223,11 +223,21 @@ pub struct RenameGroupDialog {
     pub new_path: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionEditField {
+    Title,
+    Label,
+    Color,
+}
+
 #[derive(Debug, Clone)]
 pub struct RenameSessionDialog {
     pub session_id: String,
     pub old_title: String,
     pub new_title: String,
+    pub label: String,
+    pub label_color: crate::session::LabelColor,
+    pub field: SessionEditField,
 }
 
 #[derive(Debug, Clone)]

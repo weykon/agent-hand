@@ -3,7 +3,7 @@ mod instance;
 mod storage;
 
 pub use groups::{GroupData, GroupTree};
-pub use instance::{Instance, Status};
+pub use instance::{Instance, LabelColor, Status};
 pub use storage::{Storage, StorageData};
 
 /// Default profile name

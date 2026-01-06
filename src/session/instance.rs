@@ -30,6 +30,25 @@ impl From<SessionStatus> for Status {
     }
 }
 
+/// Optional UI label color (persisted)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LabelColor {
+    Gray,
+    Magenta,
+    Cyan,
+    Green,
+    Yellow,
+    Red,
+    Blue,
+}
+
+impl Default for LabelColor {
+    fn default() -> Self {
+        Self::Gray
+    }
+}
+
 /// Session instance
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instance {
@@ -41,6 +60,13 @@ pub struct Instance {
     pub command: String,
     #[serde(default)]
     pub tool: Tool,
+
+    // Optional UI label
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub label_color: LabelColor,
+
     pub status: Status,
     pub created_at: DateTime<Utc>,
     pub last_accessed_at: Option<DateTime<Utc>>,
@@ -76,6 +102,8 @@ impl Instance {
             parent_session_id: None,
             command: String::new(),
             tool: Tool::Shell,
+            label: String::new(),
+            label_color: LabelColor::Gray,
             status: Status::Idle,
             created_at: Utc::now(),
             last_accessed_at: None,
