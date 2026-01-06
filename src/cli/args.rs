@@ -93,6 +93,9 @@ pub enum Command {
         version: Option<String>,
     },
 
+    /// Popup session switcher (for tmux Ctrl+G)
+    Switch,
+
     /// Show version
     Version,
 }

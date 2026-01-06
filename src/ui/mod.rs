@@ -2,6 +2,7 @@ mod app;
 mod dialogs;
 mod events;
 mod render;
+mod switcher;
 
 pub use app::App;
 pub use dialogs::{
@@ -9,6 +10,7 @@ pub use dialogs::{
     ForkDialog, ForkField, MCPColumn, MCPDialog, MoveGroupDialog, NewSessionDialog,
     NewSessionField, RenameGroupDialog,
 };
+pub use switcher::run_switcher;
 
 use crossterm::event::{KeyCode, KeyModifiers};
 

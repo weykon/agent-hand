@@ -29,16 +29,43 @@ impl TmuxManager {
         cmd
     }
 
-    async fn ensure_ctrl_q_detach(&self) {
-        // Best-effort: bind Ctrl+Q to detach (like Go agent-deck) on our dedicated tmux server.
+    async fn ensure_server_bindings(&self) {
+        // Best-effort: bind keys on our dedicated tmux server.
         let _ = self
             .tmux_cmd()
             .args(["bind-key", "-n", "C-q", "detach-client"])
             .status()
             .await;
 
-        // Align with Go version: enable mouse so scroll wheel drives tmux copy-mode/pane scrolling
-        // instead of falling back to terminal scrollback.
+        // Popup switcher: Ctrl+G
+        let _ = self
+            .tmux_cmd()
+            .args([
+                "bind-key",
+                "-n",
+                "C-g",
+                "display-popup",
+                "-E",
+                "-w",
+                "90%",
+                "-h",
+                "70%",
+                "agent-hand",
+                "switch",
+            ])
+            .status()
+            .await;
+
+        // Ensure tmux popups see the active profile.
+        if let Ok(profile) = std::env::var("AGENTHAND_PROFILE") {
+            let _ = self
+                .tmux_cmd()
+                .args(["set-environment", "-g", "AGENTHAND_PROFILE", &profile])
+                .status()
+                .await;
+        }
+
+        // Enable mouse so scroll wheel drives tmux copy-mode/pane scrolling.
         let _ = self
             .tmux_cmd()
             .args(["set-option", "-g", "mouse", "on"])
@@ -133,7 +160,7 @@ impl TmuxManager {
             let stderr = String::from_utf8_lossy(&output.stderr);
             // If the session already exists (cache can be stale), treat it as success.
             if stderr.contains("duplicate session") {
-                self.ensure_ctrl_q_detach().await;
+                self.ensure_server_bindings().await;
                 self.register_session(name.to_string());
                 return Ok(());
             }
@@ -143,8 +170,8 @@ impl TmuxManager {
             )));
         }
 
-        // Set Ctrl+Q binding after tmux server is running
-        self.ensure_ctrl_q_detach().await;
+        // Set bindings after tmux server is running
+        self.ensure_server_bindings().await;
 
         // Register in cache immediately
         self.register_session(name.to_string());
@@ -214,7 +241,7 @@ impl TmuxManager {
 
     /// Attach to a session (blocking)
     pub async fn attach_session(&self, name: &str) -> Result<()> {
-        self.ensure_ctrl_q_detach().await;
+        self.ensure_server_bindings().await;
 
         let status = self
             .tmux_cmd()
@@ -224,6 +251,25 @@ impl TmuxManager {
 
         if !status.success() {
             return Err(crate::Error::tmux("Failed to attach to session"));
+        }
+
+        Ok(())
+    }
+
+    /// Switch current tmux client to a target session
+    pub async fn switch_client(&self, name: &str) -> Result<()> {
+        let output = self
+            .tmux_cmd()
+            .args(["switch-client", "-t", name])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::tmux(format!(
+                "Failed to switch client: {}",
+                stderr
+            )));
         }
 
         Ok(())

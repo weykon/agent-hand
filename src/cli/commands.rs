@@ -17,6 +17,9 @@ pub async fn run_cli(args: Args) -> Result<()> {
         .or(legacy_profile.as_deref())
         .unwrap_or(DEFAULT_PROFILE);
 
+    // Ensure tmux popups inherit the active profile.
+    std::env::set_var("AGENTHAND_PROFILE", profile);
+
     match args.command {
         Some(Command::Add {
             path,
@@ -42,6 +45,8 @@ pub async fn run_cli(args: Args) -> Result<()> {
         Some(Command::Mcp { action }) => handle_mcp(action).await,
 
         Some(Command::Upgrade { prefix, version }) => handle_upgrade(prefix, version).await,
+
+        Some(Command::Switch) => crate::ui::run_switcher(profile).await,
 
         Some(Command::Version) => {
             println!("agent-hand v{}", crate::VERSION);
