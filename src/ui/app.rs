@@ -298,21 +298,17 @@ impl App {
             let activity = self.tmux.session_activity(&tmux_session).unwrap_or(0);
             let prev_activity = self.last_tmux_activity.get(&session.id).copied();
 
-            // Cheap gating: if activity moved forward, assume running and skip capture-pane.
-            // Skip first observation (prev_activity == None) to avoid false Running on startup.
-            if prev_activity.is_some_and(|a| activity > a) {
+            // Track activity changes (but don't infer Running from it - attach/detach also changes activity)
+            let activity_changed = prev_activity.is_some_and(|a| activity > a);
+            if activity_changed || prev_activity.is_none() {
                 self.last_tmux_activity.insert(session.id.clone(), activity);
-                self.last_tmux_activity_change
-                    .insert(session.id.clone(), now);
-                session.status = Status::Running;
-                self.attention_until.remove(&session.id);
-                continue;
-            }
-            // Record activity baseline if first observation
-            if prev_activity.is_none() {
-                self.last_tmux_activity.insert(session.id.clone(), activity);
+                if activity_changed {
+                    self.last_tmux_activity_change
+                        .insert(session.id.clone(), now);
+                }
             }
 
+            // Decide whether to probe this session
             let need_fallback_probe = self
                 .last_status_probe
                 .get(&session.id)
@@ -325,10 +321,14 @@ impl App {
 
             let is_selected = selected_id.as_deref() == Some(session.id.as_str());
 
-            // Only probe the selected session (fast UX) when running has settled, or do infrequent fallback for all.
-            if !(need_fallback_probe
-                || (is_selected && activity_settled && session.status == Status::Running))
-            {
+            // Probe when:
+            // - Fallback timer expired (infrequent probe for all sessions)
+            // - Selected session with recent activity that has settled
+            // - Activity just changed (something happened, check it)
+            let should_probe =
+                need_fallback_probe || (is_selected && activity_settled) || activity_changed;
+
+            if !should_probe {
                 continue;
             }
 
@@ -346,11 +346,13 @@ impl App {
                 Status::Idle
             };
 
-            if prev_status == Status::Running && new_status == Status::Idle {
+            // Running → (Idle or Waiting) triggers Ready attention
+            if prev_status == Status::Running && new_status != Status::Running {
                 self.attention_until
                     .insert(session.id.clone(), now + Self::ATTENTION_TTL);
             }
-            if new_status != Status::Idle {
+            // If back to Running, clear attention
+            if new_status == Status::Running {
                 self.attention_until.remove(&session.id);
             }
 
