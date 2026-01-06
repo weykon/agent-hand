@@ -198,6 +198,9 @@ impl PromptDetector {
             "esc to cancel",
             "esc to interrupt",
             "(esc to interrupt)",
+            "esc to stop",
+            "(esc to stop)",
+            "esc interrupt",
         ];
         if busy_indicators.iter().any(|m| recent.contains(m)) {
             return true;
@@ -253,6 +256,10 @@ impl PromptDetector {
     }
 
     fn has_opencode_prompt(&self, content: &str) -> bool {
+        if content.to_lowercase().contains("confirm with number keys") {
+            return true;
+        }
+
         content.contains("Ask anything")
             || content.contains("┃")
             || content.contains("open code")

@@ -267,6 +267,7 @@ impl App {
 
     async fn refresh_statuses(&mut self) -> Result<()> {
         let now = Instant::now();
+        let selected_id = self.selected_session().map(|s| s.id.clone());
 
         for session in &mut self.sessions {
             let tmux_session = TmuxManager::session_name(&session.id);
@@ -300,14 +301,18 @@ impl App {
                 .get(&session.id)
                 .is_some_and(|t| now.duration_since(*t) >= Self::STATUS_COOLDOWN);
 
-            // Only probe when running has settled (to detect prompt/idle), or on infrequent fallback.
-            if !(need_fallback_probe || (activity_settled && session.status == Status::Running)) {
+            let is_selected = selected_id.as_deref() == Some(session.id.as_str());
+
+            // Only probe the selected session (fast UX) when running has settled, or do infrequent fallback for all.
+            if !(need_fallback_probe
+                || (is_selected && activity_settled && session.status == Status::Running))
+            {
                 continue;
             }
 
             let content = self
                 .tmux
-                .capture_pane(&tmux_session, 30)
+                .capture_pane(&tmux_session, 15)
                 .await
                 .unwrap_or_default();
             let detector = crate::tmux::PromptDetector::new(session.tool);
