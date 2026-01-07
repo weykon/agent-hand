@@ -336,6 +336,11 @@ pub fn parse_tmux_key(s: &str) -> Option<String> {
 
     // Accept native tmux notation directly.
     if raw.starts_with("C-") || raw.starts_with("M-") {
+        // Many terminals encode Ctrl+i as Tab (\x09). tmux key names allow both `C-i` and `Tab`,
+        // but `Tab` tends to be the most portable representation.
+        if raw.eq_ignore_ascii_case("C-i") {
+            return Some("Tab".to_string());
+        }
         return Some(escape_tmux_key(raw));
     }
 
@@ -366,7 +371,11 @@ pub fn parse_tmux_key(s: &str) -> Option<String> {
             }
         }
         if let Some(p) = out_prefix {
-            return Some(escape_tmux_key(&format!("{p}{ch}")));
+            let key = format!("{p}{ch}");
+            if key.eq_ignore_ascii_case("C-i") {
+                return Some("Tab".to_string());
+            }
+            return Some(escape_tmux_key(&key));
         }
     }
 
