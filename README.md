@@ -169,6 +169,23 @@ agent-hand upgrade
 - tmux preview capture is intentionally **cached by default**; press `p` to refresh the snapshot when needed.
 - Global config lives under `~/.agent-hand/` (legacy `~/.agent-deck-rs/` is still accepted).
 
+
+### Shell environment & config changes
+
+When you modify `~/.zshrc`, `~/.bashrc`, or similar shell config files:
+
+- **New sessions** automatically get the latest config (they start with a login shell that re-reads your rc files)
+- **Existing sessions** keep the old environment (the shell process is already running)
+
+To apply new config to an existing session:
+1. **Restart the session**: Press `R` in the dashboard (this kills and recreates the tmux session)
+2. **Manual reload**: Inside the session, run `source ~/.zshrc` (or your shell's equivalent)
+
+Note for **bash users**: `bash -l` reads `~/.bash_profile` (not `~/.bashrc`). If your PATH/aliases are in `~/.bashrc`, make sure your `~/.bash_profile` contains:
+```bash
+[[ -f ~/.bashrc ]] && source ~/.bashrc
+```
+
 ### tmux basics (search/copy/paste)
 
 Agent Hand is tmux-backed, so it helps to know a few tmux basics (defaults assume tmux prefix is `Ctrl+b`):
