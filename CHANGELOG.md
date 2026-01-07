@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-01-07
+
+### Added
+- Switcher tree view: Shows grouped sessions (like dashboard) when not searching, flat fuzzy results when typing.
+- Activity analytics: Track session enter/exit/switch events. Enable via `config.json`: `{ "analytics": { "enabled": true } }`. Logs stored as JSONL in `~/.agent-hand/profiles/<profile>/analytics/`.
+
+### Fixed
+- New sessions now start with login shell (`$SHELL -l`) to ensure fresh shell config (`.zshrc`/`.bash_profile`) is loaded.
+
+### Docs
+- Added shell environment section explaining how config changes affect sessions and how to apply them.
+
 ## [0.1.8] - 2026-01-07
 
 ### Added
