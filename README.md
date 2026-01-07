@@ -168,6 +168,18 @@ agent-hand upgrade
 - tmux preview capture is intentionally **cached by default**; press `p` to refresh the snapshot when needed.
 - Global config lives under `~/.agent-hand/` (legacy `~/.agent-deck-rs/` is still accepted).
 
+### tmux basics (search/copy/paste)
+
+Agent Hand is tmux-backed, so it helps to know a few tmux basics (defaults assume tmux prefix is `Ctrl+b`):
+
+- Enter copy mode (scroll/search): `Ctrl+b` then `[`
+- Search in copy mode: `/` then type, `Enter`; jump: `n` / `N`
+- Copy selection (most common with `mode-keys vi`): `Space` to start selection, `Enter` to copy
+  - If that doesn’t work on your tmux config, try `Ctrl+Space` to start selection instead.
+- Paste: `Ctrl+b` then `]`
+
+Tip: agent-hand enables tmux mouse mode on its dedicated server, so you can often scroll with the mouse wheel.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).

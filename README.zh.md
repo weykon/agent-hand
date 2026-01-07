@@ -170,6 +170,18 @@ agent-hand upgrade
 - tmux preview capture is intentionally **cached by default**; press `p` to refresh the snapshot when needed.
 - Global config lives under `~/.agent-hand/` (legacy `~/.agent-deck-rs/` is still accepted).
 
+### tmux 基础速查（搜索/复制/粘贴）
+
+Agent Hand 底层是 tmux，所以会建议你掌握几个最常用的 tmux 操作（默认前缀键是 `Ctrl+b`）：
+
+- 进入复制/滚动/搜索模式：`Ctrl+b` 然后按 `[`
+- 在复制模式里搜索：`/` 输入关键词 `Enter`；跳转：`n` / `N`
+- 复制选区（很多人配置 `mode-keys vi`）：`Space` 开始选区，`Enter` 复制
+  - 如果你 tmux 不是 vi 模式，可能需要用 `Ctrl+Space` 来开始选区。
+- 粘贴：`Ctrl+b` 然后按 `]`
+
+小提示：agent-hand 在专用 tmux server 上默认开启了 mouse 模式，很多情况下可以直接用鼠标滚轮滚动。
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
