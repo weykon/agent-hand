@@ -8,7 +8,8 @@ pub use app::App;
 pub use dialogs::{
     CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
     ForkDialog, ForkField, MCPColumn, MCPDialog, MoveGroupDialog, NewSessionDialog,
-    NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField,
+    NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, TagPickerDialog,
+    TagSpec,
 };
 pub use switcher::run_switcher;
 

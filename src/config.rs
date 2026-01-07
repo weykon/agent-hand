@@ -215,6 +215,13 @@ impl Default for KeyBindings {
             }],
         );
         kb.bindings.insert(
+            "tag",
+            vec![KeySpec {
+                code: KeyCode::Char('t'),
+                modifiers: KeyModifiers::NONE,
+            }],
+        );
+        kb.bindings.insert(
             "preview_refresh",
             vec![KeySpec {
                 code: KeyCode::Char('p'),

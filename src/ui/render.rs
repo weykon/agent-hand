@@ -280,6 +280,11 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    if let Some(d) = app.tag_picker_dialog() {
+        render_tag_picker_dialog(f, area, d);
+        return;
+    }
+
     if let Some(d) = app.rename_group_dialog() {
         render_rename_group_dialog(f, area, d);
     }
@@ -626,6 +631,62 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
         .block(Block::default().borders(Borders::ALL).title("Group"));
 
     f.render_widget(p, popup_area);
+}
+
+fn render_tag_picker_dialog(f: &mut Frame, area: Rect, d: &crate::ui::TagPickerDialog) {
+    let popup_area = centered_rect(60, 50, area);
+    f.render_widget(Clear, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .split(popup_area);
+
+    if d.tags.is_empty() {
+        let empty = Paragraph::new("(no tags found)\n\nTip: edit a session label first (r), then reuse it here.")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::ALL).title("Tag"));
+        f.render_widget(empty, chunks[0]);
+    } else {
+        let items: Vec<ListItem> = d
+            .tags
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let fg = match t.color {
+                    crate::session::LabelColor::Gray => Color::DarkGray,
+                    crate::session::LabelColor::Magenta => Color::Magenta,
+                    crate::session::LabelColor::Cyan => Color::Cyan,
+                    crate::session::LabelColor::Green => Color::Green,
+                    crate::session::LabelColor::Yellow => Color::Yellow,
+                    crate::session::LabelColor::Red => Color::Red,
+                    crate::session::LabelColor::Blue => Color::Blue,
+                };
+
+                let style = if i == d.selected {
+                    Style::default().fg(fg).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(fg)
+                };
+
+                ListItem::new(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(format!("[{}]", t.name), style),
+                ]))
+            })
+            .collect();
+
+        let list = List::new(items).block(Block::default().borders(Borders::ALL).title("Tag"));
+        let mut state = ListState::default().with_selected(Some(d.selected));
+        f.render_stateful_widget(list, chunks[0], &mut state);
+    }
+
+    let hint = Paragraph::new("↑/↓: select • Enter: apply • Esc: cancel")
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(hint, chunks[1]);
 }
 
 fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameSessionDialog) {

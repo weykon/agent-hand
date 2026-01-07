@@ -240,6 +240,19 @@ pub struct RenameSessionDialog {
     pub field: SessionEditField,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagSpec {
+    pub name: String,
+    pub color: crate::session::LabelColor,
+}
+
+#[derive(Debug, Clone)]
+pub struct TagPickerDialog {
+    pub session_id: String,
+    pub tags: Vec<TagSpec>,
+    pub selected: usize,
+}
+
 #[derive(Debug, Clone)]
 pub enum Dialog {
     NewSession(NewSessionDialog),
@@ -251,6 +264,7 @@ pub enum Dialog {
     MoveGroup(MoveGroupDialog),
     RenameGroup(RenameGroupDialog),
     RenameSession(RenameSessionDialog),
+    TagPicker(TagPickerDialog),
 }
 
 impl NewSessionDialog {

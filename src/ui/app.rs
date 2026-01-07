@@ -22,7 +22,8 @@ use crate::tmux::{TmuxManager, SESSION_PREFIX};
 use super::{
     AppState, CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
     ForkDialog, ForkField, MCPColumn, MCPDialog, MoveGroupDialog, NewSessionDialog,
-    NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, TreeItem,
+    NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, TagPickerDialog,
+    TagSpec, TreeItem,
 };
 
 /// Main TUI application
@@ -560,6 +561,13 @@ impl App {
         if self.keybindings.matches("move", &key, modifiers) {
             if self.selected_session().is_some() {
                 self.open_move_group_dialog();
+            }
+            return Ok(());
+        }
+
+        if self.keybindings.matches("tag", &key, modifiers) {
+            if self.selected_session().is_some() {
+                self.open_tag_picker_dialog();
             }
             return Ok(());
         }
@@ -1246,6 +1254,49 @@ impl App {
                 }
                 _ => {}
             },
+            Dialog::TagPicker(d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if !d.tags.is_empty() {
+                        if d.selected == 0 {
+                            d.selected = d.tags.len() - 1;
+                        } else {
+                            d.selected -= 1;
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if !d.tags.is_empty() {
+                        d.selected = (d.selected + 1) % d.tags.len();
+                    }
+                }
+                KeyCode::Enter => {
+                    let session_id = d.session_id.clone();
+                    let tag = d.tags.get(d.selected).cloned();
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+
+                    let Some(tag) = tag else {
+                        return Ok(());
+                    };
+                    let Some(s) = self.session_by_id(&session_id) else {
+                        return Ok(());
+                    };
+                    let old_title = s.title.clone();
+                    self.apply_edit_session(&session_id, &old_title, &old_title, &tag.name, tag.color)
+                        .await?;
+                    self.refresh_sessions().await?;
+                    self.focus_session(&session_id).await?;
+                }
+                _ => {}
+            },
         }
 
         Ok(())
@@ -1340,6 +1391,48 @@ impl App {
             label: s.label.clone(),
             label_color: s.label_color,
             field: SessionEditField::Title,
+        }));
+        self.state = AppState::Dialog;
+    }
+
+    fn collect_existing_tags(&self) -> Vec<TagSpec> {
+        let mut out: Vec<TagSpec> = Vec::new();
+        let mut seen: std::collections::HashMap<String, ()> = std::collections::HashMap::new();
+        for s in &self.sessions {
+            let name = s.label.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let key = format!("{}|{:?}", name, s.label_color);
+            if seen.insert(key, ()).is_none() {
+                out.push(TagSpec {
+                    name: name.to_string(),
+                    color: s.label_color,
+                });
+            }
+        }
+        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        out
+    }
+
+    fn open_tag_picker_dialog(&mut self) {
+        let Some(s) = self.selected_session() else {
+            return;
+        };
+
+        let tags = self.collect_existing_tags();
+        let mut selected = 0usize;
+        if !tags.is_empty() {
+            if let Some(i) = tags.iter().position(|t| t.name == s.label && t.color == s.label_color)
+            {
+                selected = i;
+            }
+        }
+
+        self.dialog = Some(Dialog::TagPicker(TagPickerDialog {
+            session_id: s.id.clone(),
+            tags,
+            selected,
         }));
         self.state = AppState::Dialog;
     }
@@ -2019,7 +2112,8 @@ impl App {
             let tmux_session = TmuxManager::session_name(&session.id);
 
             if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
-                self.tmux
+                if let Err(e) = self
+                    .tmux
                     .create_session(
                         &tmux_session,
                         &session.project_path.to_string_lossy(),
@@ -2029,7 +2123,17 @@ impl App {
                             Some(session.command.as_str())
                         },
                     )
-                    .await?;
+                    .await
+                {
+                    self.preview = format!(
+                        "{}\n\nPath: {}\nLabel: {}\n\nFailed to start tmux session:\n{}",
+                        session.title,
+                        session.project_path.to_string_lossy(),
+                        session.label,
+                        e
+                    );
+                    return Ok(());
+                }
 
                 self.refresh_sessions().await?;
             }
@@ -2071,9 +2175,9 @@ impl App {
         self.rebuild_sessions_index();
         self.rebuild_tree();
 
-        // Refresh tmux cache (rate-limited)
+        // Refresh tmux cache (rate-limited). tmux can fail transiently; avoid crashing the TUI.
         if self.last_cache_refresh.elapsed() >= Self::CACHE_REFRESH {
-            self.tmux.refresh_cache().await?;
+            let _ = self.tmux.refresh_cache().await;
             self.last_cache_refresh = Instant::now();
         }
 
@@ -2081,8 +2185,8 @@ impl App {
         self.last_tmux_activity
             .retain(|id, _| self.sessions_by_id.contains_key(id));
 
-        // Update session statuses (rate-limited in refresh_statuses)
-        self.refresh_statuses().await?;
+        // Update session statuses (rate-limited in refresh_statuses). Avoid crashing on tmux errors.
+        let _ = self.refresh_statuses().await;
         self.last_status_refresh = Instant::now();
 
         // Clamp selected index
@@ -2271,6 +2375,13 @@ impl App {
     pub fn rename_session_dialog(&self) -> Option<&RenameSessionDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::RenameSession(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn tag_picker_dialog(&self) -> Option<&TagPickerDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::TagPicker(d)) => Some(d),
             _ => None,
         }
     }
