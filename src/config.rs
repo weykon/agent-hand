@@ -336,7 +336,7 @@ pub fn parse_tmux_key(s: &str) -> Option<String> {
 
     // Accept native tmux notation directly.
     if raw.starts_with("C-") || raw.starts_with("M-") {
-        return Some(raw.to_string());
+        return Some(escape_tmux_key(raw));
     }
 
     // Accept human-friendly notation: Ctrl+g / Alt+g
@@ -366,13 +366,13 @@ pub fn parse_tmux_key(s: &str) -> Option<String> {
             }
         }
         if let Some(p) = out_prefix {
-            return Some(format!("{p}{ch}"));
+            return Some(escape_tmux_key(&format!("{p}{ch}")));
         }
     }
 
     // Single character
     if raw.chars().count() == 1 {
-        return Some(raw.to_string());
+        return Some(escape_tmux_key(raw));
     }
 
     // Named keys (pass through; tmux will accept or ignore)
@@ -383,4 +383,18 @@ pub fn parse_tmux_key(s: &str) -> Option<String> {
         "tab" => Some("Tab".to_string()),
         _ => None,
     }
+}
+
+fn escape_tmux_key(s: &str) -> String {
+    // tmux treats `;` as a command separator in its command language, so it must be escaped.
+    let mut out = String::with_capacity(s.len());
+    let mut prev_backslash = false;
+    for ch in s.chars() {
+        if ch == ';' && !prev_backslash {
+            out.push('\\');
+        }
+        out.push(ch);
+        prev_backslash = ch == '\\';
+    }
+    out
 }
