@@ -30,6 +30,9 @@ pub struct ConfigFile {
 
     #[serde(default)]
     tmux: TmuxKeys,
+
+    #[serde(default)]
+    analytics: AnalyticsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -38,6 +41,22 @@ struct TmuxKeys {
     switcher: Option<String>,
     #[serde(default)]
     detach: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AnalyticsConfig {
+    #[serde(default = "default_analytics_enabled")]
+    pub enabled: bool,
+}
+
+fn default_analytics_enabled() -> bool {
+    false
+}
+
+impl Default for AnalyticsConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
 }
 
 impl ConfigFile {
@@ -58,6 +77,10 @@ impl ConfigFile {
 
     pub fn tmux_detach_key(&self) -> Option<&str> {
         self.tmux.detach.as_deref()
+    }
+
+    pub fn analytics_enabled(&self) -> bool {
+        self.analytics.enabled
     }
 }
 

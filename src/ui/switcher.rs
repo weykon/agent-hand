@@ -13,12 +13,12 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Frame, Terminal,
 };
 
 use crate::error::Result;
-use crate::session::{Status, Storage};
+use crate::session::{GroupTree, Status, Storage};
 use crate::tmux::{PromptDetector, TmuxManager};
 
 struct TermGuard;
@@ -31,11 +31,19 @@ impl Drop for TermGuard {
     }
 }
 
+/// Tree item for switcher display
+#[derive(Debug, Clone)]
+enum SwitcherItem {
+    Group { name: String, depth: usize },
+    Session { idx: usize, depth: usize },
+}
+
 pub async fn run_switcher(profile: &str) -> Result<()> {
     let storage = Storage::new(profile).await?;
-    let (instances, _) = storage.load().await?;
+    let (instances, groups) = storage.load().await?;
 
     let manager = Arc::new(TmuxManager::new());
+    let mut analytics = crate::analytics::ActivityTracker::new(profile).await;
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -46,36 +54,113 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
     terminal.clear()?;
 
     let mut query = String::new();
-    let mut matches: Vec<usize> = Vec::new();
+    let mut tree_items: Vec<SwitcherItem>;
+    let mut flat_matches: Vec<usize>;
     let mut selected: usize = 0;
+    let mut list_state = ListState::default();
 
     let mut tick_count: u64 = 0;
     let mut last_cache_refresh = Instant::now();
 
-    // Status probing state (same idea as dashboard: cheap activity gating + occasional capture-pane).
+    // Status probing state
     let mut status_by_id: HashMap<String, Status> = HashMap::new();
     let mut last_tmux_activity: HashMap<String, i64> = HashMap::new();
     let mut last_tmux_activity_change: HashMap<String, Instant> = HashMap::new();
     let mut last_status_probe: HashMap<String, Instant> = HashMap::new();
 
-    let update_matches = |query: &str, matches: &mut Vec<usize>, selected: &mut usize| {
-        let q = query.trim();
+    // Build tree view (group-organized)
+    let build_tree = |groups: &GroupTree, instances: &[crate::session::Instance]| -> Vec<SwitcherItem> {
+        use std::collections::BTreeMap;
+        
+        let mut by_group: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut ungrouped: Vec<usize> = Vec::new();
+        
+        for (i, inst) in instances.iter().enumerate() {
+            if inst.group_path.is_empty() {
+                ungrouped.push(i);
+            } else {
+                by_group.entry(inst.group_path.clone()).or_default().push(i);
+            }
+        }
+        
+        // Sort ungrouped by last_accessed_at desc
+        ungrouped.sort_by(|&a, &b| {
+            instances[b].last_accessed_at.cmp(&instances[a].last_accessed_at)
+        });
+        
+        let mut items: Vec<SwitcherItem> = Vec::new();
+        
+        // Root groups first
+        let mut roots: Vec<String> = groups
+            .all_groups()
+            .into_iter()
+            .map(|g| g.path)
+            .filter(|p| !p.contains('/'))
+            .collect();
+        roots.sort();
+        
+        fn visit(
+            items: &mut Vec<SwitcherItem>,
+            groups: &GroupTree,
+            instances: &[crate::session::Instance],
+            by_group: &BTreeMap<String, Vec<usize>>,
+            path: &str,
+            depth: usize,
+        ) {
+            let name = groups
+                .get_group(path)
+                .map(|g| g.name.clone())
+                .unwrap_or_else(|| path.split('/').last().unwrap_or(path).to_string());
+            
+            items.push(SwitcherItem::Group {
+                name,
+                depth,
+            });
+            
+            // Child groups
+            let mut children = groups.children(path);
+            children.sort();
+            for c in children {
+                visit(items, groups, instances, by_group, &c, depth + 1);
+            }
+            
+            // Sessions in this group
+            if let Some(sessions) = by_group.get(path) {
+                let mut sorted = sessions.clone();
+                sorted.sort_by(|&a, &b| {
+                    instances[b].last_accessed_at.cmp(&instances[a].last_accessed_at)
+                });
+                for idx in sorted {
+                    items.push(SwitcherItem::Session { idx, depth: depth + 1 });
+                }
+            }
+        }
+        
+        for r in roots {
+            visit(&mut items, groups, instances, &by_group, &r, 0);
+        }
+        
+        // Ungrouped sessions at bottom
+        for idx in ungrouped {
+            items.push(SwitcherItem::Session { idx, depth: 0 });
+        }
+        
+        items
+    };
 
-        // Default view: show sessions immediately (most-recent first)
+    // Build flat matches (fuzzy search)
+    let build_flat = |query: &str, instances: &[crate::session::Instance]| -> Vec<usize> {
+        let q = query.trim();
         if q.is_empty() {
             let mut all: Vec<usize> = (0..instances.len()).collect();
             all.sort_by(|&a, &b| {
                 instances[b]
                     .last_accessed_at
                     .cmp(&instances[a].last_accessed_at)
-                    .then(instances[a].title.cmp(&instances[b].title))
             });
-            matches.clear();
-            matches.extend(all.into_iter().take(50));
-            *selected = 0;
-            return;
+            return all.into_iter().take(50).collect();
         }
-
+        
         let mut scored: Vec<(i32, usize)> = Vec::new();
         for (idx, inst) in instances.iter().enumerate() {
             let hay = format!(
@@ -89,16 +174,15 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
                 scored.push((score, idx));
             }
         }
-
+        
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-        matches.clear();
-        matches.extend(scored.into_iter().map(|(_, idx)| idx).take(50));
-        if *selected >= matches.len() {
-            *selected = 0;
-        }
+        scored.into_iter().map(|(_, idx)| idx).take(50).collect()
     };
 
-    update_matches(&query, &mut matches, &mut selected);
+    // Initial build
+    tree_items = build_tree(&groups, &instances);
+    flat_matches = build_flat(&query, &instances);
+    list_state.select(Some(0));
 
     let tick_rate = Duration::from_millis(250);
     let result = loop {
@@ -110,9 +194,19 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
             last_cache_refresh = Instant::now();
         }
 
-        // Probe statuses for visible rows (bounded so switcher stays snappy).
+        // Probe statuses for visible sessions
         let now = Instant::now();
-        for &idx in matches.iter().take(20) {
+        let visible_sessions: Vec<usize> = if query.trim().is_empty() {
+            // Tree mode - collect session indices from tree items
+            tree_items.iter().filter_map(|item| {
+                if let SwitcherItem::Session { idx, .. } = item { Some(*idx) } else { None }
+            }).take(20).collect()
+        } else {
+            // Flat mode
+            flat_matches.iter().copied().take(20).collect()
+        };
+        
+        for idx in visible_sessions {
             let inst = &instances[idx];
             let id = inst.id.as_str();
             let tmux_session = inst.tmux_name();
@@ -169,13 +263,24 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
             last_status_probe.insert(inst.id.clone(), now);
         }
 
+        // Determine display mode and item count
+        let is_tree_mode = query.trim().is_empty();
+        let item_count = if is_tree_mode { tree_items.len() } else { flat_matches.len() };
+        
+        // Clamp selection
+        if selected >= item_count && item_count > 0 {
+            selected = item_count - 1;
+        }
+        list_state.select(if item_count > 0 { Some(selected) } else { None });
+
         terminal.draw(|f| {
-            draw(
+            draw_switcher(
                 f,
                 &instances,
                 &query,
-                &matches,
-                selected,
+                &tree_items,
+                &flat_matches,
+                &mut list_state,
                 &status_by_id,
                 tick_count,
             )
@@ -189,9 +294,22 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
                         break Ok(())
                     }
                     KeyCode::Enter => {
-                        if let Some(&idx) = matches.get(selected) {
-                            let tmux_name = instances[idx].tmux_name();
-                            // Record last active session for future dashboard UX/features.
+                        // Find selected session
+                        let session_idx = if is_tree_mode {
+                            tree_items.get(selected).and_then(|item| {
+                                if let SwitcherItem::Session { idx, .. } = item { Some(*idx) } else { None }
+                            })
+                        } else {
+                            flat_matches.get(selected).copied()
+                        };
+                        
+                        if let Some(idx) = session_idx {
+                            let inst = &instances[idx];
+                            let tmux_name = inst.tmux_name();
+                            
+                            // Record analytics: switcher usage
+                            let _ = analytics.record_switch(&inst.id, &inst.title).await;
+                            
                             let _ = manager
                                 .set_environment_global("AGENTHAND_LAST_SESSION", &tmux_name)
                                 .await;
@@ -201,26 +319,31 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
                     }
                     KeyCode::Backspace => {
                         query.pop();
-                        update_matches(&query, &mut matches, &mut selected);
+                        if query.trim().is_empty() {
+                            tree_items = build_tree(&groups, &instances);
+                        }
+                        flat_matches = build_flat(&query, &instances);
+                        selected = 0;
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
-                        if !matches.is_empty() {
+                        if item_count > 0 {
                             if selected == 0 {
-                                selected = matches.len() - 1;
+                                selected = item_count - 1;
                             } else {
                                 selected -= 1;
                             }
                         }
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        if !matches.is_empty() {
-                            selected = (selected + 1) % matches.len();
+                        if item_count > 0 {
+                            selected = (selected + 1) % item_count;
                         }
                     }
                     KeyCode::Char(ch) => {
                         if !key.modifiers.contains(KeyModifiers::CONTROL) {
                             query.push(ch);
-                            update_matches(&query, &mut matches, &mut selected);
+                            flat_matches = build_flat(&query, &instances);
+                            selected = 0;
                         }
                     }
                     _ => {}
@@ -243,12 +366,13 @@ fn waiting_anim(tick: u64) -> &'static str {
     FRAMES[(tick as usize) % FRAMES.len()]
 }
 
-fn draw(
+fn draw_switcher(
     f: &mut Frame,
     instances: &[crate::session::Instance],
     query: &str,
-    matches: &[usize],
-    selected: usize,
+    tree_items: &[SwitcherItem],
+    flat_matches: &[usize],
+    list_state: &mut ListState,
     status_by_id: &HashMap<String, Status>,
     tick: u64,
 ) {
@@ -275,96 +399,162 @@ fn draw(
     let list_area = chunks[1];
     f.render_widget(Clear, list_area);
 
-    let q = query.trim();
+    let is_tree_mode = query.trim().is_empty();
+    let selected = list_state.selected().unwrap_or(0);
 
     let mut items: Vec<ListItem> = Vec::new();
-    for (row, &idx) in matches.iter().enumerate() {
-        let inst = &instances[idx];
+    
+    if is_tree_mode {
+        // Tree view mode
+        for (row, item) in tree_items.iter().enumerate() {
+            match item {
+                SwitcherItem::Group { name, depth } => {
+                    let indent = "  ".repeat(*depth);
+                    let style = if row == selected {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Magenta)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .fg(Color::Magenta)
+                            .add_modifier(Modifier::BOLD)
+                    };
+                    let line = Line::from(vec![
+                        Span::raw(indent),
+                        Span::styled("▸ ", style),
+                        Span::styled(name.clone(), style),
+                    ]);
+                    items.push(ListItem::new(line));
+                }
+                SwitcherItem::Session { idx, depth } => {
+                    let inst = &instances[*idx];
+                    let indent = "  ".repeat(*depth);
+                    
+                    let status = status_by_id.get(&inst.id).copied().unwrap_or(Status::Idle);
+                    let (icon, color) = match status {
+                        Status::Waiting => (waiting_anim(tick), Color::Blue),
+                        Status::Running => (running_anim(tick), Color::Yellow),
+                        Status::Idle => ("○", Color::DarkGray),
+                        Status::Error => ("✕", Color::Red),
+                        Status::Starting => ("⋯", Color::Cyan),
+                    };
+                    
+                    let is_selected = row == selected;
+                    let icon_style = if is_selected {
+                        Style::default().fg(color).bg(Color::Cyan)
+                    } else {
+                        Style::default().fg(color)
+                    };
+                    let text_style = if is_selected {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    let path_style = if is_selected {
+                        Style::default().fg(Color::Black).bg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    
+                    let line = Line::from(vec![
+                        Span::raw(indent),
+                        Span::styled(icon, icon_style),
+                        Span::raw(" "),
+                        Span::styled(inst.title.clone(), text_style),
+                        Span::raw("  "),
+                        Span::styled(
+                            inst.project_path.to_string_lossy().to_string(),
+                            path_style,
+                        ),
+                    ]);
+                    items.push(ListItem::new(line));
+                }
+            }
+        }
+    } else {
+        // Flat fuzzy search mode
+        for (row, &idx) in flat_matches.iter().enumerate() {
+            let inst = &instances[idx];
 
-        // Ranking highlight when user is typing:
-        // - best match: green
-        // - other matches: yellow
-        let rank_style = if q.is_empty() {
-            Style::default().fg(Color::DarkGray)
-        } else if row == 0 {
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Yellow)
-        };
+            let rank_style = if row == 0 {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
 
-        let style = if row == selected {
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            rank_style
-        };
+            let style = if row == selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                rank_style
+            };
 
-        let group = if inst.group_path.is_empty() {
-            "(none)"
-        } else {
-            inst.group_path.as_str()
-        };
+            let group = if inst.group_path.is_empty() {
+                "(none)"
+            } else {
+                inst.group_path.as_str()
+            };
 
-        let status = status_by_id.get(&inst.id).copied().unwrap_or(Status::Idle);
-        let (icon, color) = match status {
-            Status::Waiting => (waiting_anim(tick), Color::Blue),
-            Status::Running => (running_anim(tick), Color::Yellow),
-            Status::Idle => ("○", Color::DarkGray),
-            Status::Error => ("✕", Color::Red),
-            Status::Starting => ("⋯", Color::Cyan),
-        };
-        let icon_style = if row == selected {
-            Style::default().fg(color).bg(Color::Cyan)
-        } else {
-            Style::default().fg(color)
-        };
+            let status = status_by_id.get(&inst.id).copied().unwrap_or(Status::Idle);
+            let (icon, color) = match status {
+                Status::Waiting => (waiting_anim(tick), Color::Blue),
+                Status::Running => (running_anim(tick), Color::Yellow),
+                Status::Idle => ("○", Color::DarkGray),
+                Status::Error => ("✕", Color::Red),
+                Status::Starting => ("⋯", Color::Cyan),
+            };
+            let icon_style = if row == selected {
+                Style::default().fg(color).bg(Color::Cyan)
+            } else {
+                Style::default().fg(color)
+            };
 
-        let line = Line::from(vec![
-            Span::styled(icon, icon_style),
-            Span::raw(" "),
-            Span::styled(inst.title.clone(), style),
-            Span::raw("  "),
-            Span::styled(format!("[{group}]"), Style::default().fg(Color::Magenta)),
-            Span::raw("  "),
-            Span::styled(
-                inst.project_path.to_string_lossy().to_string(),
-                if row == selected {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ),
-            Span::raw("  "),
-            Span::styled(
-                format!("({})", inst.id),
-                if row == selected {
-                    Style::default().fg(Color::Black).bg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ),
-        ]);
+            let line = Line::from(vec![
+                Span::styled(icon, icon_style),
+                Span::raw(" "),
+                Span::styled(inst.title.clone(), style),
+                Span::raw("  "),
+                Span::styled(format!("[{group}]"), Style::default().fg(Color::Magenta)),
+                Span::raw("  "),
+                Span::styled(
+                    inst.project_path.to_string_lossy().to_string(),
+                    if row == selected {
+                        Style::default().fg(Color::Black).bg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    },
+                ),
+            ]);
 
-        items.push(ListItem::new(line));
+            items.push(ListItem::new(line));
+        }
     }
 
-    if matches.is_empty() {
+    if items.is_empty() {
         items.push(ListItem::new(Span::styled(
-            "(no matches)",
+            "(no sessions)",
             Style::default().fg(Color::DarkGray),
         )));
     }
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!("Search: {query}")),
-    );
-    f.render_widget(list, list_area);
+    let title_str = if is_tree_mode {
+        "Sessions (type to search)".to_string()
+    } else {
+        format!("Search: {query}")
+    };
+    
+    let list = List::new(items)
+        .block(Block::default().borders(Borders::ALL).title(title_str))
+        .highlight_symbol("");
+    f.render_stateful_widget(list, list_area, list_state);
 
     let footer = Paragraph::new(Line::from(vec![
         Span::styled("Type", Style::default().fg(Color::Cyan)),
@@ -374,9 +564,7 @@ fn draw(
         Span::styled("Enter", Style::default().fg(Color::Cyan)),
         Span::raw(": switch  "),
         Span::styled("Esc", Style::default().fg(Color::Cyan)),
-        Span::raw(": close  "),
-        Span::styled("tmux", Style::default().fg(Color::DarkGray)),
-        Span::raw(": agentdeck_rs_<id>"),
+        Span::raw(": close"),
     ]))
     .wrap(Wrap { trim: true })
     .alignment(Alignment::Center)

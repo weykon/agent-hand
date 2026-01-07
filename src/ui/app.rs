@@ -82,6 +82,7 @@ pub struct App {
     // Backend
     storage: Arc<Mutex<Storage>>,
     tmux: Arc<TmuxManager>,
+    analytics: crate::analytics::ActivityTracker,
 }
 
 impl App {
@@ -107,6 +108,7 @@ impl App {
 
         let tmux = TmuxManager::new();
         let keybindings = crate::config::KeyBindings::load_or_default().await;
+        let analytics = crate::analytics::ActivityTracker::new(profile).await;
 
         let mut app = Self {
             width: 0,
@@ -140,6 +142,7 @@ impl App {
             tick_count: 0,
             storage: Arc::new(Mutex::new(storage)),
             tmux: Arc::new(tmux),
+            analytics,
         };
 
         app.ensure_groups_exist();
@@ -217,6 +220,11 @@ impl App {
             }
 
             if let Some(name) = self.pending_attach.take() {
+                // Record analytics: session enter
+                if let Some(session) = self.find_session_by_tmux_name(&name) {
+                    let _ = self.analytics.record_enter(&session.id, &session.title).await;
+                }
+                
                 self.perform_attach(terminal, &name).await?;
                 let _ = self.cache_preview_by_tmux_name(&name).await;
                 self.refresh_sessions().await?;
@@ -273,7 +281,12 @@ impl App {
                         self.last_seen_detach_at = Some(detach_at);
                         // Use cached session name (written by Ctrl+Q binding).
                         if let Ok(Some(name)) = self.tmux.get_environment_global("AGENTHAND_LAST_SESSION").await {
-                            self.force_probe_tmux = Some(name);
+                            self.force_probe_tmux = Some(name.clone());
+                            
+                            // Record analytics: session exit (Ctrl+Q detach)
+                            if let Some(session) = self.find_session_by_tmux_name(&name) {
+                                let _ = self.analytics.record_exit(&session.id, &session.title).await;
+                            }
                         }
                     }
                 }
@@ -2062,6 +2075,13 @@ impl App {
         };
         let &idx = self.sessions_by_id.get(id)?;
         self.sessions.get(idx)
+    }
+
+    /// Find session by tmux session name (e.g. "agentdeck_rs_abc123")
+    fn find_session_by_tmux_name(&self, tmux_name: &str) -> Option<Instance> {
+        let id = tmux_name.strip_prefix(SESSION_PREFIX)?;
+        let &idx = self.sessions_by_id.get(id)?;
+        self.sessions.get(idx).cloned()
     }
 
     /// Queue attach to selected session (performed in event loop)

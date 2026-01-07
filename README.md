@@ -181,6 +181,25 @@ Agent Hand is tmux-backed, so it helps to know a few tmux basics (defaults assum
 
 Tip: agent-hand enables tmux mouse mode on its dedicated server, so you can often scroll with the mouse wheel.
 
+### Activity Analytics (optional)
+
+Track your session usage to understand your workflow patterns. When enabled, agent-hand records:
+- Session enters (attach)
+- Session exits (Ctrl+Q detach)
+- Switcher usage
+
+Enable in `~/.agent-hand/config.json`:
+
+```json
+{
+  "analytics": {
+    "enabled": true
+  }
+}
+```
+
+Logs are stored per-profile in `~/.agent-hand/profiles/<profile>/analytics/YYYY-MM-DD.json`.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
