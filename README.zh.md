@@ -136,6 +136,12 @@ From the dashboard:
 
 配置会在下次 attach 时生效（agent-hand 会在 attach 时重绑按键）。
 
+关于“冲突/被覆盖”的说明：
+- 有些按键在终端里**本质等价**（例如 `Ctrl+i` ≈ `Tab`，`Ctrl+m` ≈ `Enter`，`Ctrl+[` ≈ `Esc`），选这些时可能看起来“没生效”。
+- 也可能被 tmux / 终端 / 应用自身的快捷键**抢先绑定**。
+- 建议优先使用默认的 `Ctrl+G` / `Ctrl+Q`（已经验证过、是比较好的选择）；如果要自定义，发现不生效就换一个组合，并用下面命令确认当前 tmux 绑定：
+  `tmux -L agentdeck_rs list-keys -T root`
+
 如果你之前使用的是旧目录 `~/.agent-deck-rs/`，当 agent-hand 检测到新目录 `~/.agent-hand/` 里还没有任何 session 时，会在启动时自动把旧 profiles 迁移到新目录。
 
 ## CLI

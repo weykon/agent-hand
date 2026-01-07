@@ -134,6 +134,12 @@ Add to `~/.agent-hand/config.json`:
 
 Changes take effect the next time you attach (agent-hand rebinds keys on attach).
 
+Notes on conflicts:
+- Some keys can be **effectively the same** in terminals (e.g. `Ctrl+i` ≈ `Tab`, `Ctrl+m` ≈ `Enter`, `Ctrl+[` ≈ `Esc`), so choosing them may appear “not working”.
+- Keys may also be **already bound** by tmux or your terminal/app.
+- If a key doesn’t work, pick a different one (the defaults `Ctrl+G` / `Ctrl+Q` are a solid, tested choice) and verify current bindings with:
+  `tmux -L agentdeck_rs list-keys -T root`
+
 If you previously used the legacy directory `~/.agent-deck-rs/`, agent-hand will automatically migrate existing profiles into `~/.agent-hand/` on startup when it detects the new directory has no sessions.
 
 ## CLI
