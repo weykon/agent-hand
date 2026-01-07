@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
 
@@ -218,7 +218,8 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
         tree.len()
     )));
 
-    f.render_widget(list, area);
+    let mut state = ListState::default().with_selected(Some(app.selected_index()));
+    f.render_stateful_widget(list, area, &mut state);
 }
 
 fn render_preview(f: &mut Frame, area: Rect, app: &App) {
