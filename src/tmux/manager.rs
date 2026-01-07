@@ -230,8 +230,14 @@ impl TmuxManager {
             working_dir,
         ]);
 
+        // If user specified a command, run it; otherwise start a login shell
+        // to ensure ~/.zshrc (or equivalent) is sourced fresh.
         if let Some(command) = command {
             cmd.arg(command);
+        } else {
+            // Get user's default shell and run as login shell
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+            cmd.args([&shell, "-l"]);
         }
 
         let output = cmd.output().await?;
