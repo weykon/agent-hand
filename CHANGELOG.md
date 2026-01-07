@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-01-07
+
+### Added
+- Tag picker: Press `t` to apply an existing label+color combo to the selected session.
+- Multi-instance safety: File locking for sessions.json prevents data corruption when running multiple instances.
+
+### Fixed
+- TUI no longer crashes when tmux operations fail (e.g., fork errors) - errors are now displayed in the preview pane.
+- Binding deduplication: Skip redundant tmux key bindings if already correctly configured.
+
+### Changed
+- Session refresh is now non-fatal - tmux server issues no longer crash the dashboard.
+
 ## [0.1.7] - 2026-01-07
 
 ### Fixed
