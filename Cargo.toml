@@ -69,6 +69,9 @@ uuid = { version = "1", features = ["v4", "fast-rng"] }
 # Directory utilities
 dirs = "5"
 
+# File locking for multi-instance safety
+fs2 = "0.4"
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"

@@ -45,76 +45,95 @@ impl TmuxManager {
             .and_then(crate::config::parse_tmux_key)
             .unwrap_or_else(|| "C-g".to_string());
 
-        // Unbind previous custom keys to avoid accumulating duplicates.
-        if let Ok(Some(old)) = self.get_environment_global("AGENTHAND_DETACH_KEY").await {
-            if old != detach_key {
-                let _ = self
-                    .tmux_cmd()
-                    .args(["unbind-key", "-n", old.as_str()])
-                    .status()
-                    .await;
-            }
-        }
-        if let Ok(Some(old)) = self.get_environment_global("AGENTHAND_SWITCHER_KEY").await {
-            if old != switch_key {
-                let _ = self
-                    .tmux_cmd()
-                    .args(["unbind-key", "-n", old.as_str()])
-                    .status()
-                    .await;
-            }
-        }
-
-        // Detach key
-        let _ = self
-            .tmux_cmd()
-            .args([
-                "bind-key",
-                "-n",
-                detach_key.as_str(),
-                "set-environment",
-                "-g",
-                "AGENTHAND_LAST_SESSION",
-                "#{session_name}",
-                "\\;",
-                "set-environment",
-                "-g",
-                "AGENTHAND_LAST_DETACH_AT",
-                "#{client_activity}",
-                "\\;",
-                "detach-client",
-            ])
-            .status()
-            .await;
-        let _ = self
-            .set_environment_global("AGENTHAND_DETACH_KEY", detach_key.as_str())
-            .await;
-
-        // Popup switcher key (use absolute path so tmux PATH doesn't matter)
-        let switch_bin = std::env::current_exe()
+        // Check current bindings - skip if already correct (multi-instance safety)
+        let current_detach = self
+            .get_environment_global("AGENTHAND_DETACH_KEY")
+            .await
             .ok()
-            .and_then(|p| p.to_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "agent-hand".to_string());
-        let _ = self
-            .tmux_cmd()
-            .args([
-                "bind-key",
-                "-n",
-                switch_key.as_str(),
-                "display-popup",
-                "-E",
-                "-w",
-                "90%",
-                "-h",
-                "70%",
-                &switch_bin,
-                "switch",
-            ])
-            .status()
-            .await;
-        let _ = self
-            .set_environment_global("AGENTHAND_SWITCHER_KEY", switch_key.as_str())
-            .await;
+            .flatten();
+        let current_switch = self
+            .get_environment_global("AGENTHAND_SWITCHER_KEY")
+            .await
+            .ok()
+            .flatten();
+
+        let need_detach_bind = current_detach.as_deref() != Some(detach_key.as_str());
+        let need_switch_bind = current_switch.as_deref() != Some(switch_key.as_str());
+
+        // Unbind previous custom keys if they differ
+        if need_detach_bind {
+            if let Some(old) = &current_detach {
+                let _ = self
+                    .tmux_cmd()
+                    .args(["unbind-key", "-n", old.as_str()])
+                    .status()
+                    .await;
+            }
+        }
+        if need_switch_bind {
+            if let Some(old) = &current_switch {
+                let _ = self
+                    .tmux_cmd()
+                    .args(["unbind-key", "-n", old.as_str()])
+                    .status()
+                    .await;
+            }
+        }
+
+        // Detach key - only bind if needed
+        if need_detach_bind {
+            let _ = self
+                .tmux_cmd()
+                .args([
+                    "bind-key",
+                    "-n",
+                    detach_key.as_str(),
+                    "set-environment",
+                    "-g",
+                    "AGENTHAND_LAST_SESSION",
+                    "#{session_name}",
+                    "\\;",
+                    "set-environment",
+                    "-g",
+                    "AGENTHAND_LAST_DETACH_AT",
+                    "#{client_activity}",
+                    "\\;",
+                    "detach-client",
+                ])
+                .status()
+                .await;
+            let _ = self
+                .set_environment_global("AGENTHAND_DETACH_KEY", detach_key.as_str())
+                .await;
+        }
+
+        // Popup switcher key - only bind if needed
+        if need_switch_bind {
+            let switch_bin = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "agent-hand".to_string());
+            let _ = self
+                .tmux_cmd()
+                .args([
+                    "bind-key",
+                    "-n",
+                    switch_key.as_str(),
+                    "display-popup",
+                    "-E",
+                    "-w",
+                    "90%",
+                    "-h",
+                    "70%",
+                    &switch_bin,
+                    "switch",
+                ])
+                .status()
+                .await;
+            let _ = self
+                .set_environment_global("AGENTHAND_SWITCHER_KEY", switch_key.as_str())
+                .await;
+        }
 
         // Ensure tmux popups see the active profile.
         if let Ok(profile) = std::env::var("AGENTHAND_PROFILE") {

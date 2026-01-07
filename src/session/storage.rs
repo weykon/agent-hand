@@ -4,6 +4,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 use chrono::{DateTime, Utc};
+use fs2::FileExt;
 use parking_lot::Mutex;
 
 use super::{GroupData, GroupTree, Instance};
@@ -215,6 +216,13 @@ impl Storage {
     pub async fn save(&self, instances: &[Instance], tree: &GroupTree) -> Result<()> {
         let _lock = self.lock.lock();
 
+        // Acquire cross-process file lock for multi-instance safety
+        let lock_path = self.path.with_extension("lock");
+        let lock_file = std::fs::File::create(&lock_path)?;
+        lock_file.lock_exclusive().map_err(|e| {
+            Error::Other(format!("Failed to acquire file lock: {}", e))
+        })?;
+
         // Create rolling backups
         self.create_backup().await?;
 
@@ -236,6 +244,7 @@ impl Storage {
 
         fs::rename(&temp_path, &self.path).await?;
 
+        // Lock is automatically released when lock_file is dropped
         Ok(())
     }
 
