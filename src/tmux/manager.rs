@@ -31,12 +31,47 @@ impl TmuxManager {
 
     async fn ensure_server_bindings(&self) {
         // Best-effort: bind keys on our dedicated tmux server.
+        let cfg = crate::config::ConfigFile::load().await.ok().flatten();
+
+        let detach_key = cfg
+            .as_ref()
+            .and_then(|c| c.tmux_detach_key())
+            .and_then(crate::config::parse_tmux_key)
+            .unwrap_or_else(|| "C-q".to_string());
+
+        let switch_key = cfg
+            .as_ref()
+            .and_then(|c| c.tmux_switcher_key())
+            .and_then(crate::config::parse_tmux_key)
+            .unwrap_or_else(|| "C-g".to_string());
+
+        // Unbind previous custom keys to avoid accumulating duplicates.
+        if let Ok(Some(old)) = self.get_environment_global("AGENTHAND_DETACH_KEY").await {
+            if old != detach_key {
+                let _ = self
+                    .tmux_cmd()
+                    .args(["unbind-key", "-n", old.as_str()])
+                    .status()
+                    .await;
+            }
+        }
+        if let Ok(Some(old)) = self.get_environment_global("AGENTHAND_SWITCHER_KEY").await {
+            if old != switch_key {
+                let _ = self
+                    .tmux_cmd()
+                    .args(["unbind-key", "-n", old.as_str()])
+                    .status()
+                    .await;
+            }
+        }
+
+        // Detach key
         let _ = self
             .tmux_cmd()
             .args([
                 "bind-key",
                 "-n",
-                "C-q",
+                detach_key.as_str(),
                 "set-environment",
                 "-g",
                 "AGENTHAND_LAST_SESSION",
@@ -51,8 +86,11 @@ impl TmuxManager {
             ])
             .status()
             .await;
+        let _ = self
+            .set_environment_global("AGENTHAND_DETACH_KEY", detach_key.as_str())
+            .await;
 
-        // Popup switcher: Ctrl+G (use absolute path so tmux PATH doesn't matter)
+        // Popup switcher key (use absolute path so tmux PATH doesn't matter)
         let switch_bin = std::env::current_exe()
             .ok()
             .and_then(|p| p.to_str().map(|s| s.to_string()))
@@ -62,7 +100,7 @@ impl TmuxManager {
             .args([
                 "bind-key",
                 "-n",
-                "C-g",
+                switch_key.as_str(),
                 "display-popup",
                 "-E",
                 "-w",
@@ -73,6 +111,9 @@ impl TmuxManager {
                 "switch",
             ])
             .status()
+            .await;
+        let _ = self
+            .set_environment_global("AGENTHAND_SWITCHER_KEY", switch_key.as_str())
             .await;
 
         // Ensure tmux popups see the active profile.

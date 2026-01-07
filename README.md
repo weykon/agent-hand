@@ -115,7 +115,24 @@ Example:
 Supported key names: `Enter`, `Esc`, `Tab`, `Backspace`, `Space`, `Up`, `Down`, `Left`, `Right`, plus single characters (e.g. `r`, `R`, `/`).
 Modifiers: `Ctrl+`, `Alt+`, `Shift+`.
 
-Note: currently this only affects the main dashboard (Normal mode); other dialogs and the tmux popup switcher still use fixed keys.
+Note: currently this only affects the main dashboard (Normal mode); other dialogs still use fixed keys.
+
+### tmux hotkeys (Ctrl+G / Ctrl+Q)
+
+These are bound on agent-hand’s **dedicated tmux server** (`tmux -L agentdeck_rs`), so they won’t affect your default tmux server.
+
+Add to `~/.agent-hand/config.json`:
+
+```json
+{
+  "tmux": {
+    "switcher": "Ctrl+g",
+    "detach": "Ctrl+q"
+  }
+}
+```
+
+Changes take effect the next time you attach (agent-hand rebinds keys on attach).
 
 ## CLI
 

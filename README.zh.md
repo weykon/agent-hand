@@ -117,7 +117,24 @@ From the dashboard:
 支持的按键名：`Enter` / `Esc` / `Tab` / `Backspace` / `Space` / `Up` / `Down` / `Left` / `Right`，以及单个字符（如 `r`、`R`、`/`）。
 修饰键：`Ctrl+` / `Alt+` / `Shift+`。
 
-注意：目前仅影响主 dashboard（Normal 模式）；其它对话框和 tmux popup switcher 仍使用固定按键。
+注意：目前仅影响主 dashboard（Normal 模式）；其它对话框仍使用固定按键。
+
+### tmux 热键（Ctrl+G / Ctrl+Q）
+
+这两个热键绑定在 agent-hand 的 **专用 tmux server**（`tmux -L agentdeck_rs`）上，不会影响你默认的 tmux server。
+
+在 `~/.agent-hand/config.json` 增加：
+
+```json
+{
+  "tmux": {
+    "switcher": "Ctrl+g",
+    "detach": "Ctrl+q"
+  }
+}
+```
+
+配置会在下次 attach 时生效（agent-hand 会在 attach 时重绑按键）。
 
 ## CLI
 

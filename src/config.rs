@@ -27,6 +27,17 @@ impl OneOrMany {
 pub struct ConfigFile {
     #[serde(default)]
     keybindings: HashMap<String, OneOrMany>,
+
+    #[serde(default)]
+    tmux: TmuxKeys,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct TmuxKeys {
+    #[serde(default)]
+    switcher: Option<String>,
+    #[serde(default)]
+    detach: Option<String>,
 }
 
 impl ConfigFile {
@@ -39,6 +50,14 @@ impl ConfigFile {
         };
         let cfg = serde_json::from_str::<Self>(&content)?;
         Ok(Some(cfg))
+    }
+
+    pub fn tmux_switcher_key(&self) -> Option<&str> {
+        self.tmux.switcher.as_deref()
+    }
+
+    pub fn tmux_detach_key(&self) -> Option<&str> {
+        self.tmux.detach.as_deref()
     }
 }
 
@@ -307,4 +326,61 @@ fn parse_key_spec(s: &str) -> Option<KeySpec> {
     };
 
     Some(KeySpec { code, modifiers })
+}
+
+pub fn parse_tmux_key(s: &str) -> Option<String> {
+    let raw = s.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    // Accept native tmux notation directly.
+    if raw.starts_with("C-") || raw.starts_with("M-") {
+        return Some(raw.to_string());
+    }
+
+    // Accept human-friendly notation: Ctrl+g / Alt+g
+    let parts: Vec<&str> = raw.split('+').map(|p| p.trim()).collect();
+    if parts.len() >= 2 {
+        let key = parts[parts.len() - 1];
+        let mods = &parts[..parts.len() - 1];
+        if key.chars().count() != 1 {
+            // Allow some named keys
+            let lower = key.to_lowercase();
+            return match lower.as_str() {
+                "enter" => Some("Enter".to_string()),
+                "esc" | "escape" => Some("Escape".to_string()),
+                "tab" => Some("Tab".to_string()),
+                _ => None,
+            };
+        }
+
+        let ch = key.chars().next()?;
+        let mut out_prefix: Option<&'static str> = None;
+        for m in mods {
+            match m.to_lowercase().as_str() {
+                "ctrl" | "control" => out_prefix = Some("C-"),
+                "alt" => out_prefix = Some("M-"),
+                "shift" => {}
+                _ => return None,
+            }
+        }
+        if let Some(p) = out_prefix {
+            return Some(format!("{p}{ch}"));
+        }
+    }
+
+    // Single character
+    if raw.chars().count() == 1 {
+        return Some(raw.to_string());
+    }
+
+    // Named keys (pass through; tmux will accept or ignore)
+    let lower = raw.to_lowercase();
+    match lower.as_str() {
+        "enter" => Some("Enter".to_string()),
+        "esc" | "escape" => Some("Escape".to_string()),
+        "tab" => Some("Tab".to_string()),
+        _ => None,
+    }
 }
