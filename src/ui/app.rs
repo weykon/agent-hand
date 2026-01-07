@@ -58,6 +58,9 @@ pub struct App {
     // Deferred actions that require terminal access
     pending_attach: Option<String>,
 
+    // Keybindings (configurable via ~/.agent-hand/config.json)
+    keybindings: crate::config::KeyBindings,
+
     // Navigation/perf
     last_navigation_time: Instant,
     is_navigating: bool,
@@ -102,6 +105,7 @@ impl App {
         }
 
         let tmux = TmuxManager::new();
+        let keybindings = crate::config::KeyBindings::load_or_default().await;
 
         let mut app = Self {
             width: 0,
@@ -121,6 +125,7 @@ impl App {
             search_selected: 0,
             dialog: None,
             pending_attach: None,
+            keybindings,
             last_navigation_time: Instant::now(),
             is_navigating: false,
             pending_preview_id: None,
@@ -423,170 +428,171 @@ impl App {
 
     /// Handle keys in normal mode
     async fn handle_normal_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> Result<()> {
-        match key {
-            // Quit
-            KeyCode::Char('q') | KeyCode::Char('Q')
-                if !modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                self.should_quit = true;
-            }
-            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.should_quit = true;
-            }
+        if self.keybindings.matches("quit", &key, modifiers) {
+            self.should_quit = true;
+            return Ok(());
+        }
 
-            // Navigation
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.move_selection_up();
-                self.on_navigation();
+        // Navigation
+        if self.keybindings.matches("up", &key, modifiers) {
+            self.move_selection_up();
+            self.on_navigation();
+            self.preview.clear();
+            return Ok(());
+        }
+        if self.keybindings.matches("down", &key, modifiers) {
+            self.move_selection_down();
+            self.on_navigation();
+            self.preview.clear();
+            return Ok(());
+        }
+
+        // Actions
+        if self.keybindings.matches("select", &key, modifiers) {
+            if self.toggle_selected_group(None).await? {
                 self.preview.clear();
+            } else {
+                self.queue_attach_selected().await?;
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.move_selection_down();
-                self.on_navigation();
-                self.preview.clear();
+            return Ok(());
+        }
+        if self.keybindings.matches("collapse", &key, modifiers) {
+            let _ = self.toggle_selected_group(Some(false)).await?;
+            return Ok(());
+        }
+        if self.keybindings.matches("expand", &key, modifiers) {
+            let _ = self.toggle_selected_group(Some(true)).await?;
+            return Ok(());
+        }
+        if self.keybindings.matches("toggle_group", &key, modifiers) {
+            let _ = self.toggle_selected_group(None).await?;
+            return Ok(());
+        }
+        if self.keybindings.matches("start", &key, modifiers) {
+            self.start_selected().await?;
+            return Ok(());
+        }
+        if self.keybindings.matches("stop", &key, modifiers) {
+            self.stop_selected().await?;
+            return Ok(());
+        }
+        if self.keybindings.matches("refresh", &key, modifiers) {
+            self.refresh_sessions().await?;
+            return Ok(());
+        }
+        if self.keybindings.matches("rename", &key, modifiers) {
+            if matches!(self.selected_tree_item(), Some(TreeItem::Group { .. })) {
+                self.open_rename_group_dialog();
+            } else if self.selected_session().is_some() {
+                self.open_rename_session_dialog();
             }
+            return Ok(());
+        }
 
-            // Actions
-            KeyCode::Enter => {
-                if self.toggle_selected_group(None).await? {
-                    self.preview.clear();
-                } else {
-                    self.queue_attach_selected().await?;
-                }
-            }
-            KeyCode::Left => {
-                let _ = self.toggle_selected_group(Some(false)).await?;
-            }
-            KeyCode::Right => {
-                let _ = self.toggle_selected_group(Some(true)).await?;
-            }
-            KeyCode::Char(' ') => {
-                let _ = self.toggle_selected_group(None).await?;
-            }
-            KeyCode::Char('s') => {
-                self.start_selected().await?;
-            }
-            KeyCode::Char('x') => {
-                self.stop_selected().await?;
-            }
-            KeyCode::Char('r') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.refresh_sessions().await?;
-            }
-            KeyCode::Char('r') => {
-                if matches!(self.selected_tree_item(), Some(TreeItem::Group { .. })) {
-                    self.open_rename_group_dialog();
-                } else if self.selected_session().is_some() {
-                    self.open_rename_session_dialog();
-                }
-            }
+        if self.keybindings.matches("new_session", &key, modifiers) {
+            let default_path = std::env::current_dir()?;
 
-            // New session
-            KeyCode::Char('n') => {
-                let default_path = std::env::current_dir()?;
+            let default_group = match self.selected_tree_item() {
+                Some(TreeItem::Group { path, .. }) => path.clone(),
+                _ => self
+                    .selected_session()
+                    .map(|s| s.group_path.clone())
+                    .unwrap_or_default(),
+            };
 
-                let default_group = match self.selected_tree_item() {
-                    Some(TreeItem::Group { path, .. }) => path.clone(),
-                    _ => self
-                        .selected_session()
-                        .map(|s| s.group_path.clone())
-                        .unwrap_or_default(),
-                };
+            let mut all_groups: Vec<String> = self
+                .groups
+                .all_groups()
+                .into_iter()
+                .map(|g| g.path)
+                .collect();
+            all_groups.sort();
+            all_groups.dedup();
+            all_groups.insert(0, String::new());
 
-                let mut all_groups: Vec<String> = self
-                    .groups
-                    .all_groups()
-                    .into_iter()
-                    .map(|g| g.path)
-                    .collect();
-                all_groups.sort();
-                all_groups.dedup();
-                all_groups.insert(0, String::new());
+            self.dialog = Some(Dialog::NewSession(NewSessionDialog::new(
+                default_path,
+                default_group,
+                all_groups,
+            )));
+            self.state = AppState::Dialog;
+            return Ok(());
+        }
 
-                self.dialog = Some(Dialog::NewSession(NewSessionDialog::new(
-                    default_path,
-                    default_group,
-                    all_groups,
-                )));
+        if self.keybindings.matches("delete", &key, modifiers) {
+            if let Some(session) = self.selected_session() {
+                self.dialog = Some(Dialog::DeleteConfirm(DeleteConfirmDialog {
+                    session_id: session.id.clone(),
+                    title: session.title.clone(),
+                    kill_tmux: true,
+                }));
                 self.state = AppState::Dialog;
-            }
-
-            // Delete session / group
-            KeyCode::Char('d') => {
-                if let Some(session) = self.selected_session() {
-                    self.dialog = Some(Dialog::DeleteConfirm(DeleteConfirmDialog {
-                        session_id: session.id.clone(),
-                        title: session.title.clone(),
-                        kill_tmux: true,
+            } else if let Some(TreeItem::Group { path, .. }) = self.selected_tree_item() {
+                let path = path.clone();
+                let session_ids = self.group_session_ids(&path);
+                if session_ids.is_empty() {
+                    self.apply_delete_group_prefix(&path).await?;
+                    self.refresh_sessions().await?;
+                } else {
+                    self.dialog = Some(Dialog::DeleteGroup(DeleteGroupDialog {
+                        group_path: path,
+                        session_count: session_ids.len(),
+                        choice: DeleteGroupChoice::DeleteGroupKeepSessions,
                     }));
                     self.state = AppState::Dialog;
-                } else if let Some(TreeItem::Group { path, .. }) = self.selected_tree_item() {
-                    let path = path.clone();
-                    let session_ids = self.group_session_ids(&path);
-                    if session_ids.is_empty() {
-                        self.apply_delete_group_prefix(&path).await?;
-                        self.refresh_sessions().await?;
-                    } else {
-                        self.dialog = Some(Dialog::DeleteGroup(DeleteGroupDialog {
-                            group_path: path,
-                            session_count: session_ids.len(),
-                            choice: DeleteGroupChoice::DeleteGroupKeepSessions,
-                        }));
-                        self.state = AppState::Dialog;
-                    }
                 }
             }
+            return Ok(());
+        }
 
-            // Fork
-            KeyCode::Char('f') => {
-                if self.selected_session().is_some() {
-                    self.open_fork_dialog();
-                }
+        if self.keybindings.matches("fork", &key, modifiers) {
+            if self.selected_session().is_some() {
+                self.open_fork_dialog();
             }
+            return Ok(());
+        }
 
-            // Create group
-            KeyCode::Char('g') => {
-                self.open_create_group_dialog();
+        if self.keybindings.matches("create_group", &key, modifiers) {
+            self.open_create_group_dialog();
+            return Ok(());
+        }
+
+        if self.keybindings.matches("move", &key, modifiers) {
+            if self.selected_session().is_some() {
+                self.open_move_group_dialog();
             }
+            return Ok(());
+        }
 
-            // Move session to group
-            KeyCode::Char('m') => {
-                if self.selected_session().is_some() {
-                    self.open_move_group_dialog();
-                }
+        if self.keybindings.matches("preview_refresh", &key, modifiers) {
+            self.refresh_preview_cache_selected().await?;
+            return Ok(());
+        }
+
+        if self.keybindings.matches("search", &key, modifiers) {
+            self.state = AppState::Search;
+            self.search_query.clear();
+            self.search_results.clear();
+            self.search_selected = 0;
+            self.update_search_results();
+            return Ok(());
+        }
+
+        if self.keybindings.matches("help", &key, modifiers) {
+            self.help_visible = !self.help_visible;
+            self.state = if self.help_visible {
+                AppState::Help
+            } else {
+                AppState::Normal
+            };
+            return Ok(());
+        }
+
+        if self.keybindings.matches("restart", &key, modifiers) {
+            if self.selected_session().is_some() {
+                self.restart_selected().await?;
             }
-
-            // Refresh preview (cached snapshot)
-            KeyCode::Char('p') => {
-                self.refresh_preview_cache_selected().await?;
-            }
-
-            // Search
-            KeyCode::Char('/') => {
-                self.state = AppState::Search;
-                self.search_query.clear();
-                self.search_results.clear();
-                self.search_selected = 0;
-                self.update_search_results();
-            }
-
-            // Help
-            KeyCode::Char('?') => {
-                self.help_visible = !self.help_visible;
-                self.state = if self.help_visible {
-                    AppState::Help
-                } else {
-                    AppState::Normal
-                };
-            }
-
-            // Restart selected session
-            KeyCode::Char('R') => {
-                if self.selected_session().is_some() {
-                    self.restart_selected().await?;
-                }
-            }
-
-            _ => {}
+            return Ok(());
         }
 
         Ok(())

@@ -76,6 +76,47 @@ From the dashboard:
 - Group selected: `Enter` toggle, `g` create, `r` rename, `d` delete (empty = delete immediately; non-empty = confirm options)
 - Global: `/` search, `p` capture preview snapshot, `?` help
 
+## Custom keybindings
+
+On startup, agent-hand reads `~/.agent-hand/config.json` (legacy `~/.agent-deck-rs/config.json` is also accepted).
+
+Example:
+
+```json
+{
+  "keybindings": {
+    "quit": ["q", "Ctrl+c"],
+    "up": ["Up", "k"],
+    "down": ["Down", "j"],
+
+    "select": "Enter",
+    "toggle_group": "Space",
+    "expand": "Right",
+    "collapse": "Left",
+
+    "new_session": "n",
+    "refresh": "Ctrl+r",
+    "search": "/",
+    "help": "?",
+
+    "start": "s",
+    "stop": "x",
+    "rename": "r",
+    "restart": "R",
+    "delete": "d",
+    "fork": "f",
+    "create_group": "g",
+    "move": "m",
+    "preview_refresh": "p"
+  }
+}
+```
+
+Supported key names: `Enter`, `Esc`, `Tab`, `Backspace`, `Space`, `Up`, `Down`, `Left`, `Right`, plus single characters (e.g. `r`, `R`, `/`).
+Modifiers: `Ctrl+`, `Alt+`, `Shift+`.
+
+Note: currently this only affects the main dashboard (Normal mode); other dialogs and the tmux popup switcher still use fixed keys.
+
 ## CLI
 
 ```bash

@@ -78,6 +78,47 @@ From the dashboard:
 - Group selected: `Enter` toggle, `g` create, `r` rename, `d` delete (empty = delete immediately; non-empty = confirm options)
 - Global: `/` search, `p` capture preview snapshot, `?` help
 
+## 自定义快捷键
+
+启动时会读取 `~/.agent-hand/config.json`（也兼容旧目录 `~/.agent-deck-rs/config.json`）。
+
+示例：
+
+```json
+{
+  "keybindings": {
+    "quit": ["q", "Ctrl+c"],
+    "up": ["Up", "k"],
+    "down": ["Down", "j"],
+
+    "select": "Enter",
+    "toggle_group": "Space",
+    "expand": "Right",
+    "collapse": "Left",
+
+    "new_session": "n",
+    "refresh": "Ctrl+r",
+    "search": "/",
+    "help": "?",
+
+    "start": "s",
+    "stop": "x",
+    "rename": "r",
+    "restart": "R",
+    "delete": "d",
+    "fork": "f",
+    "create_group": "g",
+    "move": "m",
+    "preview_refresh": "p"
+  }
+}
+```
+
+支持的按键名：`Enter` / `Esc` / `Tab` / `Backspace` / `Space` / `Up` / `Down` / `Left` / `Right`，以及单个字符（如 `r`、`R`、`/`）。
+修饰键：`Ctrl+` / `Alt+` / `Shift+`。
+
+注意：目前仅影响主 dashboard（Normal 模式）；其它对话框和 tmux popup switcher 仍使用固定按键。
+
 ## CLI
 
 ```bash
