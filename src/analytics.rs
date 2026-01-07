@@ -77,7 +77,7 @@ impl ActivityTracker {
         self.enabled
     }
 
-    /// Get the log file path for today
+    /// Get the log file path for today (JSONL format)
     fn log_path(&self) -> Result<PathBuf> {
         let base = Storage::get_agent_hand_dir()?;
         let date = Utc::now().format("%Y-%m-%d").to_string();
@@ -85,7 +85,7 @@ impl ActivityTracker {
             .join("profiles")
             .join(&self.profile)
             .join("analytics")
-            .join(format!("{}.json", date)))
+            .join(format!("{}.jsonl", date)))
     }
 
     /// Record a session enter event
@@ -148,7 +148,7 @@ impl ActivityTracker {
         self.append_event(event).await
     }
 
-    /// Append an event to today's log file
+    /// Append an event to today's log file (JSONL format - one event per line)
     async fn append_event(&self, event: ActivityEvent) -> Result<()> {
         let path = self.log_path()?;
 
@@ -157,27 +157,16 @@ impl ActivityTracker {
             fs::create_dir_all(parent).await?;
         }
 
-        // Load existing log or create new
-        let mut log = if path.exists() {
-            let content = fs::read_to_string(&path).await?;
-            serde_json::from_str::<DailyLog>(&content).unwrap_or_default()
-        } else {
-            DailyLog {
-                date: Utc::now().format("%Y-%m-%d").to_string(),
-                events: Vec::new(),
-            }
-        };
+        // Append single line (JSONL format)
+        let mut line = serde_json::to_string(&event)?;
+        line.push('\n');
 
-        log.events.push(event);
-
-        // Write back
-        let json = serde_json::to_string_pretty(&log)?;
-        let temp_path = path.with_extension("tmp");
-        let mut file = fs::File::create(&temp_path).await?;
-        file.write_all(json.as_bytes()).await?;
-        file.sync_all().await?;
-        drop(file);
-        fs::rename(&temp_path, &path).await?;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .await?;
+        file.write_all(line.as_bytes()).await?;
 
         Ok(())
     }
@@ -196,8 +185,18 @@ impl ActivityTracker {
             });
         }
 
+        // Read JSONL format (one event per line)
         let content = fs::read_to_string(&path).await?;
-        Ok(serde_json::from_str(&content)?)
+        let events: Vec<ActivityEvent> = content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect();
+
+        Ok(DailyLog {
+            date: Utc::now().format("%Y-%m-%d").to_string(),
+            events,
+        })
     }
 
     /// Get a summary of today's activity

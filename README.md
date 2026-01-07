@@ -198,7 +198,7 @@ Enable in `~/.agent-hand/config.json`:
 }
 ```
 
-Logs are stored per-profile in `~/.agent-hand/profiles/<profile>/analytics/YYYY-MM-DD.json`.
+Logs are stored per-profile in `~/.agent-hand/profiles/<profile>/analytics/YYYY-MM-DD.jsonl` (JSONL format - one event per line for efficient append).
 
 ## Changelog
 
