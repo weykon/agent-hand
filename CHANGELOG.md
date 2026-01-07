@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-01-07
+
+### Fixed
+- TUI: Session tree list now scrolls to keep the selection visible in small terminals.
+
+### Docs
+- tmux hotkeys: Added notes about common key conflicts/equivalences and recommended sticking with defaults.
+- Added a short tmux basics cheat sheet (search/copy/paste) to reduce onboarding friction.
+
 ## [0.1.6] - 2026-01-06
 
 ### Fixed
