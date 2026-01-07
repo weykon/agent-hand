@@ -134,6 +134,8 @@ Add to `~/.agent-hand/config.json`:
 
 Changes take effect the next time you attach (agent-hand rebinds keys on attach).
 
+If you previously used the legacy directory `~/.agent-deck-rs/`, agent-hand will automatically migrate existing profiles into `~/.agent-hand/` on startup when it detects the new directory has no sessions.
+
 ## CLI
 
 ```bash

@@ -136,6 +136,8 @@ From the dashboard:
 
 配置会在下次 attach 时生效（agent-hand 会在 attach 时重绑按键）。
 
+如果你之前使用的是旧目录 `~/.agent-deck-rs/`，当 agent-hand 检测到新目录 `~/.agent-hand/` 里还没有任何 session 时，会在启动时自动把旧 profiles 迁移到新目录。
+
 ## CLI
 
 ```bash

@@ -9,6 +9,58 @@ use parking_lot::Mutex;
 use super::{GroupData, GroupTree, Instance};
 use crate::error::{Error, Result};
 
+fn copy_dir_recursive_sync(src: &PathBuf, dst: &PathBuf) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for ent in std::fs::read_dir(src)? {
+        let ent = ent?;
+        let file_type = ent.file_type()?;
+        let from = ent.path();
+        let to = dst.join(ent.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive_sync(&from, &to)?;
+        } else if file_type.is_file() {
+            let _ = std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+async fn copy_dir_recursive(src: PathBuf, dst: PathBuf) -> Result<()> {
+    tokio::task::spawn_blocking(move || copy_dir_recursive_sync(&src, &dst))
+        .await
+        .map_err(|e| Error::Other(format!("Migration task failed: {e}")))??;
+    Ok(())
+}
+
+async fn sessions_instances_count(path: &PathBuf) -> Result<usize> {
+    if !path.exists() {
+        return Ok(0);
+    }
+    let content = fs::read_to_string(path).await?;
+    let v: serde_json::Value = serde_json::from_str(&content)?;
+    Ok(v.get("instances")
+        .and_then(|x| x.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0))
+}
+
+async fn profiles_have_instances(profiles_dir: &PathBuf) -> Result<bool> {
+    if !profiles_dir.exists() {
+        return Ok(false);
+    }
+    let mut rd = fs::read_dir(profiles_dir).await?;
+    while let Some(ent) = rd.next_entry().await? {
+        if !ent.file_type().await?.is_dir() {
+            continue;
+        }
+        let sessions = ent.path().join("sessions.json");
+        if sessions_instances_count(&sessions).await? > 0 {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 const MAX_BACKUP_GENERATIONS: usize = 3;
 
 /// Storage data format
@@ -29,6 +81,8 @@ pub struct Storage {
 impl Storage {
     /// Create new storage for a profile
     pub async fn new(profile: &str) -> Result<Self> {
+        Self::migrate_legacy_profiles_if_needed().await?;
+
         let base_dir = Self::get_agent_deck_dir()?;
         let profile_dir = base_dir.join("profiles").join(profile);
         fs::create_dir_all(&profile_dir).await?;
@@ -44,7 +98,9 @@ impl Storage {
 
     /// Get agent-hand base directory
     ///
-    /// Backward-compat: if `~/.agent-deck-rs` exists and `~/.agent-hand` does not, use the old dir.
+    /// Backward-compat:
+    /// - If `~/.agent-deck-rs` exists and `~/.agent-hand` does not, use the old dir.
+    /// - If both exist, we still use `~/.agent-hand` (and may migrate legacy profiles on startup).
     pub fn get_agent_hand_dir() -> Result<PathBuf> {
         let home =
             dirs::home_dir().ok_or_else(|| Error::config("Cannot determine home directory"))?;
@@ -57,6 +113,77 @@ impl Storage {
         } else {
             Ok(new_dir)
         }
+    }
+
+    async fn migrate_legacy_profiles_if_needed() -> Result<()> {
+        let home =
+            dirs::home_dir().ok_or_else(|| Error::config("Cannot determine home directory"))?;
+        let new_dir = home.join(".agent-hand");
+        let old_dir = home.join(".agent-deck-rs");
+
+        if !new_dir.exists() || !old_dir.exists() {
+            return Ok(());
+        }
+
+        let old_profiles = old_dir.join("profiles");
+        if !old_profiles.exists() {
+            return Ok(());
+        }
+
+        let new_profiles = new_dir.join("profiles");
+        if !new_profiles.exists() {
+            fs::create_dir_all(&new_profiles).await?;
+        }
+
+        let old_has_instances = profiles_have_instances(&old_profiles).await?;
+        if !old_has_instances {
+            return Ok(());
+        }
+
+        let new_has_instances = profiles_have_instances(&new_profiles).await?;
+        if new_has_instances {
+            return Ok(());
+        }
+
+        let mut rd = fs::read_dir(&old_profiles).await?;
+        while let Some(ent) = rd.next_entry().await? {
+            let file_type = ent.file_type().await?;
+            if !file_type.is_dir() {
+                continue;
+            }
+
+            let name = ent.file_name();
+            let src_profile = ent.path();
+            let dst_profile = new_profiles.join(&name);
+            fs::create_dir_all(&dst_profile).await?;
+
+            // Prefer migrating sessions.json even if the directory already exists.
+            let src_sessions = src_profile.join("sessions.json");
+            let dst_sessions = dst_profile.join("sessions.json");
+            let src_count = sessions_instances_count(&src_sessions).await?;
+            let dst_count = sessions_instances_count(&dst_sessions).await?;
+            if src_count > 0 && dst_count == 0 {
+                let _ = fs::copy(&src_sessions, &dst_sessions).await?;
+            }
+
+            // Copy the rest (e.g. backups) only if missing.
+            let mut src_rd = fs::read_dir(&src_profile).await?;
+            while let Some(src_ent) = src_rd.next_entry().await? {
+                let src_type = src_ent.file_type().await?;
+                let from = src_ent.path();
+                let to = dst_profile.join(src_ent.file_name());
+                if to.exists() {
+                    continue;
+                }
+                if src_type.is_dir() {
+                    copy_dir_recursive(from, to).await?;
+                } else if src_type.is_file() {
+                    let _ = fs::copy(&from, &to).await?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Backward-compatible alias
