@@ -222,14 +222,24 @@ impl TmuxManager {
     ) -> Result<()> {
         // Check if input logging is enabled (feature + config)
         #[cfg(feature = "input-logging")]
-        let input_logging = crate::config::ConfigFile::load()
-            .await
-            .ok()
-            .flatten()
-            .map(|c| c.input_logging_enabled())
-            .unwrap_or(false);
+        let (input_logging, input_logging_config) = {
+            let cfg = crate::config::ConfigFile::load().await.ok().flatten();
+            let enabled = cfg.as_ref().map(|c| c.input_logging_enabled()).unwrap_or(false);
+            let config = cfg.map(|c| c.input_logging().clone()).unwrap_or_default();
+            (enabled, config)
+        };
         #[cfg(not(feature = "input-logging"))]
         let input_logging = false;
+
+        // Rotate logs if needed (before creating new session)
+        #[cfg(feature = "input-logging")]
+        if input_logging {
+            let profile = std::env::var("AGENTHAND_PROFILE").unwrap_or_else(|_| "default".to_string());
+            if let Ok(log_dir) = crate::log_rotate::get_session_logs_dir(&profile) {
+                let rotator = crate::log_rotate::LogRotator::new(log_dir, input_logging_config);
+                let _ = rotator.rotate_if_needed().await;
+            }
+        }
 
         let mut cmd = self.tmux_cmd();
         cmd.args(&[
