@@ -220,6 +220,17 @@ impl TmuxManager {
         working_dir: &str,
         command: Option<&str>,
     ) -> Result<()> {
+        // Check if input logging is enabled (feature + config)
+        #[cfg(feature = "input-logging")]
+        let input_logging = crate::config::ConfigFile::load()
+            .await
+            .ok()
+            .flatten()
+            .map(|c| c.input_logging_enabled())
+            .unwrap_or(false);
+        #[cfg(not(feature = "input-logging"))]
+        let input_logging = false;
+
         let mut cmd = self.tmux_cmd();
         cmd.args(&[
             "new-session",
@@ -230,14 +241,39 @@ impl TmuxManager {
             working_dir,
         ]);
 
-        // If user specified a command, run it; otherwise start a login shell
-        // to ensure ~/.zshrc (or equivalent) is sourced fresh.
+        // Build the shell command
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        
         if let Some(command) = command {
-            cmd.arg(command);
+            // User specified a command
+            if input_logging {
+                // Wrap with script for logging
+                let log_path = self.get_session_log_path(name).await?;
+                cmd.arg("script");
+                cmd.arg("-q");
+                cmd.arg("-a"); // append mode
+                cmd.arg(&log_path);
+                cmd.arg(&shell);
+                cmd.arg("-l");
+                cmd.arg("-c");
+                cmd.arg(command);
+            } else {
+                cmd.arg(command);
+            }
         } else {
-            // Get user's default shell and run as login shell
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-            cmd.args([&shell, "-l"]);
+            // Login shell
+            if input_logging {
+                // Wrap with script for logging
+                let log_path = self.get_session_log_path(name).await?;
+                cmd.arg("script");
+                cmd.arg("-q");
+                cmd.arg("-a"); // append mode
+                cmd.arg(&log_path);
+                cmd.arg(&shell);
+                cmd.arg("-l");
+            } else {
+                cmd.args([&shell, "-l"]);
+            }
         }
 
         let output = cmd.output().await?;
@@ -262,6 +298,29 @@ impl TmuxManager {
         self.register_session(name.to_string());
 
         Ok(())
+    }
+
+    /// Get log file path for session input logging
+    #[cfg(feature = "input-logging")]
+    async fn get_session_log_path(&self, session_name: &str) -> Result<String> {
+        let base = crate::session::Storage::get_agent_hand_dir()?;
+        let profile = std::env::var("AGENTHAND_PROFILE").unwrap_or_else(|_| "default".to_string());
+        let log_dir = base.join("profiles").join(&profile).join("session-logs");
+        
+        // Ensure directory exists
+        tokio::fs::create_dir_all(&log_dir).await?;
+        
+        // Use session name + date for log file
+        let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let safe_name = session_name.replace('/', "_");
+        let log_path = log_dir.join(format!("{}_{}.log", safe_name, date));
+        
+        Ok(log_path.to_string_lossy().to_string())
+    }
+
+    #[cfg(not(feature = "input-logging"))]
+    async fn get_session_log_path(&self, _session_name: &str) -> Result<String> {
+        Ok(String::new())
     }
 
     /// Kill a tmux session

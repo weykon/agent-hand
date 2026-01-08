@@ -33,6 +33,9 @@ pub struct ConfigFile {
 
     #[serde(default)]
     analytics: AnalyticsConfig,
+
+    #[serde(default)]
+    input_logging: InputLoggingConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -54,6 +57,19 @@ fn default_analytics_enabled() -> bool {
 }
 
 impl Default for AnalyticsConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
+/// Input logging config (requires `input-logging` feature at compile time)
+#[derive(Debug, Clone, Deserialize)]
+pub struct InputLoggingConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for InputLoggingConfig {
     fn default() -> Self {
         Self { enabled: false }
     }
@@ -81,6 +97,12 @@ impl ConfigFile {
 
     pub fn analytics_enabled(&self) -> bool {
         self.analytics.enabled
+    }
+
+    /// Check if input logging is enabled in config
+    /// Note: Also requires `input-logging` feature at compile time
+    pub fn input_logging_enabled(&self) -> bool {
+        self.input_logging.enabled
     }
 }
 

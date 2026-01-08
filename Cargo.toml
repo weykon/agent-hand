@@ -10,6 +10,12 @@ license = "MIT"
 name = "agent-hand"
 path = "src/main.rs"
 
+[features]
+default = []
+# Personal feature: log session input/output via `script` command
+# Build with: cargo build --release --features input-logging
+input-logging = []
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
