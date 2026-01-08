@@ -10,6 +10,11 @@ use super::SESSION_PREFIX;
 
 const TMUX_SERVER_NAME: &str = "agentdeck_rs";
 
+/// Simple shell escape for paths/commands (wrap in single quotes, escape existing quotes)
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 /// Tmux manager - handles all tmux operations
 #[derive(Debug)]
 pub struct TmuxManager {
@@ -258,29 +263,30 @@ impl TmuxManager {
             // User specified a command
             if input_logging {
                 // Wrap with script for logging
+                // macOS script syntax: script [-aqF] file [command ...]
                 let log_path = self.get_session_log_path(name).await?;
-                cmd.arg("script");
-                cmd.arg("-q");
-                cmd.arg("-a"); // append mode
-                cmd.arg(&log_path);
-                cmd.arg(&shell);
-                cmd.arg("-l");
-                cmd.arg("-c");
-                cmd.arg(command);
+                let script_cmd = format!(
+                    "script -q -a -F {} {} -l -c {}",
+                    shell_escape(&log_path),
+                    shell,
+                    shell_escape(command)
+                );
+                cmd.arg(script_cmd);
             } else {
                 cmd.arg(command);
             }
         } else {
-            // Login shell
+            // Login shell (no command)
             if input_logging {
                 // Wrap with script for logging
+                // macOS script syntax: script [-aqF] file [command ...]
                 let log_path = self.get_session_log_path(name).await?;
-                cmd.arg("script");
-                cmd.arg("-q");
-                cmd.arg("-a"); // append mode
-                cmd.arg(&log_path);
-                cmd.arg(&shell);
-                cmd.arg("-l");
+                let script_cmd = format!(
+                    "script -q -a -F {} {} -l",
+                    shell_escape(&log_path),
+                    shell
+                );
+                cmd.arg(script_cmd);
             } else {
                 cmd.args([&shell, "-l"]);
             }
