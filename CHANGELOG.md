@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-01-09
+
+### Added
+- Install script: Auto-detect and install tmux if missing (supports Homebrew, apt, dnf, yum, pacman, apk).
+- Install script: `--skip-tmux` flag to bypass tmux installation check.
+- TUI startup: Friendly error message with install instructions when tmux is not available.
+- README: Prerequisites section with tmux installation commands.
+- README: Session persistence documentation (tmux-resurrect/continuum).
+
+### Fixed
+- Input-logging: Fixed tmux command construction for `script` wrapper (use single command string).
+
 ## [0.1.9] - 2026-01-07
 
 ### Added
