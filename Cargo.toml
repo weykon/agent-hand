@@ -1,6 +1,6 @@
 [package]
 name = "agent-hand"
-version = "0.1.11"
+version = "0.1.12"
 edition = "2021"
 authors = ["Agent Hand Contributors"]
 description = "Terminal session manager for AI coding agents"

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-01-09
+
+### Added
+- TextInput component with cursor support for all dialog inputs.
+- Left/Right arrow keys to move cursor within input fields.
+- Home/End keys to jump to start/end of input.
+- Delete key to remove character at cursor position.
+- Visual cursor indicator (highlighted current character).
+
 ## [0.1.11] - 2026-01-09
 
 ### Fixed
