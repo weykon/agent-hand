@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-01-09
+
+### Fixed
+- Config: Support multiple config paths (`~/.agent-hand/config.{json,toml}` and `~/.config/agent-hand/config.{toml,json}`).
+
 ### Removed
 - Input-logging feature removed (script command cannot capture user input only).
 
