@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use crate::error::Result;
 
+use super::input::TextInput;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NewSessionField {
     Path,
@@ -11,9 +13,9 @@ pub enum NewSessionField {
 
 #[derive(Debug, Clone)]
 pub struct NewSessionDialog {
-    pub path: String,
-    pub title: String,
-    pub group_path: String,
+    pub path: TextInput,
+    pub title: TextInput,
+    pub group_path: TextInput,
     pub field: NewSessionField,
 
     pub group_all_groups: Vec<String>,
@@ -48,7 +50,7 @@ impl NewSessionDialog {
     }
 
     pub fn update_group_matches(&mut self) {
-        let q = self.group_path.trim();
+        let q = self.group_path.text().trim();
         let mut out: Vec<String> = self
             .group_all_groups
             .iter()
@@ -118,14 +120,14 @@ pub enum ForkField {
 pub struct ForkDialog {
     pub parent_session_id: String,
     pub project_path: PathBuf,
-    pub title: String,
-    pub group_path: String,
+    pub title: TextInput,
+    pub group_path: TextInput,
     pub field: ForkField,
 }
 
 #[derive(Debug, Clone)]
 pub struct CreateGroupDialog {
-    pub input: String,
+    pub input: TextInput,
     pub all_groups: Vec<String>,
     pub matches: Vec<String>,
     pub selected: usize,
@@ -150,7 +152,7 @@ impl CreateGroupDialog {
     }
 
     pub fn update_matches(&mut self) {
-        let q = self.input.trim();
+        let q = self.input.text().trim();
         let mut out: Vec<String> = self
             .all_groups
             .iter()
@@ -173,7 +175,7 @@ impl CreateGroupDialog {
 pub struct MoveGroupDialog {
     pub session_id: String,
     pub title: String,
-    pub input: String,
+    pub input: TextInput,
     pub all_groups: Vec<String>,
     pub matches: Vec<String>,
     pub selected: usize,
@@ -198,7 +200,7 @@ impl MoveGroupDialog {
     }
 
     pub fn update_matches(&mut self) {
-        let q = self.input.trim();
+        let q = self.input.text().trim();
         let mut out: Vec<String> = self
             .all_groups
             .iter()
@@ -220,7 +222,7 @@ impl MoveGroupDialog {
 #[derive(Debug, Clone)]
 pub struct RenameGroupDialog {
     pub old_path: String,
-    pub new_path: String,
+    pub new_path: TextInput,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,8 +236,8 @@ pub enum SessionEditField {
 pub struct RenameSessionDialog {
     pub session_id: String,
     pub old_title: String,
-    pub new_title: String,
-    pub label: String,
+    pub new_title: TextInput,
+    pub label: TextInput,
     pub label_color: crate::session::LabelColor,
     pub field: SessionEditField,
 }
@@ -269,12 +271,10 @@ pub enum Dialog {
 
 impl NewSessionDialog {
     pub fn new(default_path: PathBuf, default_group: String, all_groups: Vec<String>) -> Self {
-        let title = String::new();
-
         let mut d = Self {
-            path: default_path.to_string_lossy().to_string(),
-            title,
-            group_path: default_group,
+            path: TextInput::with_text(default_path.to_string_lossy().to_string()),
+            title: TextInput::new(),
+            group_path: TextInput::with_text(default_group),
             field: NewSessionField::Path,
             group_all_groups: all_groups,
             group_matches: Vec::new(),
@@ -359,7 +359,7 @@ impl NewSessionDialog {
 
         // Keep the original behavior for manual completion: if there's exactly one match, apply it.
         if self.path_suggestions.len() == 1 {
-            self.path = self.path_suggestions[0].clone();
+            self.path.set_text(self.path_suggestions[0].clone());
             self.clear_path_suggestions();
         }
     }
@@ -368,7 +368,7 @@ impl NewSessionDialog {
         // Compute suggestions once
         self.clear_path_suggestions();
 
-        let expanded = Self::expand_home(&self.path);
+        let expanded = Self::expand_home(self.path.text());
         let raw = expanded.to_string_lossy().to_string();
         let (dir, prefix, base_has_slash) = match raw.rfind('/') {
             Some(idx) => (
@@ -428,7 +428,7 @@ impl NewSessionDialog {
         self.path_suggestions_idx = 0;
 
         // If the user didn't type a slash and is completing in CWD, keep relative feeling.
-        if !base_has_slash && self.path.starts_with('~') {
+        if !base_has_slash && self.path.text().starts_with('~') {
             // leave as-is
         }
     }
@@ -442,13 +442,13 @@ impl NewSessionDialog {
             .get(self.path_suggestions_idx)
             .cloned()
         {
-            self.path = sel;
+            self.path.set_text(sel);
         }
         self.clear_path_suggestions();
     }
 
     pub fn validate(&self) -> Result<PathBuf> {
-        let project_path = Self::expand_home(&self.path);
+        let project_path = Self::expand_home(self.path.text());
         let project_path = project_path.canonicalize()?;
         if !project_path.is_dir() {
             return Err(crate::Error::InvalidInput(format!(

@@ -23,7 +23,7 @@ use super::{
     AppState, CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
     ForkDialog, ForkField, MCPColumn, MCPDialog, MoveGroupDialog, NewSessionDialog,
     NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, TagPickerDialog,
-    TagSpec, TreeItem,
+    TagSpec, TextInput, TreeItem,
 };
 
 /// Main TUI application
@@ -691,12 +691,12 @@ impl App {
                         d.complete_path_or_cycle(true);
                     }
                 }
-                KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
+                KeyCode::Up | KeyCode::Down => {
                     if d.field == NewSessionField::Group {
                         if d.group_matches.is_empty() {
                             return Ok(());
                         }
-                        if matches!(key, KeyCode::Up | KeyCode::Left) {
+                        if matches!(key, KeyCode::Up) {
                             if d.group_selected == 0 {
                                 d.group_selected = d.group_matches.len() - 1;
                             } else {
@@ -706,7 +706,7 @@ impl App {
                             d.group_selected = (d.group_selected + 1) % d.group_matches.len();
                         }
                     } else if d.field == NewSessionField::Path && d.path_suggestions_visible {
-                        d.complete_path_or_cycle(matches!(key, KeyCode::Up | KeyCode::Left));
+                        d.complete_path_or_cycle(matches!(key, KeyCode::Up));
                     }
                 }
                 KeyCode::Enter => {
@@ -722,10 +722,10 @@ impl App {
                         };
                     } else {
                         if let Some(sel) = d.selected_group_value() {
-                            d.group_path = sel.to_string();
+                            d.group_path.set_text(sel.to_string());
                             d.update_group_matches();
                         } else {
-                            d.group_path = d.group_path.trim().to_string();
+                            d.group_path.set_text(d.group_path.text().trim().to_string());
                             d.update_group_matches();
                         }
 
@@ -742,19 +742,97 @@ impl App {
                 KeyCode::Backspace => {
                     match d.field {
                         NewSessionField::Path => {
-                            d.path.pop();
+                            d.path.backspace();
                             d.clear_path_suggestions();
                             d.path_dirty = true;
                             d.path_last_edit = Instant::now();
                         }
                         NewSessionField::Title => {
-                            d.title.pop();
+                            d.title.backspace();
                         }
                         NewSessionField::Group => {
-                            d.group_path.pop();
+                            d.group_path.backspace();
                             d.update_group_matches();
                         }
                     };
+                }
+                KeyCode::Delete => {
+                    match d.field {
+                        NewSessionField::Path => {
+                            d.path.delete();
+                            d.clear_path_suggestions();
+                            d.path_dirty = true;
+                            d.path_last_edit = Instant::now();
+                        }
+                        NewSessionField::Title => {
+                            d.title.delete();
+                        }
+                        NewSessionField::Group => {
+                            d.group_path.delete();
+                            d.update_group_matches();
+                        }
+                    };
+                }
+                KeyCode::Left => {
+                    match d.field {
+                        NewSessionField::Path => {
+                            if d.path_suggestions_visible {
+                                d.complete_path_or_cycle(true);
+                            } else {
+                                d.path.move_left();
+                            }
+                        }
+                        NewSessionField::Title => {
+                            d.title.move_left();
+                        }
+                        NewSessionField::Group => {
+                            if !d.group_matches.is_empty() {
+                                if d.group_selected == 0 {
+                                    d.group_selected = d.group_matches.len() - 1;
+                                } else {
+                                    d.group_selected -= 1;
+                                }
+                            } else {
+                                d.group_path.move_left();
+                            }
+                        }
+                    }
+                }
+                KeyCode::Right => {
+                    match d.field {
+                        NewSessionField::Path => {
+                            if d.path_suggestions_visible {
+                                d.complete_path_or_cycle(false);
+                            } else {
+                                d.path.move_right();
+                            }
+                        }
+                        NewSessionField::Title => {
+                            d.title.move_right();
+                        }
+                        NewSessionField::Group => {
+                            if !d.group_matches.is_empty() {
+                                d.group_selected =
+                                    (d.group_selected + 1) % d.group_matches.len();
+                            } else {
+                                d.group_path.move_right();
+                            }
+                        }
+                    }
+                }
+                KeyCode::Home => {
+                    match d.field {
+                        NewSessionField::Path => d.path.move_home(),
+                        NewSessionField::Title => d.title.move_home(),
+                        NewSessionField::Group => d.group_path.move_home(),
+                    }
+                }
+                KeyCode::End => {
+                    match d.field {
+                        NewSessionField::Path => d.path.move_end(),
+                        NewSessionField::Title => d.title.move_end(),
+                        NewSessionField::Group => d.group_path.move_end(),
+                    }
                 }
                 KeyCode::Char(ch) => {
                     if modifiers.contains(KeyModifiers::CONTROL) {
@@ -786,14 +864,14 @@ impl App {
 
                     match d.field {
                         NewSessionField::Path => {
-                            d.path.push(ch);
+                            d.path.insert(ch);
                             d.clear_path_suggestions();
                             d.path_dirty = true;
                             d.path_last_edit = Instant::now();
                         }
-                        NewSessionField::Title => d.title.push(ch),
+                        NewSessionField::Title => d.title.insert(ch),
                         NewSessionField::Group => {
-                            d.group_path.push(ch);
+                            d.group_path.insert(ch);
                             d.update_group_matches();
                         }
                     }
@@ -965,8 +1043,8 @@ impl App {
                     } else {
                         let parent_session_id = d.parent_session_id.clone();
                         let project_path = d.project_path.clone();
-                        let title = d.title.clone();
-                        let group_path = d.group_path.clone();
+                        let title = d.title.text().to_string();
+                        let group_path = d.group_path.text().to_string();
                         self.dialog = None;
                         self.state = AppState::Normal;
                         let new_id = self
@@ -987,17 +1065,41 @@ impl App {
                 }
                 KeyCode::Backspace => match d.field {
                     ForkField::Title => {
-                        d.title.pop();
+                        d.title.backspace();
                     }
                     ForkField::Group => {
-                        d.group_path.pop();
+                        d.group_path.backspace();
                     }
+                },
+                KeyCode::Delete => match d.field {
+                    ForkField::Title => {
+                        d.title.delete();
+                    }
+                    ForkField::Group => {
+                        d.group_path.delete();
+                    }
+                },
+                KeyCode::Left => match d.field {
+                    ForkField::Title => d.title.move_left(),
+                    ForkField::Group => d.group_path.move_left(),
+                },
+                KeyCode::Right => match d.field {
+                    ForkField::Title => d.title.move_right(),
+                    ForkField::Group => d.group_path.move_right(),
+                },
+                KeyCode::Home => match d.field {
+                    ForkField::Title => d.title.move_home(),
+                    ForkField::Group => d.group_path.move_home(),
+                },
+                KeyCode::End => match d.field {
+                    ForkField::Title => d.title.move_end(),
+                    ForkField::Group => d.group_path.move_end(),
                 },
                 KeyCode::Char(ch) => {
                     if !modifiers.contains(KeyModifiers::CONTROL) {
                         match d.field {
-                            ForkField::Title => d.title.push(ch),
-                            ForkField::Group => d.group_path.push(ch),
+                            ForkField::Title => d.title.insert(ch),
+                            ForkField::Group => d.group_path.insert(ch),
                         }
                     }
                 }
@@ -1010,7 +1112,7 @@ impl App {
                 }
                 KeyCode::Enter => {
                     let old_path = d.old_path.clone();
-                    let new_path = d.new_path.clone();
+                    let new_path = d.new_path.text().to_string();
                     self.dialog = None;
                     self.state = AppState::Normal;
                     self.apply_rename_group(&old_path, &new_path).await?;
@@ -1022,11 +1124,26 @@ impl App {
                     self.state = AppState::Normal;
                 }
                 KeyCode::Backspace => {
-                    d.new_path.pop();
+                    d.new_path.backspace();
+                }
+                KeyCode::Delete => {
+                    d.new_path.delete();
+                }
+                KeyCode::Left => {
+                    d.new_path.move_left();
+                }
+                KeyCode::Right => {
+                    d.new_path.move_right();
+                }
+                KeyCode::Home => {
+                    d.new_path.move_home();
+                }
+                KeyCode::End => {
+                    d.new_path.move_end();
                 }
                 KeyCode::Char(ch) => {
                     if !modifiers.contains(KeyModifiers::CONTROL) {
-                        d.new_path.push(ch);
+                        d.new_path.insert(ch);
                     }
                 }
                 _ => {}
@@ -1055,8 +1172,8 @@ impl App {
 
                     let session_id = d.session_id.clone();
                     let old_title = d.old_title.clone();
-                    let title = d.new_title.clone();
-                    let label = d.label.clone();
+                    let title = d.new_title.text().to_string();
+                    let label = d.label.text().to_string();
                     let label_color = d.label_color;
                     self.dialog = None;
                     self.state = AppState::Normal;
@@ -1071,10 +1188,19 @@ impl App {
                 }
                 KeyCode::Backspace => match d.field {
                     SessionEditField::Title => {
-                        d.new_title.pop();
+                        d.new_title.backspace();
                     }
                     SessionEditField::Label => {
-                        d.label.pop();
+                        d.label.backspace();
+                    }
+                    SessionEditField::Color => {}
+                },
+                KeyCode::Delete => match d.field {
+                    SessionEditField::Title => {
+                        d.new_title.delete();
+                    }
+                    SessionEditField::Label => {
+                        d.label.delete();
                     }
                     SessionEditField::Color => {}
                 },
@@ -1089,6 +1215,12 @@ impl App {
                             crate::session::LabelColor::Red => crate::session::LabelColor::Yellow,
                             crate::session::LabelColor::Blue => crate::session::LabelColor::Red,
                         };
+                    } else {
+                        match d.field {
+                            SessionEditField::Title => d.new_title.move_left(),
+                            SessionEditField::Label => d.label.move_left(),
+                            SessionEditField::Color => {}
+                        }
                     }
                 }
                 KeyCode::Right => {
@@ -1102,8 +1234,24 @@ impl App {
                             crate::session::LabelColor::Red => crate::session::LabelColor::Blue,
                             crate::session::LabelColor::Blue => crate::session::LabelColor::Gray,
                         };
+                    } else {
+                        match d.field {
+                            SessionEditField::Title => d.new_title.move_right(),
+                            SessionEditField::Label => d.label.move_right(),
+                            SessionEditField::Color => {}
+                        }
                     }
                 }
+                KeyCode::Home => match d.field {
+                    SessionEditField::Title => d.new_title.move_home(),
+                    SessionEditField::Label => d.label.move_home(),
+                    SessionEditField::Color => {}
+                },
+                KeyCode::End => match d.field {
+                    SessionEditField::Title => d.new_title.move_end(),
+                    SessionEditField::Label => d.label.move_end(),
+                    SessionEditField::Color => {}
+                },
                 KeyCode::Char(ch) => {
                     if !modifiers.contains(KeyModifiers::CONTROL) {
                         if d.field == SessionEditField::Color {
@@ -1162,8 +1310,8 @@ impl App {
                             }
                         } else {
                             match d.field {
-                                SessionEditField::Title => d.new_title.push(ch),
-                                SessionEditField::Label => d.label.push(ch),
+                                SessionEditField::Title => d.new_title.insert(ch),
+                                SessionEditField::Label => d.label.insert(ch),
                                 SessionEditField::Color => {}
                             }
                         }
@@ -1198,7 +1346,7 @@ impl App {
                     let group_path = d
                         .selected_value()
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|| d.input.trim().to_string());
+                        .unwrap_or_else(|| d.input.text().trim().to_string());
                     self.dialog = None;
                     self.state = AppState::Normal;
                     if group_path.trim().is_empty() {
@@ -1209,12 +1357,28 @@ impl App {
                     self.focus_group(&group_path).await?;
                 }
                 KeyCode::Backspace => {
-                    d.input.pop();
+                    d.input.backspace();
                     d.update_matches();
+                }
+                KeyCode::Delete => {
+                    d.input.delete();
+                    d.update_matches();
+                }
+                KeyCode::Left => {
+                    d.input.move_left();
+                }
+                KeyCode::Right => {
+                    d.input.move_right();
+                }
+                KeyCode::Home => {
+                    d.input.move_home();
+                }
+                KeyCode::End => {
+                    d.input.move_end();
                 }
                 KeyCode::Char(ch) => {
                     if !modifiers.contains(KeyModifiers::CONTROL) {
-                        d.input.push(ch);
+                        d.input.insert(ch);
                         d.update_matches();
                     }
                 }
@@ -1248,7 +1412,7 @@ impl App {
                     let group_path = d
                         .selected_value()
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|| d.input.trim().to_string());
+                        .unwrap_or_else(|| d.input.text().trim().to_string());
                     self.dialog = None;
                     self.state = AppState::Normal;
                     self.apply_move_group(&session_id, &group_path).await?;
@@ -1256,12 +1420,28 @@ impl App {
                     self.focus_session(&session_id).await?;
                 }
                 KeyCode::Backspace => {
-                    d.input.pop();
+                    d.input.backspace();
                     d.update_matches();
+                }
+                KeyCode::Delete => {
+                    d.input.delete();
+                    d.update_matches();
+                }
+                KeyCode::Left => {
+                    d.input.move_left();
+                }
+                KeyCode::Right => {
+                    d.input.move_right();
+                }
+                KeyCode::Home => {
+                    d.input.move_home();
+                }
+                KeyCode::End => {
+                    d.input.move_end();
                 }
                 KeyCode::Char(ch) => {
                     if !modifiers.contains(KeyModifiers::CONTROL) {
-                        d.input.push(ch);
+                        d.input.insert(ch);
                         d.update_matches();
                     }
                 }
@@ -1334,8 +1514,8 @@ impl App {
         self.dialog = Some(Dialog::Fork(ForkDialog {
             parent_session_id: parent.id.clone(),
             project_path: parent.project_path.clone(),
-            title,
-            group_path: parent.group_path.clone(),
+            title: TextInput::with_text(title),
+            group_path: TextInput::with_text(parent.group_path.clone()),
             field: ForkField::Title,
         }));
         self.state = AppState::Dialog;
@@ -1352,7 +1532,7 @@ impl App {
         all_groups.dedup();
 
         let mut d = CreateGroupDialog {
-            input: String::new(),
+            input: TextInput::new(),
             all_groups,
             matches: Vec::new(),
             selected: 0,
@@ -1381,7 +1561,7 @@ impl App {
         let mut d = MoveGroupDialog {
             session_id: s.id.clone(),
             title: s.title.clone(),
-            input: s.group_path.clone(),
+            input: TextInput::with_text(s.group_path.clone()),
             all_groups,
             matches: Vec::new(),
             selected: 0,
@@ -1400,8 +1580,8 @@ impl App {
         self.dialog = Some(Dialog::RenameSession(RenameSessionDialog {
             session_id: s.id.clone(),
             old_title: s.title.clone(),
-            new_title: s.title.clone(),
-            label: s.label.clone(),
+            new_title: TextInput::with_text(s.title.clone()),
+            label: TextInput::with_text(s.label.clone()),
             label_color: s.label_color,
             field: SessionEditField::Title,
         }));
@@ -1457,7 +1637,7 @@ impl App {
 
         self.dialog = Some(Dialog::RenameGroup(RenameGroupDialog {
             old_path: path.clone(),
-            new_path: path.clone(),
+            new_path: TextInput::with_text(path.clone()),
         }));
         self.state = AppState::Dialog;
     }
@@ -1756,21 +1936,21 @@ impl App {
         };
 
         let project_path = d.validate()?;
-        let title = if d.title.trim().is_empty() {
+        let title = if d.title.text().trim().is_empty() {
             project_path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("Untitled")
                 .to_string()
         } else {
-            d.title.trim().to_string()
+            d.title.text().trim().to_string()
         };
 
         let storage = self.storage.lock().await;
         let (mut instances, mut tree) = storage.load().await?;
 
         let mut instance = Instance::new(title.clone(), project_path.clone());
-        let group_path = d.group_path.trim();
+        let group_path = d.group_path.text().trim();
         if !group_path.is_empty() {
             instance.group_path = group_path.to_string();
             tree.create_group(instance.group_path.clone());

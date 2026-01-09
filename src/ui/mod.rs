@@ -1,6 +1,7 @@
 mod app;
 mod dialogs;
 mod events;
+mod input;
 mod render;
 mod switcher;
 
@@ -11,6 +12,7 @@ pub use dialogs::{
     NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, TagPickerDialog,
     TagSpec,
 };
+pub use input::TextInput;
 pub use switcher::run_switcher;
 
 use crossterm::event::{KeyCode, KeyModifiers};

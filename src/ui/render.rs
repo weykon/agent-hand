@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::session::Status;
+use crate::ui::TextInput;
 
 use super::app::App;
 use super::TreeItem;
@@ -21,6 +22,41 @@ fn waiting_anim(tick: u64) -> &'static str {
     // Blink to draw attention: ~1s on, ~0.3s off (tick is 250ms).
     const FRAMES: [&str; 5] = ["!", "!", "!", "!", " "];
     FRAMES[(tick as usize) % FRAMES.len()]
+}
+
+/// Render a TextInput with cursor visible when active
+fn render_text_input(input: &TextInput, active: bool, base_style: Style) -> Vec<Span<'static>> {
+    let text = input.text();
+    let cursor_pos = input.cursor();
+    
+    if !active {
+        return vec![Span::styled(text.to_string(), base_style)];
+    }
+    
+    // Split text at cursor position
+    let (before, after) = text.split_at(cursor_pos);
+    
+    // Get the character at cursor (or space if at end)
+    let (cursor_char, rest) = if after.is_empty() {
+        (" ", "")
+    } else {
+        let mut chars = after.char_indices();
+        let _ = chars.next(); // skip first char
+        let rest_start = chars.next().map(|(i, _)| i).unwrap_or(after.len());
+        let cursor_str = &after[..rest_start];
+        (cursor_str, &after[rest_start..])
+    };
+    
+    let cursor_style = Style::default()
+        .fg(Color::Black)
+        .bg(Color::White)
+        .add_modifier(Modifier::BOLD);
+    
+    vec![
+        Span::styled(before.to_string(), base_style),
+        Span::styled(cursor_char.to_string(), cursor_style),
+        Span::styled(rest.to_string(), base_style),
+    ]
 }
 
 /// Main render function
@@ -294,26 +330,19 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
     let popup_area = centered_rect(75, 60, area);
     f.render_widget(Clear, popup_area);
 
-    let active_style = Style::default()
-        .fg(Color::Black)
-        .bg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
+    let base_style = Style::default();
+    let is_path_active = d.field == crate::ui::NewSessionField::Path;
+    let is_title_active = d.field == crate::ui::NewSessionField::Title;
+    let is_group_active = d.field == crate::ui::NewSessionField::Group;
 
-    let path_style = if d.field == crate::ui::NewSessionField::Path {
-        active_style
-    } else {
-        Style::default()
-    };
-    let title_style = if d.field == crate::ui::NewSessionField::Title {
-        active_style
-    } else {
-        Style::default()
-    };
-    let group_style = if d.field == crate::ui::NewSessionField::Group {
-        active_style
-    } else {
-        Style::default()
-    };
+    let mut path_spans = vec![Span::raw("Path:   ")];
+    path_spans.extend(render_text_input(&d.path, is_path_active, base_style));
+
+    let mut title_spans = vec![Span::raw("Title:  ")];
+    title_spans.extend(render_text_input(&d.title, is_title_active, base_style));
+
+    let mut group_spans = vec![Span::raw("Group:  ")];
+    group_spans.extend(render_text_input(&d.group_path, is_group_active, base_style));
 
     let mut lines = vec![
         Line::from(Span::styled(
@@ -323,10 +352,7 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(vec![
-            Span::raw("Path:   "),
-            Span::styled(d.path.clone(), path_style),
-        ]),
+        Line::from(path_spans),
     ];
 
     if d.path_suggestions_visible && !d.path_suggestions.is_empty() {
@@ -365,14 +391,8 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
     }
 
     lines.extend([
-        Line::from(vec![
-            Span::raw("Title:  "),
-            Span::styled(d.title.clone(), title_style),
-        ]),
-        Line::from(vec![
-            Span::raw("Group:  "),
-            Span::styled(d.group_path.clone(), group_style),
-        ]),
+        Line::from(title_spans),
+        Line::from(group_spans),
     ]);
 
     if d.field == crate::ui::NewSessionField::Group {
@@ -437,21 +457,15 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
     let popup_area = centered_rect(70, 40, area);
     f.render_widget(Clear, popup_area);
 
-    let active_style = Style::default()
-        .fg(Color::Black)
-        .bg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
+    let base_style = Style::default();
+    let is_title_active = d.field == crate::ui::ForkField::Title;
+    let is_group_active = d.field == crate::ui::ForkField::Group;
 
-    let title_style = if d.field == crate::ui::ForkField::Title {
-        active_style
-    } else {
-        Style::default()
-    };
-    let group_style = if d.field == crate::ui::ForkField::Group {
-        active_style
-    } else {
-        Style::default()
-    };
+    let mut title_spans = vec![Span::raw("Title: ")];
+    title_spans.extend(render_text_input(&d.title, is_title_active, base_style));
+
+    let mut group_spans = vec![Span::raw("Group: ")];
+    group_spans.extend(render_text_input(&d.group_path, is_group_active, base_style));
 
     let lines = vec![
         Line::from(Span::styled(
@@ -461,14 +475,8 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(vec![
-            Span::raw("Title: "),
-            Span::styled(d.title.clone(), title_style),
-        ]),
-        Line::from(vec![
-            Span::raw("Group: "),
-            Span::styled(d.group_path.clone(), group_style),
-        ]),
+        Line::from(title_spans),
+        Line::from(group_spans),
         Line::from(""),
         Line::from(Span::styled(
             "Tab: switch field • Enter: next/submit • Esc/Ctrl+C: cancel",
@@ -487,10 +495,9 @@ fn render_create_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::CreateGr
     let popup_area = centered_rect(75, 60, area);
     f.render_widget(Clear, popup_area);
 
-    let active_style = Style::default()
-        .fg(Color::Black)
-        .bg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
+    let base_style = Style::default();
+    let mut input_spans = vec![Span::raw("Name:   ")];
+    input_spans.extend(render_text_input(&d.input, true, base_style));
 
     let mut lines = vec![
         Line::from(Span::styled(
@@ -500,10 +507,7 @@ fn render_create_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::CreateGr
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(vec![
-            Span::raw("Name:   "),
-            Span::styled(d.input.clone(), active_style),
-        ]),
+        Line::from(input_spans),
         Line::from(""),
         Line::from(Span::styled(
             "Existing (↑/↓ to select):",
@@ -558,10 +562,9 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
     let popup_area = centered_rect(75, 60, area);
     f.render_widget(Clear, popup_area);
 
-    let active_style = Style::default()
-        .fg(Color::Black)
-        .bg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
+    let base_style = Style::default();
+    let mut input_spans = vec![Span::raw("Filter: ")];
+    input_spans.extend(render_text_input(&d.input, true, base_style));
 
     let mut lines = vec![
         Line::from(Span::styled(
@@ -578,10 +581,7 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
                 Style::default().add_modifier(Modifier::BOLD),
             ),
         ]),
-        Line::from(vec![
-            Span::raw("Filter: "),
-            Span::styled(d.input.clone(), active_style),
-        ]),
+        Line::from(input_spans),
         Line::from(""),
         Line::from(Span::styled(
             "Groups (↑/↓ to select):",
@@ -693,21 +693,15 @@ fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Rename
     let popup_area = centered_rect(70, 40, area);
     f.render_widget(Clear, popup_area);
 
-    let active_style = Style::default()
-        .fg(Color::Black)
-        .bg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
+    let base_style = Style::default();
+    let is_title_active = d.field == crate::ui::SessionEditField::Title;
+    let is_label_active = d.field == crate::ui::SessionEditField::Label;
 
-    let title_style = if d.field == crate::ui::SessionEditField::Title {
-        active_style
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
-    let label_style = if d.field == crate::ui::SessionEditField::Label {
-        active_style
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
+    let mut title_spans = vec![Span::raw("Title:  ")];
+    title_spans.extend(render_text_input(&d.new_title, is_title_active, base_style));
+
+    let mut label_spans = vec![Span::raw("Label:  ")];
+    label_spans.extend(render_text_input(&d.label, is_label_active, base_style));
 
     let (color_name, color_fg) = match d.label_color {
         crate::session::LabelColor::Gray => ("gray", Color::DarkGray),
@@ -720,7 +714,10 @@ fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Rename
     };
 
     let color_style = if d.field == crate::ui::SessionEditField::Color {
-        active_style
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -733,14 +730,8 @@ fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Rename
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(vec![
-            Span::raw("Title:  "),
-            Span::styled(d.new_title.clone(), title_style),
-        ]),
-        Line::from(vec![
-            Span::raw("Label:  "),
-            Span::styled(d.label.clone(), label_style),
-        ]),
+        Line::from(title_spans),
+        Line::from(label_spans),
         Line::from(vec![
             Span::raw("Color:  "),
             Span::styled(
@@ -772,10 +763,9 @@ fn render_rename_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameGr
     let popup_area = centered_rect(70, 35, area);
     f.render_widget(Clear, popup_area);
 
-    let active_style = Style::default()
-        .fg(Color::Black)
-        .bg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
+    let base_style = Style::default();
+    let mut new_path_spans = vec![Span::raw("To:    ")];
+    new_path_spans.extend(render_text_input(&d.new_path, true, base_style));
 
     let lines = vec![
         Line::from(Span::styled(
@@ -789,10 +779,7 @@ fn render_rename_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameGr
             Span::raw("From:  "),
             Span::styled(d.old_path.clone(), Style::default().fg(Color::DarkGray)),
         ]),
-        Line::from(vec![
-            Span::raw("To:    "),
-            Span::styled(d.new_path.clone(), active_style),
-        ]),
+        Line::from(new_path_spans),
         Line::from(""),
         Line::from(Span::styled(
             "Enter: apply • Esc/Ctrl+C: cancel",
