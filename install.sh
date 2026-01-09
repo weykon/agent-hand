@@ -4,20 +4,100 @@ set -euo pipefail
 REPO="weykon/agent-hand"
 BIN_NAME="agent-hand"
 
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+info() { echo -e "${GREEN}[INFO]${NC} $*" >&2; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $*" >&2; }
+error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+
 usage() {
   cat <<EOF
-Usage: install.sh [--prefix DIR] [--version vX.Y.Z]
+Usage: install.sh [--prefix DIR] [--version vX.Y.Z] [--skip-tmux]
 
 Installs ${BIN_NAME} from GitHub Releases.
 
 Options:
   --prefix DIR   Install directory (default: /usr/local/bin if writable, else ~/.local/bin)
   --version TAG  Install a specific tag (default: latest)
+  --skip-tmux    Skip tmux installation check
 EOF
+}
+
+# Check and install tmux if needed
+check_tmux() {
+  if command -v tmux &>/dev/null; then
+    local tmux_version
+    tmux_version=$(tmux -V 2>/dev/null || echo "unknown")
+    info "tmux is installed: $tmux_version"
+    return 0
+  fi
+
+  warn "tmux is not installed. ${BIN_NAME} requires tmux to function."
+  
+  # Detect OS and package manager
+  local os
+  os="$(uname -s)"
+  
+  case "$os" in
+    Darwin)
+      if command -v brew &>/dev/null; then
+        info "Installing tmux via Homebrew..."
+        brew install tmux
+      else
+        error "Homebrew not found. Please install tmux manually:"
+        echo "  brew install tmux" >&2
+        echo "  or visit: https://github.com/tmux/tmux/wiki/Installing" >&2
+        return 1
+      fi
+      ;;
+    Linux)
+      if command -v apt-get &>/dev/null; then
+        info "Installing tmux via apt..."
+        sudo apt-get update && sudo apt-get install -y tmux
+      elif command -v dnf &>/dev/null; then
+        info "Installing tmux via dnf..."
+        sudo dnf install -y tmux
+      elif command -v yum &>/dev/null; then
+        info "Installing tmux via yum..."
+        sudo yum install -y tmux
+      elif command -v pacman &>/dev/null; then
+        info "Installing tmux via pacman..."
+        sudo pacman -S --noconfirm tmux
+      elif command -v apk &>/dev/null; then
+        info "Installing tmux via apk..."
+        sudo apk add tmux
+      else
+        error "Could not detect package manager. Please install tmux manually:"
+        echo "  Ubuntu/Debian: sudo apt install tmux" >&2
+        echo "  Fedora: sudo dnf install tmux" >&2
+        echo "  Arch: sudo pacman -S tmux" >&2
+        return 1
+      fi
+      ;;
+    *)
+      error "Unsupported OS for automatic tmux installation: $os"
+      echo "Please install tmux manually: https://github.com/tmux/tmux/wiki/Installing" >&2
+      return 1
+      ;;
+  esac
+  
+  # Verify installation
+  if command -v tmux &>/dev/null; then
+    info "tmux installed successfully: $(tmux -V)"
+    return 0
+  else
+    error "tmux installation failed"
+    return 1
+  fi
 }
 
 PREFIX=""
 VERSION="latest"
+SKIP_TMUX=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,6 +105,8 @@ while [[ $# -gt 0 ]]; do
       PREFIX="$2"; shift 2 ;;
     --version)
       VERSION="$2"; shift 2 ;;
+    --skip-tmux)
+      SKIP_TMUX=true; shift ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -34,6 +116,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Check tmux first (unless skipped)
+if [[ "$SKIP_TMUX" == "false" ]]; then
+  check_tmux || exit 1
+fi
 
 os="$(uname -s)"
 arch="$(uname -m)"
@@ -91,5 +178,12 @@ fi
 
 install -m 0755 "${tmpdir}/${BIN_NAME}" "${PREFIX}/${BIN_NAME}"
 
-echo "Installed ${BIN_NAME} to ${PREFIX}/${BIN_NAME}" >&2
-echo "Run: ${BIN_NAME} --help" >&2
+info "Installed ${BIN_NAME} to ${PREFIX}/${BIN_NAME}"
+echo ""
+echo "Next steps:"
+echo "  1. Run: ${BIN_NAME}"
+echo "  2. Press 'n' to create a new session"
+echo "  3. Press '?' for help"
+echo ""
+echo "Tip: For session persistence across reboots, consider installing tmux-resurrect:"
+echo "  https://github.com/tmux-plugins/tmux-resurrect"

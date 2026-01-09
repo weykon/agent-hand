@@ -54,6 +54,22 @@ pub async fn run_cli(args: Args) -> Result<()> {
         }
 
         None => {
+            // Check tmux availability before launching TUI
+            if !crate::tmux::TmuxManager::is_available().await.unwrap_or(false) {
+                eprintln!("Error: tmux is not installed or not in PATH");
+                eprintln!();
+                eprintln!("agent-hand requires tmux to manage terminal sessions.");
+                eprintln!();
+                eprintln!("Install tmux:");
+                eprintln!("  macOS:        brew install tmux");
+                eprintln!("  Ubuntu/Debian: sudo apt install tmux");
+                eprintln!("  Fedora:       sudo dnf install tmux");
+                eprintln!("  Arch:         sudo pacman -S tmux");
+                eprintln!();
+                eprintln!("Or visit: https://github.com/tmux/tmux/wiki/Installing");
+                return Err(crate::Error::tmux("tmux is not installed"));
+            }
+
             // Launch TUI
             let mut app = crate::ui::App::new(profile).await?;
             app.run().await

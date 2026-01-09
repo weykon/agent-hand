@@ -35,6 +35,21 @@ Agent Hand makes this manageable with clear status icons:
 - **tmux-friendly**: `Ctrl+Q` detach back to the dashboard
 - **Self-upgrade**: `agent-hand upgrade`
 
+## Prerequisites
+
+- **tmux** (required) - The install script will attempt to install it automatically
+
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu/Debian
+sudo apt install tmux
+
+# Fedora
+sudo dnf install tmux
+```
+
 ## Install
 
 ### One-liner (recommended)
@@ -43,7 +58,10 @@ Agent Hand makes this manageable with clear status icons:
 curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash
 ```
 
-By default it installs to `/usr/local/bin` (if writable), otherwise `~/.local/bin`.
+The install script will:
+1. Check if tmux is installed (and install it if possible)
+2. Download the appropriate binary for your OS/arch
+3. Install to `/usr/local/bin` (if writable) or `~/.local/bin`
 
 ### Build from source
 
@@ -169,6 +187,37 @@ agent-hand upgrade
 - tmux preview capture is intentionally **cached by default**; press `p` to refresh the snapshot when needed.
 - Global config lives under `~/.agent-hand/` (legacy `~/.agent-deck-rs/` is still accepted).
 
+
+### Session persistence across reboots
+
+By default, **tmux sessions do not survive system restarts**. When your computer reboots, all tmux sessions (and Agent Hand's sessions) are lost.
+
+To persist sessions across reboots, you can use [tmux-resurrect](https://github.com/tmux-plugins/tmux-resurrect):
+
+```bash
+# Install TPM (Tmux Plugin Manager) if you don't have it
+git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+
+# Add to ~/.tmux.conf:
+set -g @plugin 'tmux-plugins/tpm'
+set -g @plugin 'tmux-plugins/tmux-resurrect'
+run '~/.tmux/plugins/tpm/tpm'
+
+# Then press: prefix + I (to install plugins)
+```
+
+Usage:
+- Save sessions: `prefix + Ctrl-s`
+- Restore sessions: `prefix + Ctrl-r`
+
+For fully automatic save/restore, add [tmux-continuum](https://github.com/tmux-plugins/tmux-continuum):
+
+```bash
+set -g @plugin 'tmux-plugins/tmux-continuum'
+set -g @continuum-restore 'on'
+```
+
+Note: These plugins work with the default tmux server. For Agent Hand's dedicated server (`agentdeck_rs`), sessions are recreated from your saved session list when you start agent-hand.
 
 ### Shell environment & config changes
 
