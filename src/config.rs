@@ -101,14 +101,40 @@ impl InputLoggingConfig {
 
 impl ConfigFile {
     pub async fn load() -> Result<Option<Self>> {
-        let dir = Storage::get_agent_hand_dir()?;
-        let path = dir.join("config.json");
-        let content = match fs::read_to_string(&path).await {
-            Ok(c) => c,
-            Err(_) => return Ok(None),
-        };
-        let cfg = serde_json::from_str::<Self>(&content)?;
-        Ok(Some(cfg))
+        // Check multiple config paths in order of priority:
+        // 1. ~/.agent-hand/config.json (legacy)
+        // 2. ~/.agent-hand/config.toml
+        // 3. ~/.config/agent-hand/config.toml (XDG standard)
+        // 4. ~/.config/agent-hand/config.json
+        let agent_hand_dir = Storage::get_agent_hand_dir()?;
+        let xdg_dir = dirs::home_dir()
+            .map(|h| h.join(".config").join("agent-hand"));
+
+        let candidates: Vec<std::path::PathBuf> = [
+            Some(agent_hand_dir.join("config.json")),
+            Some(agent_hand_dir.join("config.toml")),
+            xdg_dir.as_ref().map(|d| d.join("config.toml")),
+            xdg_dir.as_ref().map(|d| d.join("config.json")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        for path in candidates {
+            let content = match fs::read_to_string(&path).await {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let cfg: Self = match ext {
+                "toml" => toml::from_str(&content)?,
+                _ => serde_json::from_str(&content)?,
+            };
+            return Ok(Some(cfg));
+        }
+
+        Ok(None)
     }
 
     pub fn tmux_switcher_key(&self) -> Option<&str> {

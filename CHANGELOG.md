@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - Input-logging: Fixed tmux command construction for `script` wrapper (use single command string).
+- Config: Support multiple config paths (`~/.agent-hand/config.{json,toml}` and `~/.config/agent-hand/config.{toml,json}`).
 
 ## [0.1.9] - 2026-01-07
 

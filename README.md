@@ -96,7 +96,11 @@ From the dashboard:
 
 ## Custom keybindings
 
-On startup, agent-hand reads `~/.agent-hand/config.json` (legacy `~/.agent-deck-rs/config.json` is also accepted).
+On startup, agent-hand reads configuration from (in priority order):
+1. `~/.agent-hand/config.json` (legacy)
+2. `~/.agent-hand/config.toml`
+3. `~/.config/agent-hand/config.toml` (XDG standard)
+4. `~/.config/agent-hand/config.json`
 
 Example:
 
