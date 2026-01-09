@@ -12,9 +12,6 @@ path = "src/main.rs"
 
 [features]
 default = []
-# Personal feature: log session input/output via `script` command
-# Build with: cargo build --release --features input-logging
-input-logging = ["zip"]
 
 [dependencies]
 # Async runtime
@@ -77,9 +74,6 @@ dirs = "5"
 
 # File locking for multi-instance safety
 fs2 = "0.4"
-
-# Zip compression (optional, for input-logging feature)
-zip = { version = "2", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

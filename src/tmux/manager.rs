@@ -10,11 +10,6 @@ use super::SESSION_PREFIX;
 
 const TMUX_SERVER_NAME: &str = "agentdeck_rs";
 
-/// Simple shell escape for paths/commands (wrap in single quotes, escape existing quotes)
-fn shell_escape(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-
 /// Tmux manager - handles all tmux operations
 #[derive(Debug)]
 pub struct TmuxManager {
@@ -225,27 +220,6 @@ impl TmuxManager {
         working_dir: &str,
         command: Option<&str>,
     ) -> Result<()> {
-        // Check if input logging is enabled (feature + config)
-        #[cfg(feature = "input-logging")]
-        let (input_logging, input_logging_config) = {
-            let cfg = crate::config::ConfigFile::load().await.ok().flatten();
-            let enabled = cfg.as_ref().map(|c| c.input_logging_enabled()).unwrap_or(false);
-            let config = cfg.map(|c| c.input_logging().clone()).unwrap_or_default();
-            (enabled, config)
-        };
-        #[cfg(not(feature = "input-logging"))]
-        let input_logging = false;
-
-        // Rotate logs if needed (before creating new session)
-        #[cfg(feature = "input-logging")]
-        if input_logging {
-            let profile = std::env::var("AGENTHAND_PROFILE").unwrap_or_else(|_| "default".to_string());
-            if let Ok(log_dir) = crate::log_rotate::get_session_logs_dir(&profile) {
-                let rotator = crate::log_rotate::LogRotator::new(log_dir, input_logging_config);
-                let _ = rotator.rotate_if_needed().await;
-            }
-        }
-
         let mut cmd = self.tmux_cmd();
         cmd.args(&[
             "new-session",
@@ -260,36 +234,10 @@ impl TmuxManager {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         
         if let Some(command) = command {
-            // User specified a command
-            if input_logging {
-                // Wrap with script for logging
-                // macOS script syntax: script [-aqF] file [command ...]
-                let log_path = self.get_session_log_path(name).await?;
-                let script_cmd = format!(
-                    "script -q -a -F {} {} -l -c {}",
-                    shell_escape(&log_path),
-                    shell,
-                    shell_escape(command)
-                );
-                cmd.arg(script_cmd);
-            } else {
-                cmd.arg(command);
-            }
+            cmd.arg(command);
         } else {
             // Login shell (no command)
-            if input_logging {
-                // Wrap with script for logging
-                // macOS script syntax: script [-aqF] file [command ...]
-                let log_path = self.get_session_log_path(name).await?;
-                let script_cmd = format!(
-                    "script -q -a -F {} {} -l",
-                    shell_escape(&log_path),
-                    shell
-                );
-                cmd.arg(script_cmd);
-            } else {
-                cmd.args([&shell, "-l"]);
-            }
+            cmd.args([&shell, "-l"]);
         }
 
         let output = cmd.output().await?;
@@ -314,29 +262,6 @@ impl TmuxManager {
         self.register_session(name.to_string());
 
         Ok(())
-    }
-
-    /// Get log file path for session input logging
-    #[cfg(feature = "input-logging")]
-    async fn get_session_log_path(&self, session_name: &str) -> Result<String> {
-        let base = crate::session::Storage::get_agent_hand_dir()?;
-        let profile = std::env::var("AGENTHAND_PROFILE").unwrap_or_else(|_| "default".to_string());
-        let log_dir = base.join("profiles").join(&profile).join("session-logs");
-        
-        // Ensure directory exists
-        tokio::fs::create_dir_all(&log_dir).await?;
-        
-        // Use session name + date for log file
-        let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let safe_name = session_name.replace('/', "_");
-        let log_path = log_dir.join(format!("{}_{}.log", safe_name, date));
-        
-        Ok(log_path.to_string_lossy().to_string())
-    }
-
-    #[cfg(not(feature = "input-logging"))]
-    async fn get_session_log_path(&self, _session_name: &str) -> Result<String> {
-        Ok(String::new())
     }
 
     /// Kill a tmux session

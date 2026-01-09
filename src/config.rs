@@ -33,9 +33,6 @@ pub struct ConfigFile {
 
     #[serde(default)]
     analytics: AnalyticsConfig,
-
-    #[serde(default)]
-    input_logging: InputLoggingConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -59,43 +56,6 @@ fn default_analytics_enabled() -> bool {
 impl Default for AnalyticsConfig {
     fn default() -> Self {
         Self { enabled: false }
-    }
-}
-
-/// Input logging config (requires `input-logging` feature at compile time)
-#[derive(Debug, Clone, Deserialize)]
-pub struct InputLoggingConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    /// Compress logs larger than this size (in MB). Default: 10MB
-    #[serde(default = "default_compress_threshold_mb")]
-    pub compress_threshold_mb: u64,
-    /// Maximum number of zip archives to keep. Default: 100
-    #[serde(default = "default_max_archives")]
-    pub max_archives: usize,
-}
-
-fn default_compress_threshold_mb() -> u64 {
-    10
-}
-
-fn default_max_archives() -> usize {
-    100
-}
-
-impl Default for InputLoggingConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            compress_threshold_mb: 10,
-            max_archives: 100,
-        }
-    }
-}
-
-impl InputLoggingConfig {
-    pub fn compress_threshold_bytes(&self) -> u64 {
-        self.compress_threshold_mb * 1024 * 1024
     }
 }
 
@@ -147,17 +107,6 @@ impl ConfigFile {
 
     pub fn analytics_enabled(&self) -> bool {
         self.analytics.enabled
-    }
-
-    /// Check if input logging is enabled in config
-    /// Note: Also requires `input-logging` feature at compile time
-    pub fn input_logging_enabled(&self) -> bool {
-        self.input_logging.enabled
-    }
-
-    /// Get input logging config
-    pub fn input_logging(&self) -> &InputLoggingConfig {
-        &self.input_logging
     }
 }
 

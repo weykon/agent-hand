@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+- Input-logging feature removed (script command cannot capture user input only).
+
 ## [0.1.10] - 2026-01-09
 
 ### Added
@@ -16,7 +19,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - README: Session persistence documentation (tmux-resurrect/continuum).
 
 ### Fixed
-- Input-logging: Fixed tmux command construction for `script` wrapper (use single command string).
 - Config: Support multiple config paths (`~/.agent-hand/config.{json,toml}` and `~/.config/agent-hand/config.{toml,json}`).
 
 ## [0.1.9] - 2026-01-07
