@@ -192,52 +192,6 @@ agent-hand upgrade
 - Global config lives under `~/.agent-hand/` (legacy `~/.agent-deck-rs/` is still accepted).
 
 
-### Session persistence across reboots
-
-By default, **tmux sessions do not survive system restarts**. When your computer reboots, all tmux sessions (and Agent Hand's sessions) are lost.
-
-To persist sessions across reboots, you can use [tmux-resurrect](https://github.com/tmux-plugins/tmux-resurrect):
-
-```bash
-# Install TPM (Tmux Plugin Manager) if you don't have it
-git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
-
-# Add to ~/.tmux.conf:
-set -g @plugin 'tmux-plugins/tpm'
-set -g @plugin 'tmux-plugins/tmux-resurrect'
-run '~/.tmux/plugins/tpm/tpm'
-
-# Then press: prefix + I (to install plugins)
-```
-
-Usage:
-- Save sessions: `prefix + Ctrl-s`
-- Restore sessions: `prefix + Ctrl-r`
-
-For fully automatic save/restore, add [tmux-continuum](https://github.com/tmux-plugins/tmux-continuum):
-
-```bash
-set -g @plugin 'tmux-plugins/tmux-continuum'
-set -g @continuum-restore 'on'
-```
-
-Note: These plugins work with the default tmux server. For Agent Hand's dedicated server (`agentdeck_rs`), sessions are recreated from your saved session list when you start agent-hand.
-
-### Shell environment & config changes
-
-When you modify `~/.zshrc`, `~/.bashrc`, or similar shell config files:
-
-- **New sessions** automatically get the latest config (they start with a login shell that re-reads your rc files)
-- **Existing sessions** keep the old environment (the shell process is already running)
-
-To apply new config to an existing session:
-1. **Restart the session**: Press `R` in the dashboard (this kills and recreates the tmux session)
-2. **Manual reload**: Inside the session, run `source ~/.zshrc` (or your shell's equivalent)
-
-Note for **bash users**: `bash -l` reads `~/.bash_profile` (not `~/.bashrc`). If your PATH/aliases are in `~/.bashrc`, make sure your `~/.bash_profile` contains:
-```bash
-[[ -f ~/.bashrc ]] && source ~/.bashrc
-```
 
 ### tmux basics (search/copy/paste)
 

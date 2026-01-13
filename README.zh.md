@@ -172,21 +172,6 @@ agent-hand upgrade
 - Global config lives under `~/.agent-hand/` (legacy `~/.agent-deck-rs/` is still accepted).
 
 
-### Shell 环境与配置更新
-
-当你修改了 `~/.zshrc`、`~/.bashrc` 或类似的 shell 配置文件后：
-
-- **新建的 session** 会自动使用最新配置（以 login shell 启动，会重新读取 rc 文件）
-- **已存在的 session** 保持旧环境（shell 进程已经在运行了）
-
-让已存在的 session 使用新配置的方法：
-1. **重启 session**：在 dashboard 按 `R`（会 kill 掉再重建 tmux session）
-2. **手动刷新**：在 session 里执行 `source ~/.zshrc`（或你 shell 对应的配置文件）
-
-**bash 用户注意**：`bash -l` 读取的是 `~/.bash_profile`（不是 `~/.bashrc`）。如果你的 PATH/alias 在 `~/.bashrc` 里，确保你的 `~/.bash_profile` 包含：
-```bash
-[[ -f ~/.bashrc ]] && source ~/.bashrc
-```
 
 ### tmux 基础速查（搜索/复制/粘贴）
 
