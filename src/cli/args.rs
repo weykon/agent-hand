@@ -64,6 +64,9 @@ pub enum Command {
         json: bool,
     },
 
+    /// Print a compact one-line status for tmux status-left
+    Statusline,
+
     /// Session management commands
     Session {
         #[command(subcommand)]

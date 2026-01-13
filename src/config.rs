@@ -292,6 +292,13 @@ impl Default for KeyBindings {
             }],
         );
         kb.bindings.insert(
+            "jump_priority",
+            vec![KeySpec {
+                code: KeyCode::Char('n'),
+                modifiers: KeyModifiers::CONTROL,
+            }],
+        );
+        kb.bindings.insert(
             "restart",
             vec![KeySpec {
                 code: KeyCode::Char('R'),

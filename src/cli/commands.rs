@@ -38,6 +38,8 @@ pub async fn run_cli(args: Args) -> Result<()> {
             json,
         }) => handle_status(profile, verbose, quiet, json).await,
 
+        Some(Command::Statusline) => handle_statusline(profile).await,
+
         Some(Command::Session { action }) => handle_session(profile, action).await,
 
         Some(Command::Profile { action }) => handle_profile(action).await,
@@ -404,6 +406,119 @@ async fn handle_status(profile: &str, verbose: bool, quiet: bool, json: bool) ->
         );
     }
 
+    Ok(())
+}
+
+async fn handle_statusline(profile: &str) -> Result<()> {
+    use crate::session::Status;
+
+    const READY_TTL_SECS: i64 = 20 * 60;
+
+    let storage = Storage::new(profile).await?;
+    let (mut instances, tree) = storage.load().await?;
+
+    if instances.is_empty() {
+        println!("AH");
+        return Ok(());
+    }
+
+    let manager = Arc::new(TmuxManager::new());
+    manager.refresh_cache().await?;
+
+    let now = chrono::Utc::now();
+    let mut dirty = false;
+
+    for inst in &mut instances {
+        inst.init_tmux(manager.clone());
+        let prev = inst.status;
+        let _ = inst.update_status().await;
+
+        if inst.status == Status::Waiting && prev != Status::Waiting {
+            inst.last_waiting_at = Some(now);
+            dirty = true;
+        }
+
+        if inst.status == Status::Running {
+            let should_touch = inst
+                .last_running_at
+                .is_none_or(|t| now.signed_duration_since(t).num_seconds() >= 30);
+            if should_touch {
+                inst.last_running_at = Some(now);
+                dirty = true;
+            }
+        }
+    }
+
+    if dirty {
+        storage.save(&instances, &tree).await?;
+    }
+
+    let is_ready = |inst: &Instance| {
+        inst.last_running_at
+            .is_some_and(|t| now.signed_duration_since(t).num_seconds() < READY_TTL_SECS)
+    };
+
+    let mut waiting = 0usize;
+    let mut ready = 0usize;
+    let mut running = 0usize;
+    let mut idle = 0usize;
+    let mut error = 0usize;
+
+    for inst in &instances {
+        match inst.status {
+            Status::Waiting => waiting += 1,
+            Status::Running => running += 1,
+            Status::Idle => {
+                if is_ready(inst) {
+                    ready += 1
+                } else {
+                    idle += 1
+                }
+            }
+            Status::Error => error += 1,
+            Status::Starting => idle += 1,
+        }
+    }
+
+    let truncate = |s: &str, max: usize| -> String {
+        if s.chars().count() <= max {
+            return s.to_string();
+        }
+        let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    };
+
+    let target = if waiting > 0 {
+        instances
+            .iter()
+            .filter(|s| s.status == Status::Waiting)
+            .max_by_key(|s| s.last_waiting_at.unwrap_or(s.created_at))
+            .map(|s| format!("! {}", truncate(&s.title, 24)))
+    } else {
+        instances
+            .iter()
+            .filter(|s| s.status == Status::Idle && is_ready(s))
+            .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
+            .map(|s| format!("✓ {}", truncate(&s.title, 24)))
+    };
+
+    let mut line = format!(
+        "AH{}  !{} ✓{} ●{} ○{}",
+        target
+            .as_deref()
+            .map(|t| format!(" {t}"))
+            .unwrap_or_default(),
+        waiting,
+        ready,
+        running,
+        idle
+    );
+    if error > 0 {
+        line.push_str(&format!(" ✕{}", error));
+    }
+
+    println!("{line}");
     Ok(())
 }
 

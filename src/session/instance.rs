@@ -75,6 +75,10 @@ pub struct Instance {
     #[serde(default)]
     pub last_running_at: Option<DateTime<Utc>>,
 
+    /// Last time this session entered Waiting (for priority target selection)
+    #[serde(default)]
+    pub last_waiting_at: Option<DateTime<Utc>>,
+
     // Claude integration
     pub claude_session_id: Option<String>,
     pub claude_detected_at: Option<DateTime<Utc>>,
@@ -112,6 +116,7 @@ impl Instance {
             created_at: Utc::now(),
             last_accessed_at: None,
             last_running_at: None,
+            last_waiting_at: None,
             claude_session_id: None,
             claude_detected_at: None,
             gemini_session_id: None,

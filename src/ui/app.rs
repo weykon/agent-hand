@@ -376,9 +376,16 @@ impl App {
                 Status::Idle
             };
 
+            let prev_status = session.status;
+
             // Record last_running_at when we detect Running
             if new_status == Status::Running {
                 session.last_running_at = Some(chrono::Utc::now());
+            }
+
+            // Record last_waiting_at on transition into Waiting
+            if new_status == Status::Waiting && prev_status != Status::Waiting {
+                session.last_waiting_at = Some(chrono::Utc::now());
             }
 
             session.status = new_status;
@@ -458,6 +465,13 @@ impl App {
             self.move_selection_down();
             self.on_navigation();
             self.preview.clear();
+            return Ok(());
+        }
+
+        if self.keybindings.matches("jump_priority", &key, modifiers) {
+            if let Some(id) = self.priority_session_id() {
+                self.queue_attach_by_id(&id).await?;
+            }
             return Ok(());
         }
 
@@ -2255,6 +2269,60 @@ impl App {
         };
         let &idx = self.sessions_by_id.get(id)?;
         self.sessions.get(idx)
+    }
+
+    fn priority_session_id(&self) -> Option<String> {
+        // Priority: Waiting (!) newest first, else Ready (✓) newest first.
+        if let Some(s) = self
+            .sessions
+            .iter()
+            .filter(|s| s.status == Status::Waiting)
+            .max_by_key(|s| s.last_waiting_at.unwrap_or(s.created_at))
+        {
+            return Some(s.id.clone());
+        }
+
+        self.sessions
+            .iter()
+            .filter(|s| s.status == Status::Idle && self.is_attention_active(&s.id))
+            .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
+            .map(|s| s.id.clone())
+    }
+
+    async fn queue_attach_by_id(&mut self, id: &str) -> Result<()> {
+        if let Some(pos) = self.tree.iter().position(|item| {
+            matches!(item, TreeItem::Session { id: sid, .. } if sid == id)
+        }) {
+            self.selected_index = pos;
+            self.on_navigation();
+            self.preview.clear();
+        }
+
+        let Some(&idx) = self.sessions_by_id.get(id) else {
+            return Ok(());
+        };
+        let session = self.sessions[idx].clone();
+
+        let tmux_session = TmuxManager::session_name(&session.id);
+        if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
+            let _ = self
+                .tmux
+                .create_session(
+                    &tmux_session,
+                    &session.project_path.to_string_lossy(),
+                    if session.command.trim().is_empty() {
+                        None
+                    } else {
+                        Some(session.command.as_str())
+                    },
+                )
+                .await;
+        }
+
+        if self.tmux.session_exists(&tmux_session).unwrap_or(false) {
+            self.pending_attach = Some(tmux_session);
+        }
+        Ok(())
     }
 
     /// Find session by tmux session name (e.g. "agentdeck_rs_abc123")

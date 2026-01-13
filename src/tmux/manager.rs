@@ -150,6 +150,29 @@ impl TmuxManager {
             .args(["set-option", "-g", "mouse", "on"])
             .status()
             .await;
+
+        // Compact status-left badge driven by agent-hand's own status probing.
+        let status_bin = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "agent-hand".to_string());
+        let status_bin_escaped = status_bin.replace('\'', "'\\''");
+        let status_left = format!("#('{}' statusline)", status_bin_escaped);
+        let _ = self
+            .tmux_cmd()
+            .args(["set-option", "-g", "status-interval", "5"])
+            .status()
+            .await;
+        let _ = self
+            .tmux_cmd()
+            .args(["set-option", "-g", "status-left-length", "80"])
+            .status()
+            .await;
+        let _ = self
+            .tmux_cmd()
+            .args(["set-option", "-g", "status-left", status_left.as_str()])
+            .status()
+            .await;
     }
 
     /// Check if tmux is available
