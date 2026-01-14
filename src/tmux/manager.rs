@@ -30,6 +30,7 @@ impl TmuxManager {
     }
 
     async fn ensure_server_bindings(&self) {
+
         // Best-effort: bind keys on our dedicated tmux server.
         let cfg = crate::config::ConfigFile::load().await.ok().flatten();
 
@@ -78,7 +79,7 @@ impl TmuxManager {
 
         let need_detach_bind = current_detach.as_deref() != Some(detach_key.as_str());
         let need_switch_bind = current_switch.as_deref() != Some(switch_key.as_str());
-        let need_jump_bind = current_jump.as_deref() != Some(jump_key.as_str());
+        let need_jump_rebind = current_jump.as_deref() != Some(jump_key.as_str());
 
         // Unbind previous custom keys if they differ
         if need_detach_bind {
@@ -99,7 +100,7 @@ impl TmuxManager {
                     .await;
             }
         }
-        if need_jump_bind {
+        if need_jump_rebind {
             if let Some(old) = &current_jump {
                 let _ = self
                     .tmux_cmd()
@@ -164,8 +165,8 @@ impl TmuxManager {
                 .await;
         }
 
-        // Jump-to-priority key (Ctrl+N by default) - only bind if needed
-        if need_jump_bind {
+        // Jump-to-priority key (Ctrl+N by default) - always bind so updates take effect.
+        {
             let _ = self
                 .tmux_cmd()
                 .args([
@@ -176,7 +177,7 @@ impl TmuxManager {
                     "-F",
                     "#{!=:#{env:AGENTHAND_PRIORITY_SESSION},}",
                     "switch-client -t #{env:AGENTHAND_PRIORITY_SESSION}",
-                    "display-message \"AH: no target\"",
+                    "display-message 'AH: no target'",
                 ])
                 .status()
                 .await;
@@ -223,6 +224,11 @@ impl TmuxManager {
             .args(["set-option", "-g", "status-left", status_left.as_str()])
             .status()
             .await;
+    }
+
+    /// Ensure our dedicated tmux server has required bindings/options.
+    pub async fn ensure_server(&self) {
+        self.ensure_server_bindings().await;
     }
 
     /// Check if tmux is available

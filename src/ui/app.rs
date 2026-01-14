@@ -150,6 +150,7 @@ impl App {
         app.rebuild_sessions_index();
 
         // Prime tmux cache/status so initial render isn't stale
+        app.tmux.ensure_server().await;
         let _ = app.tmux.refresh_cache().await;
         app.last_cache_refresh = Instant::now();
         let _ = app.refresh_statuses().await;

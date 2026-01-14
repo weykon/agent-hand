@@ -370,6 +370,7 @@ async fn handle_status(profile: &str, verbose: bool, quiet: bool, json: bool) ->
 
     // Update statuses
     let manager = Arc::new(TmuxManager::new());
+    manager.ensure_server().await;
     manager.refresh_cache().await?;
 
     for inst in &mut instances {
@@ -423,6 +424,7 @@ async fn handle_statusline(profile: &str) -> Result<()> {
     }
 
     let manager = Arc::new(TmuxManager::new());
+    manager.ensure_server().await;
     manager.refresh_cache().await?;
 
     let now = chrono::Utc::now();
