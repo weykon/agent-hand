@@ -45,6 +45,20 @@ impl TmuxManager {
             .and_then(crate::config::parse_tmux_key)
             .unwrap_or_else(|| "C-g".to_string());
 
+        let jump_key = cfg
+            .as_ref()
+            .and_then(|c| c.tmux_jump_key())
+            .and_then(|s| {
+                let t = s.trim();
+                if t.eq_ignore_ascii_case("off") || t.eq_ignore_ascii_case("none") {
+                    None
+                } else {
+                    Some(t)
+                }
+            })
+            .and_then(crate::config::parse_tmux_key)
+            .unwrap_or_else(|| "C-n".to_string());
+
         // Check current bindings - skip if already correct (multi-instance safety)
         let current_detach = self
             .get_environment_global("AGENTHAND_DETACH_KEY")
@@ -56,9 +70,15 @@ impl TmuxManager {
             .await
             .ok()
             .flatten();
+        let current_jump = self
+            .get_environment_global("AGENTHAND_JUMP_KEY")
+            .await
+            .ok()
+            .flatten();
 
         let need_detach_bind = current_detach.as_deref() != Some(detach_key.as_str());
         let need_switch_bind = current_switch.as_deref() != Some(switch_key.as_str());
+        let need_jump_bind = current_jump.as_deref() != Some(jump_key.as_str());
 
         // Unbind previous custom keys if they differ
         if need_detach_bind {
@@ -72,6 +92,15 @@ impl TmuxManager {
         }
         if need_switch_bind {
             if let Some(old) = &current_switch {
+                let _ = self
+                    .tmux_cmd()
+                    .args(["unbind-key", "-n", old.as_str()])
+                    .status()
+                    .await;
+            }
+        }
+        if need_jump_bind {
+            if let Some(old) = &current_jump {
                 let _ = self
                     .tmux_cmd()
                     .args(["unbind-key", "-n", old.as_str()])
@@ -132,6 +161,27 @@ impl TmuxManager {
                 .await;
             let _ = self
                 .set_environment_global("AGENTHAND_SWITCHER_KEY", switch_key.as_str())
+                .await;
+        }
+
+        // Jump-to-priority key (Ctrl+N by default) - only bind if needed
+        if need_jump_bind {
+            let _ = self
+                .tmux_cmd()
+                .args([
+                    "bind-key",
+                    "-n",
+                    jump_key.as_str(),
+                    "if",
+                    "-F",
+                    "#{!=:#{env:AGENTHAND_PRIORITY_SESSION},}",
+                    "switch-client -t #{env:AGENTHAND_PRIORITY_SESSION}",
+                    "display-message AH: no target",
+                ])
+                .status()
+                .await;
+            let _ = self
+                .set_environment_global("AGENTHAND_JUMP_KEY", jump_key.as_str())
                 .await;
         }
 

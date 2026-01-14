@@ -41,6 +41,8 @@ struct TmuxKeys {
     switcher: Option<String>,
     #[serde(default)]
     detach: Option<String>,
+    #[serde(default)]
+    jump: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -103,6 +105,10 @@ impl ConfigFile {
 
     pub fn tmux_detach_key(&self) -> Option<&str> {
         self.tmux.detach.as_deref()
+    }
+
+    pub fn tmux_jump_key(&self) -> Option<&str> {
+        self.tmux.jump.as_deref()
     }
 
     pub fn analytics_enabled(&self) -> bool {

@@ -489,26 +489,46 @@ async fn handle_statusline(profile: &str) -> Result<()> {
         out
     };
 
-    let target = if waiting > 0 {
+    let (target, priority_tmux) = if waiting > 0 {
         instances
             .iter()
             .filter(|s| s.status == Status::Waiting)
             .max_by_key(|s| s.last_waiting_at.unwrap_or(s.created_at))
-            .map(|s| format!("! {}", truncate(&s.title, 24)))
+            .map(|s| {
+                (
+                    format!("! {}", truncate(&s.title, 24)),
+                    Some(s.tmux_name()),
+                )
+            })
+            .unwrap_or_else(|| (String::new(), None))
     } else {
         instances
             .iter()
             .filter(|s| s.status == Status::Idle && is_ready(s))
             .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
-            .map(|s| format!("✓ {}", truncate(&s.title, 24)))
+            .map(|s| {
+                (
+                    format!("✓ {}", truncate(&s.title, 24)),
+                    Some(s.tmux_name()),
+                )
+            })
+            .unwrap_or_else(|| (String::new(), None))
     };
 
+    let _ = manager
+        .set_environment_global(
+            "AGENTHAND_PRIORITY_SESSION",
+            priority_tmux.as_deref().unwrap_or(""),
+        )
+        .await;
+
     let mut line = format!(
-        "AH{}  !{} ✓{} ●{} ○{}",
-        target
-            .as_deref()
-            .map(|t| format!(" {t}"))
-            .unwrap_or_default(),
+        "AH{}  !{} ✓{} ●{} ○{}  ^N",
+        if target.is_empty() {
+            String::new()
+        } else {
+            format!(" {target}")
+        },
         waiting,
         ready,
         running,
