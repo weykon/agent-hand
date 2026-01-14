@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-01-14
+
+### Fixed
+- tmux: Ctrl+N jump now refreshes priority target on-demand (works even if tmux status bar is off).
+
+### Added
+- tmux: dedicated server defaults to `mode-keys vi` for copy-mode (v/Space select, y/Enter copy).
+
 ## [0.1.13] - 2026-01-09
 
 ### Fixed
