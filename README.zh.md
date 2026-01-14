@@ -168,6 +168,7 @@ agent-hand upgrade
 ## Notes
 
 - Agent Hand uses a **dedicated tmux server** (`tmux -L agentdeck_rs`) so it won’t touch your default tmux.
+- 该专用 tmux server 的 copy-mode 默认使用 `mode-keys vi`（可配置：`tmux.copy_mode = "emacs"|"off"`）。
 - tmux preview capture is intentionally **cached by default**; press `p` to refresh the snapshot when needed.
 - Global config lives under `~/.agent-hand/` (legacy `~/.agent-deck-rs/` is still accepted).
 
@@ -179,8 +180,8 @@ Agent Hand 底层是 tmux，所以会建议你掌握几个最常用的 tmux 操�
 
 - 进入复制/滚动/搜索模式：`Ctrl+b` 然后按 `[`
 - 在复制模式里搜索：`/` 输入关键词 `Enter`；跳转：`n` / `N`
-- 复制选区（很多人配置 `mode-keys vi`）：`Space` 开始选区，`Enter` 复制
-  - 如果你 tmux 不是 vi 模式，可能需要用 `Ctrl+Space` 来开始选区。
+- 复制选区（agent-hand 默认 `mode-keys vi`）：`v`/`Space` 开始选区，`y`/`Enter` 复制
+  - 如果你更喜欢 emacs 模式，可以设置 `tmux.copy_mode = "emacs"`。
 - 粘贴：`Ctrl+b` 然后按 `]`
 
 小提示：agent-hand 在专用 tmux server 上默认开启了 mouse 模式，很多情况下可以直接用鼠标滚轮滚动。

@@ -188,6 +188,7 @@ agent-hand upgrade
 ## Notes
 
 - Agent Hand uses a **dedicated tmux server** (`tmux -L agentdeck_rs`) so it won’t touch your default tmux.
+- This dedicated tmux server defaults to `mode-keys vi` for copy-mode (config: `tmux.copy_mode = "emacs"|"off"`).
 - tmux preview capture is intentionally **cached by default**; press `p` to refresh the snapshot when needed.
 - Global config lives under `~/.agent-hand/` (legacy `~/.agent-deck-rs/` is still accepted).
 
@@ -199,8 +200,8 @@ Agent Hand is tmux-backed, so it helps to know a few tmux basics (defaults assum
 
 - Enter copy mode (scroll/search): `Ctrl+b` then `[`
 - Search in copy mode: `/` then type, `Enter`; jump: `n` / `N`
-- Copy selection (most common with `mode-keys vi`): `Space` to start selection, `Enter` to copy
-  - If that doesn’t work on your tmux config, try `Ctrl+Space` to start selection instead.
+- Copy selection (agent-hand default is `mode-keys vi`): `v`/`Space` to start selection, `y`/`Enter` to copy
+  - If you prefer emacs keys, set `tmux.copy_mode = "emacs"`.
 - Paste: `Ctrl+b` then `]`
 
 Tip: agent-hand enables tmux mouse mode on its dedicated server, so you can often scroll with the mouse wheel.

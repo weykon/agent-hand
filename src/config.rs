@@ -43,6 +43,8 @@ struct TmuxKeys {
     detach: Option<String>,
     #[serde(default)]
     jump: Option<String>,
+    #[serde(default)]
+    copy_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -109,6 +111,10 @@ impl ConfigFile {
 
     pub fn tmux_jump_key(&self) -> Option<&str> {
         self.tmux.jump.as_deref()
+    }
+
+    pub fn tmux_copy_mode(&self) -> Option<&str> {
+        self.tmux.copy_mode.as_deref()
     }
 
     pub fn analytics_enabled(&self) -> bool {

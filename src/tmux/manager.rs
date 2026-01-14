@@ -202,6 +202,50 @@ impl TmuxManager {
             .status()
             .await;
 
+        // Copy-mode defaults (dedicated server only). Default: vi.
+        let copy_mode = cfg
+            .as_ref()
+            .and_then(|c| c.tmux_copy_mode())
+            .map(|s| s.trim().to_lowercase())
+            .unwrap_or_else(|| "vi".to_string());
+
+        if copy_mode != "off" && copy_mode != "none" {
+            let mode_keys = if copy_mode == "emacs" { "emacs" } else { "vi" };
+            let _ = self
+                .tmux_cmd()
+                .args(["set-option", "-g", "mode-keys", mode_keys])
+                .status()
+                .await;
+
+            if mode_keys == "vi" {
+                let _ = self
+                    .tmux_cmd()
+                    .args(["bind-key", "-T", "copy-mode-vi", "v", "send", "-X", "begin-selection"])
+                    .status()
+                    .await;
+                let _ = self
+                    .tmux_cmd()
+                    .args(["bind-key", "-T", "copy-mode-vi", "Space", "send", "-X", "begin-selection"])
+                    .status()
+                    .await;
+                let _ = self
+                    .tmux_cmd()
+                    .args(["bind-key", "-T", "copy-mode-vi", "V", "send", "-X", "select-line"])
+                    .status()
+                    .await;
+                let _ = self
+                    .tmux_cmd()
+                    .args(["bind-key", "-T", "copy-mode-vi", "y", "send", "-X", "copy-selection-and-cancel"])
+                    .status()
+                    .await;
+                let _ = self
+                    .tmux_cmd()
+                    .args(["bind-key", "-T", "copy-mode-vi", "Enter", "send", "-X", "copy-selection-and-cancel"])
+                    .status()
+                    .await;
+            }
+        }
+
         // Compact status-left badge driven by agent-hand's own status probing.
         let status_bin = std::env::current_exe()
             .ok()
