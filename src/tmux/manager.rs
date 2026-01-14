@@ -176,7 +176,7 @@ impl TmuxManager {
                     "-F",
                     "#{!=:#{env:AGENTHAND_PRIORITY_SESSION},}",
                     "switch-client -t #{env:AGENTHAND_PRIORITY_SESSION}",
-                    "display-message AH: no target",
+                    "display-message \"AH: no target\"",
                 ])
                 .status()
                 .await;
