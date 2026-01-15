@@ -50,6 +50,8 @@ pub async fn run_cli(args: Args) -> Result<()> {
 
         Some(Command::Switch) => crate::ui::run_switcher(profile).await,
 
+        Some(Command::Jump) => handle_jump(profile).await,
+
         Some(Command::Version) => {
             println!("agent-hand v{}", crate::VERSION);
             Ok(())
@@ -541,6 +543,79 @@ async fn handle_statusline(profile: &str) -> Result<()> {
     }
 
     println!("{line}");
+    Ok(())
+}
+
+/// Jump to the highest-priority session (Waiting > Ready).
+/// Called by tmux Ctrl+N binding via `run-shell`.
+async fn handle_jump(profile: &str) -> Result<()> {
+    use crate::session::Status;
+
+    const READY_TTL_SECS: i64 = 20 * 60;
+
+    let storage = Storage::new(profile).await?;
+    let (mut instances, _tree) = storage.load().await?;
+
+    if instances.is_empty() {
+        // Use tmux display-message instead of eprintln so user sees it in tmux
+        let _ = TokioCommand::new("tmux")
+            .args(["-L", "agentdeck_rs", "display-message", "AH: no sessions"])
+            .status()
+            .await;
+        return Ok(());
+    }
+
+    let manager = Arc::new(TmuxManager::new());
+    manager.refresh_cache().await?;
+
+    let now = chrono::Utc::now();
+
+    // Update statuses (quick probe)
+    for inst in &mut instances {
+        inst.init_tmux(manager.clone());
+        let _ = inst.update_status().await;
+    }
+
+    let is_ready = |inst: &Instance| {
+        inst.last_running_at
+            .is_some_and(|t| now.signed_duration_since(t).num_seconds() < READY_TTL_SECS)
+    };
+
+    // Find priority target: Waiting first (newest), then Ready (newest)
+    let target = instances
+        .iter()
+        .filter(|s| s.status == Status::Waiting)
+        .max_by_key(|s| s.last_waiting_at.unwrap_or(s.created_at))
+        .or_else(|| {
+            instances
+                .iter()
+                .filter(|s| s.status == Status::Idle && is_ready(s))
+                .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
+        });
+
+    match target {
+        Some(inst) => {
+            let tmux_name = inst.tmux_name();
+            // switch-client to the target session
+            let status = TokioCommand::new("tmux")
+                .args(["-L", "agentdeck_rs", "switch-client", "-t", &tmux_name])
+                .status()
+                .await;
+            if !status.map(|s| s.success()).unwrap_or(false) {
+                let _ = TokioCommand::new("tmux")
+                    .args(["-L", "agentdeck_rs", "display-message", &format!("AH: failed to switch to {}", inst.title)])
+                    .status()
+                    .await;
+            }
+        }
+        None => {
+            let _ = TokioCommand::new("tmux")
+                .args(["-L", "agentdeck_rs", "display-message", "AH: no target"])
+                .status()
+                .await;
+        }
+    }
+
     Ok(())
 }
 

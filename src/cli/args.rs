@@ -99,6 +99,9 @@ pub enum Command {
     /// Popup session switcher (for tmux Ctrl+G)
     Switch,
 
+    /// Jump to priority session (for tmux Ctrl+N)
+    Jump,
+
     /// Show version
     Version,
 }

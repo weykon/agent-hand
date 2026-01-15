@@ -165,15 +165,15 @@ impl TmuxManager {
                 .await;
         }
 
-        // Jump-to-priority key (Ctrl+N by default) - always bind so updates take effect.
-        // We run `statusline` first to (re)compute the priority target even if tmux status bar is off.
+        // Jump-to-priority key (Ctrl+N by default) - call `agent-hand jump` which
+        // computes the priority target and switches directly.
         {
             let jump_bin = std::env::current_exe()
                 .ok()
                 .and_then(|p| p.to_str().map(|s| s.to_string()))
                 .unwrap_or_else(|| "agent-hand".to_string());
             let jump_bin_escaped = jump_bin.replace('\'', "'\\''");
-            let jump_cmd = format!("'{}' statusline >/dev/null 2>&1", jump_bin_escaped);
+            let jump_cmd = format!("'{}'  jump", jump_bin_escaped);
 
             let _ = self
                 .tmux_cmd()
@@ -183,12 +183,6 @@ impl TmuxManager {
                     jump_key.as_str(),
                     "run-shell",
                     jump_cmd.as_str(),
-                    "\\;",
-                    "if",
-                    "-F",
-                    "#{!=:#{env:AGENTHAND_PRIORITY_SESSION},}",
-                    "switch-client -t #{env:AGENTHAND_PRIORITY_SESSION}",
-                    "display-message 'AH: no target'",
                 ])
                 .status()
                 .await;
