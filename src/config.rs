@@ -33,6 +33,11 @@ pub struct ConfigFile {
 
     #[serde(default)]
     analytics: AnalyticsConfig,
+
+    /// How long a session stays in “Ready (✓)” after leaving Running.
+    /// Unit: minutes. Default: 40.
+    #[serde(default)]
+    ready_ttl_minutes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -119,6 +124,10 @@ impl ConfigFile {
 
     pub fn analytics_enabled(&self) -> bool {
         self.analytics.enabled
+    }
+
+    pub fn ready_ttl_minutes(&self) -> u64 {
+        self.ready_ttl_minutes.unwrap_or(40)
     }
 }
 

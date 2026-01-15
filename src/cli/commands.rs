@@ -415,7 +415,12 @@ async fn handle_status(profile: &str, verbose: bool, quiet: bool, json: bool) ->
 async fn handle_statusline(profile: &str) -> Result<()> {
     use crate::session::Status;
 
-    const READY_TTL_SECS: i64 = 20 * 60;
+    let cfg = crate::config::ConfigFile::load().await.ok().flatten();
+    let ready_ttl_secs: i64 = cfg
+        .as_ref()
+        .map(|c| c.ready_ttl_minutes())
+        .unwrap_or(40) as i64
+        * 60;
 
     let storage = Storage::new(profile).await?;
     let (mut instances, tree) = storage.load().await?;
@@ -459,7 +464,7 @@ async fn handle_statusline(profile: &str) -> Result<()> {
 
     let is_ready = |inst: &Instance| {
         inst.last_running_at
-            .is_some_and(|t| now.signed_duration_since(t).num_seconds() < READY_TTL_SECS)
+            .is_some_and(|t| now.signed_duration_since(t).num_seconds() < ready_ttl_secs)
     };
 
     let mut waiting = 0usize;
@@ -551,7 +556,12 @@ async fn handle_statusline(profile: &str) -> Result<()> {
 async fn handle_jump(profile: &str) -> Result<()> {
     use crate::session::Status;
 
-    const READY_TTL_SECS: i64 = 20 * 60;
+    let cfg = crate::config::ConfigFile::load().await.ok().flatten();
+    let ready_ttl_secs: i64 = cfg
+        .as_ref()
+        .map(|c| c.ready_ttl_minutes())
+        .unwrap_or(40) as i64
+        * 60;
 
     let storage = Storage::new(profile).await?;
     let (mut instances, _tree) = storage.load().await?;
@@ -588,7 +598,7 @@ async fn handle_jump(profile: &str) -> Result<()> {
 
     let is_ready = |inst: &Instance| {
         inst.last_running_at
-            .is_some_and(|t| now.signed_duration_since(t).num_seconds() < READY_TTL_SECS)
+            .is_some_and(|t| now.signed_duration_since(t).num_seconds() < ready_ttl_secs)
     };
 
     // Find priority target: Waiting first (newest), then Ready (newest)

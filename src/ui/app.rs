@@ -78,6 +78,7 @@ pub struct App {
 
     // UI animation
     tick_count: u64,
+    attention_ttl: Duration,
 
     // Backend
     storage: Arc<Mutex<Storage>>,
@@ -94,7 +95,7 @@ impl App {
     const STATUS_COOLDOWN: Duration = Duration::from_secs(2);
     const STATUS_FALLBACK: Duration = Duration::from_secs(10);
 
-    const ATTENTION_TTL: Duration = Duration::from_secs(20 * 60);
+    const DEFAULT_READY_TTL: Duration = Duration::from_secs(40 * 60);
 
     /// Create new application
     pub async fn new(profile: &str) -> Result<Self> {
@@ -109,6 +110,14 @@ impl App {
         let tmux = TmuxManager::new();
         let keybindings = crate::config::KeyBindings::load_or_default().await;
         let analytics = crate::analytics::ActivityTracker::new(profile).await;
+
+        let cfg = crate::config::ConfigFile::load().await.ok().flatten();
+        let attention_ttl = Duration::from_secs(
+            cfg.as_ref()
+                .map(|c| c.ready_ttl_minutes())
+                .unwrap_or(Self::DEFAULT_READY_TTL.as_secs() / 60)
+                * 60,
+        );
 
         let mut app = Self {
             width: 0,
@@ -140,6 +149,7 @@ impl App {
             last_seen_detach_at: None,
             force_probe_tmux: None,
             tick_count: 0,
+            attention_ttl,
             storage: Arc::new(Mutex::new(storage)),
             tmux: Arc::new(tmux),
             analytics,
@@ -2669,7 +2679,7 @@ impl App {
             .and_then(|s| s.last_running_at)
             .is_some_and(|t| {
                 let elapsed = chrono::Utc::now().signed_duration_since(t);
-                elapsed < chrono::Duration::from_std(Self::ATTENTION_TTL).unwrap_or_default()
+                elapsed < chrono::Duration::from_std(self.attention_ttl).unwrap_or_default()
             })
     }
 
