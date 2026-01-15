@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-01-15
+
+### Fixed
+- Ctrl+N jump now uses dedicated `agent-hand jump` CLI command (fixes tmux env var issue).
+- Jump excludes current session from targets, so pressing Ctrl+N in a ✓ session jumps to the next one.
+
 ## [0.1.14] - 2026-01-14
 
 ### Fixed
