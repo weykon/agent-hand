@@ -28,6 +28,7 @@ Agent Hand makes this manageable with clear status icons:
 ## Highlights
 
 - **At-a-glance status list** for all sessions
+- **Smart priority jumping**: `Ctrl+N` inside any session jumps to the highest-priority session (🔵! → 🟢✓)
 - **Fast switching**: `Ctrl+G` popup → fuzzy search and jump to any session
 - **TUI dashboard**: run `agent-hand`
 - **Groups**: organize by project/use case
@@ -86,6 +87,7 @@ From the dashboard:
 - `Enter` attach
 - in tmux: `Ctrl+Q` detach back to the dashboard
 - in tmux: `Ctrl+G` popup → search + switch to another session
+- in tmux: `Ctrl+N` **jump to priority session** (🔵! → 🟢✓)
 
 ## Keybindings (TUI)
 
@@ -140,7 +142,7 @@ Modifiers: `Ctrl+`, `Alt+`, `Shift+`.
 
 Note: currently this only affects the main dashboard (Normal mode); other dialogs still use fixed keys.
 
-### tmux hotkeys (Ctrl+G / Ctrl+Q)
+### tmux hotkeys (Ctrl+G / Ctrl+Q / Ctrl+N)
 
 These are bound on agent-hand’s **dedicated tmux server** (`tmux -L agentdeck_rs`), so they won’t affect your default tmux server.
 
@@ -150,10 +152,15 @@ Add to `~/.agent-hand/config.json`:
 {
   "tmux": {
     "switcher": "Ctrl+g",
-    "detach": "Ctrl+q"
+    "detach": "Ctrl+q",
+    "jump": "Ctrl+n"
   }
 }
 ```
+
+- **`Ctrl+G`**: Switcher popup - fuzzy search all sessions
+- **`Ctrl+Q`**: Detach back to dashboard (+ remembers last session)  
+- **`Ctrl+N`**: Jump to priority - instantly switch to highest-priority session (🔵! waiting → 🟢✓ ready)
 
 Changes take effect the next time you attach (agent-hand rebinds keys on attach).
 
