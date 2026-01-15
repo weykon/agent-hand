@@ -568,6 +568,16 @@ async fn handle_jump(profile: &str) -> Result<()> {
     let manager = Arc::new(TmuxManager::new());
     manager.refresh_cache().await?;
 
+    // Get current tmux session name to exclude from jump targets
+    let current_session = TokioCommand::new("tmux")
+        .args(["-L", "agentdeck_rs", "display-message", "-p", "#{session_name}"])
+        .output()
+        .await
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
     let now = chrono::Utc::now();
 
     // Update statuses (quick probe)
@@ -582,14 +592,15 @@ async fn handle_jump(profile: &str) -> Result<()> {
     };
 
     // Find priority target: Waiting first (newest), then Ready (newest)
+    // Exclude the current session so we actually jump somewhere else
     let target = instances
         .iter()
-        .filter(|s| s.status == Status::Waiting)
+        .filter(|s| s.status == Status::Waiting && s.tmux_name() != current_session)
         .max_by_key(|s| s.last_waiting_at.unwrap_or(s.created_at))
         .or_else(|| {
             instances
                 .iter()
-                .filter(|s| s.status == Status::Idle && is_ready(s))
+                .filter(|s| s.status == Status::Idle && is_ready(s) && s.tmux_name() != current_session)
                 .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
         });
 
