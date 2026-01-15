@@ -49,6 +49,11 @@ sudo apt install tmux
 
 # Fedora
 sudo dnf install tmux
+
+# Windows (WSL)
+sudo apt install tmux
+# or use Chocolatey (native Windows)
+choco install tmux
 ```
 
 ## Install
