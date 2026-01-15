@@ -66,10 +66,11 @@ agent-hand
 ```
 
 From the dashboard:
-- `n` create a session
-- `Enter` attach
-- in tmux: `Ctrl+Q` detach back to the dashboard
-- in tmux: `Ctrl+G` popup → search + switch to another session
+- `n` 创建会话
+- `Enter` 连接
+- 在 tmux 中: `Ctrl+Q` 脱离回到面板  
+- 在 tmux 中: `Ctrl+G` 弹窗 → 搜索 + 切换到其他会话
+- 在 tmux 中: `Ctrl+N` **跳转到优先级会话** (🔵! → 🟢✓)
 
 ## Keybindings (TUI)
 
