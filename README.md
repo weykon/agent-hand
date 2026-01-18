@@ -1,5 +1,7 @@
 # 🦀 Agent Hand
 
+[![Release Downloads](https://img.shields.io/github/downloads/weykon/agent-hand/total?style=flat-square)](https://github.com/weykon/agent-hand/releases)
+
 A fast tmux-backed terminal session manager for AI coding agents.
 
 > Agent Hand is a Rust rewrite inspired by the original Go open-source project
@@ -22,7 +24,7 @@ Agent Hand makes this manageable with clear status icons:
 |------|---------|--------------------|
 | `!` (blue, blinking) | **WAITING** – the agent is blocked on a Yes/No style prompt | go check it now |
 | `●` (yellow, animated) | **RUNNING** – the agent is thinking/executing | you can do something else |
-| `✓` (cyan) | **READY** – finished within the last ~20 minutes | read the output |
+| `✓` (cyan) | **READY** – finished within the last ~40 minutes (configurable) | read the output |
 | `○` (gray) | **IDLE** – not started yet or already seen | continue anytime |
 
 ## Highlights

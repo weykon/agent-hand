@@ -388,10 +388,13 @@ impl App {
             };
 
             let prev_status = session.status;
+            let now_utc = chrono::Utc::now();
 
-            // Record last_running_at when we detect Running
-            if new_status == Status::Running {
-                session.last_running_at = Some(chrono::Utc::now());
+            // Record last_running_at when we detect Running or when Running just ended.
+            if new_status == Status::Running
+                || (prev_status == Status::Running && new_status == Status::Idle)
+            {
+                session.last_running_at = Some(now_utc);
             }
 
             // Record last_waiting_at on transition into Waiting
