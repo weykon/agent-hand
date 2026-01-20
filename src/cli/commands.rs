@@ -6,7 +6,7 @@ use tokio::process::Command as TokioCommand;
 use crate::cli::{Args, Command, McpSubAction, PoolAction, ProfileAction, SessionAction};
 use crate::error::Result;
 use crate::session::{Instance, Storage, DEFAULT_PROFILE};
-use crate::tmux::{TmuxManager, Tool};
+use crate::tmux::TmuxManager;
 use tracing::warn;
 
 pub async fn run_cli(args: Args) -> Result<()> {
@@ -273,7 +273,8 @@ async fn handle_add(
 
     if let Some(command) = cmd {
         instance.command = command.clone();
-        instance.tool = Tool::from_command(&command);
+        // NOTE: `tool` is legacy metadata; we no longer infer it from the command string.
+        // UI/status should rely on tags/labels and prompt detection instead.
     }
 
     instances.push(instance.clone());

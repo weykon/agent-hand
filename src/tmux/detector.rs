@@ -32,6 +32,7 @@ impl Default for Tool {
 }
 
 impl Tool {
+    #[allow(dead_code)]
     pub fn from_command(cmd: &str) -> Self {
         let cmd_lower = cmd.to_lowercase();
         if cmd_lower.contains("claude") {
