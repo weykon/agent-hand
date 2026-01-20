@@ -1,5 +1,11 @@
 pub mod config;
 pub mod manager;
+
+#[cfg(unix)]
+pub mod pool;
+
+#[cfg(not(unix))]
+#[path = "pool_stub.rs"]
 pub mod pool;
 
 pub use config::MCPConfig;
