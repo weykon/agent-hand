@@ -112,17 +112,11 @@ impl PromptDetector {
         let recent = recent_raw.to_lowercase();
 
         // Busy indicators across all tools
-        // NOTE: Claude CLI wording can vary by version (esc vs ctrl+c)
+        // NOTE: avoid matching Copilot CLI footer hints like "ctrl+c ..." which can appear while idle.
         let busy_indicators = [
             "esc to interrupt",
             "(esc to interrupt)",
             "· esc to interrupt",
-            "ctrl+c to interrupt",
-            "(ctrl+c to interrupt)",
-            "· ctrl+c to interrupt",
-            "ctrl-c to interrupt",
-            "(ctrl-c to interrupt)",
-            "· ctrl-c to interrupt",
             "esc to cancel",
             "(esc to cancel)",
         ];
@@ -154,6 +148,17 @@ impl PromptDetector {
         // Thinking/connecting indicators
         if (recent.contains("thinking") && recent.contains("tokens"))
             || (recent.contains("connecting") && recent.contains("tokens"))
+        {
+            return true;
+        }
+
+        // Some tools show "ctrl+c ..." help text even when idle; only treat it as busy when paired
+        // with other activity hints.
+        if (recent.contains("ctrl+c") || recent.contains("ctrl-c"))
+            && recent.contains("to interrupt")
+            && (recent.contains("thinking")
+                || recent.contains("connecting")
+                || recent.contains("tokens"))
         {
             return true;
         }
@@ -273,8 +278,10 @@ mod tests {
         let detector = PromptDetector::new(Tool::Shell);
         // Spinner and interrupt hints = busy
         assert!(detector.is_busy("Thinking… (45s · 1234 tokens · esc to interrupt)"));
+        // Detected via thinking+tokens (not via a raw "ctrl+c" substring)
         assert!(detector.is_busy("Thinking… (45s · 1234 tokens · ctrl+c to interrupt)"));
-        assert!(detector.is_busy("ctrl+c to interrupt    claude"));
+        // Copilot CLI footer hints can contain ctrl+c even when idle
+        assert!(!detector.is_busy("shift+tab cycle mode · ctrl+c Exit · ctrl+o Expand recent"));
         assert!(detector.is_busy("⠋ Processing..."));
         // Progress dots = busy
         assert!(detector.is_busy("⬝⬝⬝⬝⬝⬝⬝⬝"));
