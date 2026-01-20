@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-01-20
+
+### Added
+- CI/release: Windows build artifact (x86_64-pc-windows-msvc).
+
 ## [0.2.3] - 2026-01-20
 
 ### Changed

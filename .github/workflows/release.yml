@@ -21,6 +21,8 @@ jobs:
             target: x86_64-apple-darwin
           - os: macos-latest
             target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.os }}
 
@@ -43,9 +45,24 @@ jobs:
           BIN=agent-hand
           OUTDIR=dist
           mkdir -p "$OUTDIR"
-          cp "target/${{ matrix.target }}/release/${BIN}" "$OUTDIR/${BIN}"
-          tar -C "$OUTDIR" -czf "$OUTDIR/${BIN}-${{ matrix.target }}.tar.gz" "$BIN"
-          (cd "$OUTDIR" && shasum -a 256 "${BIN}-${{ matrix.target }}.tar.gz" > "${BIN}-${{ matrix.target }}.tar.gz.sha256")
+
+          BIN_PATH="target/${{ matrix.target }}/release/${BIN}"
+          OUT_BIN="$BIN"
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            BIN_PATH="${BIN_PATH}.exe"
+            OUT_BIN="${BIN}.exe"
+          fi
+
+          cp "$BIN_PATH" "$OUTDIR/$OUT_BIN"
+          tar -C "$OUTDIR" -czf "$OUTDIR/${BIN}-${{ matrix.target }}.tar.gz" "$OUT_BIN"
+          (
+            cd "$OUTDIR"
+            if command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "${BIN}-${{ matrix.target }}.tar.gz" > "${BIN}-${{ matrix.target }}.tar.gz.sha256"
+            else
+              sha256sum "${BIN}-${{ matrix.target }}.tar.gz" > "${BIN}-${{ matrix.target }}.tar.gz.sha256"
+            fi
+          )
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
