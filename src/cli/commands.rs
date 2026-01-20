@@ -234,6 +234,11 @@ async fn handle_add(
         std::env::current_dir()?
     };
 
+    if !project_path.exists() {
+        std::fs::create_dir_all(&project_path)?;
+        eprintln!("Created directory: {}", project_path.display());
+    }
+
     let project_path = project_path.canonicalize()?;
 
     // Verify path exists and is directory

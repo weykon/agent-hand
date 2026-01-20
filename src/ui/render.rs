@@ -359,6 +359,16 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
         Line::from(path_spans),
     ];
 
+    if d.path_will_be_created() {
+        lines.push(Line::from(vec![
+            Span::raw("        "),
+            Span::styled(
+                "(not found; will create directory)",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+    }
+
     if d.path_suggestions_visible && !d.path_suggestions.is_empty() {
         lines.push(Line::from(vec![
             Span::raw("        "),

@@ -308,6 +308,15 @@ impl NewSessionDialog {
         PathBuf::from(trimmed)
     }
 
+    pub fn expanded_path(&self) -> PathBuf {
+        Self::expand_home(self.path.text())
+    }
+
+    pub fn path_will_be_created(&self) -> bool {
+        let p = self.expanded_path();
+        !p.as_os_str().is_empty() && !p.exists()
+    }
+
     fn fuzzy_score(query: &str, text: &str) -> Option<i32> {
         if query.is_empty() {
             return Some(0);
@@ -449,6 +458,14 @@ impl NewSessionDialog {
 
     pub fn validate(&self) -> Result<PathBuf> {
         let project_path = Self::expand_home(self.path.text());
+        if project_path.as_os_str().is_empty() {
+            return Err(crate::Error::InvalidInput("Path is empty".to_string()));
+        }
+
+        if !project_path.exists() {
+            std::fs::create_dir_all(&project_path)?;
+        }
+
         let project_path = project_path.canonicalize()?;
         if !project_path.is_dir() {
             return Err(crate::Error::InvalidInput(format!(

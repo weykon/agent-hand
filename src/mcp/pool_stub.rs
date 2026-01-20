@@ -67,7 +67,7 @@ pub fn pooled_mcp_config(_name: &str, _sock: &Path, base: &MCPConfig) -> MCPConf
     base.clone()
 }
 
-// Keep fs referenced so this file matches the unix module surface (and avoids unused warnings when 
+// Keep fs referenced so this file matches the unix module surface (and avoids unused warnings when
 // future code adds shared helpers).
 #[allow(dead_code)]
 async fn _touch_for_rustfmt(_p: &Path) -> Result<()> {
