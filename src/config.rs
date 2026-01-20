@@ -34,6 +34,12 @@ pub struct ConfigFile {
     #[serde(default)]
     analytics: AnalyticsConfig,
 
+    #[serde(default)]
+    claude: ClaudeHooksConfig,
+
+    #[serde(default)]
+    status_detection: StatusDetectionConfig,
+
     /// How long a session stays in “Ready (✓)” after leaving Running.
     /// Unit: minutes. Default: 40.
     #[serde(default)]
@@ -58,6 +64,24 @@ pub struct AnalyticsConfig {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ClaudeHooksConfig {
+    #[serde(default)]
+    user_prompt_logging: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct StatusDetectionConfig {
+    #[serde(default)]
+    pub prompt_contains: Vec<String>,
+    #[serde(default)]
+    pub prompt_regex: Vec<String>,
+    #[serde(default)]
+    pub busy_contains: Vec<String>,
+    #[serde(default)]
+    pub busy_regex: Vec<String>,
+}
+
 fn default_analytics_enabled() -> bool {
     false
 }
@@ -76,8 +100,7 @@ impl ConfigFile {
         // 3. ~/.config/agent-hand/config.toml (XDG standard)
         // 4. ~/.config/agent-hand/config.json
         let agent_hand_dir = Storage::get_agent_hand_dir()?;
-        let xdg_dir = dirs::home_dir()
-            .map(|h| h.join(".config").join("agent-hand"));
+        let xdg_dir = dirs::home_dir().map(|h| h.join(".config").join("agent-hand"));
 
         let candidates: Vec<std::path::PathBuf> = [
             Some(agent_hand_dir.join("config.json")),
@@ -124,6 +147,14 @@ impl ConfigFile {
 
     pub fn analytics_enabled(&self) -> bool {
         self.analytics.enabled
+    }
+
+    pub fn claude_user_prompt_logging(&self) -> bool {
+        self.claude.user_prompt_logging
+    }
+
+    pub fn status_detection(&self) -> &StatusDetectionConfig {
+        &self.status_detection
     }
 
     pub fn ready_ttl_minutes(&self) -> u64 {
@@ -356,9 +387,10 @@ impl KeyBindings {
     }
 
     pub fn matches(&self, action: &'static str, code: &KeyCode, modifiers: KeyModifiers) -> bool {
-        self.bindings
-            .get(action)
-            .is_some_and(|v| v.iter().any(|k| &k.code == code && k.modifiers == modifiers))
+        self.bindings.get(action).is_some_and(|v| {
+            v.iter()
+                .any(|k| &k.code == code && k.modifiers == modifiers)
+        })
     }
 }
 

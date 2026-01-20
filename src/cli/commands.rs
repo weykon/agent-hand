@@ -7,6 +7,7 @@ use crate::cli::{Args, Command, McpSubAction, PoolAction, ProfileAction, Session
 use crate::error::Result;
 use crate::session::{Instance, Storage, DEFAULT_PROFILE};
 use crate::tmux::{TmuxManager, Tool};
+use tracing::warn;
 
 pub async fn run_cli(args: Args) -> Result<()> {
     // Backward-compat: allow legacy env var name.
@@ -19,6 +20,18 @@ pub async fn run_cli(args: Args) -> Result<()> {
 
     // Ensure tmux popups inherit the active profile.
     std::env::set_var("AGENTHAND_PROFILE", profile);
+
+    let cfg = crate::config::ConfigFile::load().await.ok().flatten();
+    if cfg.as_ref().is_some_and(|c| c.claude_user_prompt_logging()) {
+        if let Err(err) = crate::claude::ensure_user_prompt_hook().await {
+            warn!("failed to ensure Claude hook: {err}");
+        }
+    }
+    if let Some(cfg) = cfg.as_ref() {
+        if let Err(err) = crate::tmux::set_status_detection_config(cfg.status_detection()) {
+            warn!("failed to set status detection config: {err}");
+        }
+    }
 
     match args.command {
         Some(Command::Add {
@@ -59,7 +72,10 @@ pub async fn run_cli(args: Args) -> Result<()> {
 
         None => {
             // Check tmux availability before launching TUI
-            if !crate::tmux::TmuxManager::is_available().await.unwrap_or(false) {
+            if !crate::tmux::TmuxManager::is_available()
+                .await
+                .unwrap_or(false)
+            {
                 eprintln!("Error: tmux is not installed or not in PATH");
                 eprintln!();
                 eprintln!("agent-hand requires tmux to manage terminal sessions.");
@@ -416,11 +432,7 @@ async fn handle_statusline(profile: &str) -> Result<()> {
     use crate::session::Status;
 
     let cfg = crate::config::ConfigFile::load().await.ok().flatten();
-    let ready_ttl_secs: i64 = cfg
-        .as_ref()
-        .map(|c| c.ready_ttl_minutes())
-        .unwrap_or(40) as i64
-        * 60;
+    let ready_ttl_secs: i64 = cfg.as_ref().map(|c| c.ready_ttl_minutes()).unwrap_or(40) as i64 * 60;
 
     let storage = Storage::new(profile).await?;
     let (mut instances, tree) = storage.load().await?;
@@ -503,24 +515,14 @@ async fn handle_statusline(profile: &str) -> Result<()> {
             .iter()
             .filter(|s| s.status == Status::Waiting)
             .max_by_key(|s| s.last_waiting_at.unwrap_or(s.created_at))
-            .map(|s| {
-                (
-                    format!("! {}", truncate(&s.title, 24)),
-                    Some(s.tmux_name()),
-                )
-            })
+            .map(|s| (format!("! {}", truncate(&s.title, 24)), Some(s.tmux_name())))
             .unwrap_or_else(|| (String::new(), None))
     } else {
         instances
             .iter()
             .filter(|s| s.status == Status::Idle && is_ready(s))
             .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
-            .map(|s| {
-                (
-                    format!("✓ {}", truncate(&s.title, 24)),
-                    Some(s.tmux_name()),
-                )
-            })
+            .map(|s| (format!("✓ {}", truncate(&s.title, 24)), Some(s.tmux_name())))
             .unwrap_or_else(|| (String::new(), None))
     };
 
@@ -557,11 +559,7 @@ async fn handle_jump(profile: &str) -> Result<()> {
     use crate::session::Status;
 
     let cfg = crate::config::ConfigFile::load().await.ok().flatten();
-    let ready_ttl_secs: i64 = cfg
-        .as_ref()
-        .map(|c| c.ready_ttl_minutes())
-        .unwrap_or(40) as i64
-        * 60;
+    let ready_ttl_secs: i64 = cfg.as_ref().map(|c| c.ready_ttl_minutes()).unwrap_or(40) as i64 * 60;
 
     let storage = Storage::new(profile).await?;
     let (mut instances, _tree) = storage.load().await?;
@@ -580,7 +578,13 @@ async fn handle_jump(profile: &str) -> Result<()> {
 
     // Get current tmux session name to exclude from jump targets
     let current_session = TokioCommand::new("tmux")
-        .args(["-L", "agentdeck_rs", "display-message", "-p", "#{session_name}"])
+        .args([
+            "-L",
+            "agentdeck_rs",
+            "display-message",
+            "-p",
+            "#{session_name}",
+        ])
         .output()
         .await
         .ok()
@@ -610,7 +614,9 @@ async fn handle_jump(profile: &str) -> Result<()> {
         .or_else(|| {
             instances
                 .iter()
-                .filter(|s| s.status == Status::Idle && is_ready(s) && s.tmux_name() != current_session)
+                .filter(|s| {
+                    s.status == Status::Idle && is_ready(s) && s.tmux_name() != current_session
+                })
                 .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
         });
 
@@ -624,7 +630,12 @@ async fn handle_jump(profile: &str) -> Result<()> {
                 .await;
             if !status.map(|s| s.success()).unwrap_or(false) {
                 let _ = TokioCommand::new("tmux")
-                    .args(["-L", "agentdeck_rs", "display-message", &format!("AH: failed to switch to {}", inst.title)])
+                    .args([
+                        "-L",
+                        "agentdeck_rs",
+                        "display-message",
+                        &format!("AH: failed to switch to {}", inst.title),
+                    ])
                     .status()
                     .await;
             }

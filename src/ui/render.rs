@@ -28,14 +28,14 @@ fn waiting_anim(tick: u64) -> &'static str {
 fn render_text_input(input: &TextInput, active: bool, base_style: Style) -> Vec<Span<'static>> {
     let text = input.text();
     let cursor_pos = input.cursor();
-    
+
     if !active {
         return vec![Span::styled(text.to_string(), base_style)];
     }
-    
+
     // Split text at cursor position
     let (before, after) = text.split_at(cursor_pos);
-    
+
     // Get the character at cursor (or space if at end)
     let (cursor_char, rest) = if after.is_empty() {
         (" ", "")
@@ -46,12 +46,12 @@ fn render_text_input(input: &TextInput, active: bool, base_style: Style) -> Vec<
         let cursor_str = &after[..rest_start];
         (cursor_str, &after[rest_start..])
     };
-    
+
     let cursor_style = Style::default()
         .fg(Color::Black)
         .bg(Color::White)
         .add_modifier(Modifier::BOLD);
-    
+
     vec![
         Span::styled(before.to_string(), base_style),
         Span::styled(cursor_char.to_string(), cursor_style),
@@ -342,7 +342,11 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
     title_spans.extend(render_text_input(&d.title, is_title_active, base_style));
 
     let mut group_spans = vec![Span::raw("Group:  ")];
-    group_spans.extend(render_text_input(&d.group_path, is_group_active, base_style));
+    group_spans.extend(render_text_input(
+        &d.group_path,
+        is_group_active,
+        base_style,
+    ));
 
     let mut lines = vec![
         Line::from(Span::styled(
@@ -390,10 +394,7 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
         }
     }
 
-    lines.extend([
-        Line::from(title_spans),
-        Line::from(group_spans),
-    ]);
+    lines.extend([Line::from(title_spans), Line::from(group_spans)]);
 
     if d.field == crate::ui::NewSessionField::Group {
         lines.push(Line::from(""));
@@ -465,7 +466,11 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
     title_spans.extend(render_text_input(&d.title, is_title_active, base_style));
 
     let mut group_spans = vec![Span::raw("Group: ")];
-    group_spans.extend(render_text_input(&d.group_path, is_group_active, base_style));
+    group_spans.extend(render_text_input(
+        &d.group_path,
+        is_group_active,
+        base_style,
+    ));
 
     let lines = vec![
         Line::from(Span::styled(
@@ -643,10 +648,12 @@ fn render_tag_picker_dialog(f: &mut Frame, area: Rect, d: &crate::ui::TagPickerD
         .split(popup_area);
 
     if d.tags.is_empty() {
-        let empty = Paragraph::new("(no tags found)\n\nTip: edit a session label first (r), then reuse it here.")
-            .style(Style::default().fg(Color::DarkGray))
-            .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).title("Tag"));
+        let empty = Paragraph::new(
+            "(no tags found)\n\nTip: edit a session label first (r), then reuse it here.",
+        )
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL).title("Tag"));
         f.render_widget(empty, chunks[0]);
     } else {
         let items: Vec<ListItem> = d
@@ -665,7 +672,10 @@ fn render_tag_picker_dialog(f: &mut Frame, area: Rect, d: &crate::ui::TagPickerD
                 };
 
                 let style = if i == d.selected {
-                    Style::default().fg(fg).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(fg)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(fg)
                 };

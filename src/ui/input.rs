@@ -131,20 +131,20 @@ mod tests {
     #[test]
     fn test_basic_operations() {
         let mut input = TextInput::new();
-        
+
         input.insert('a');
         input.insert('b');
         input.insert('c');
         assert_eq!(input.text(), "abc");
         assert_eq!(input.cursor(), 3);
-        
+
         input.backspace();
         assert_eq!(input.text(), "ab");
         assert_eq!(input.cursor(), 2);
-        
+
         input.move_left();
         assert_eq!(input.cursor(), 1);
-        
+
         input.insert('x');
         assert_eq!(input.text(), "axb");
         assert_eq!(input.cursor(), 2);
@@ -154,11 +154,11 @@ mod tests {
     fn test_unicode() {
         let mut input = TextInput::with_text("你好");
         assert_eq!(input.cursor(), 6); // 2 chars × 3 bytes
-        
+
         input.move_left();
         assert_eq!(input.cursor(), 3);
         assert_eq!(input.cursor_char_pos(), 1);
-        
+
         input.insert('世');
         assert_eq!(input.text(), "你世好");
     }

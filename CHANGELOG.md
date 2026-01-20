@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-01-20
+
+### Fixed
+- Busy detection: recognize Claude CLI variant `ctrl+c to interrupt`.
+
+### Added
+- Config: `status_detection` to customize WAITING/RUNNING detection via substrings or regex.
+- Optional Claude Code hook to log user prompts (`claude.user_prompt_logging`).
+
 ## [0.1.16] - 2026-01-15
 
 ### Added

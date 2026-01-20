@@ -69,84 +69,89 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
     let mut last_status_probe: HashMap<String, Instant> = HashMap::new();
 
     // Build tree view (group-organized)
-    let build_tree = |groups: &GroupTree, instances: &[crate::session::Instance]| -> Vec<SwitcherItem> {
-        use std::collections::BTreeMap;
-        
-        let mut by_group: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-        let mut ungrouped: Vec<usize> = Vec::new();
-        
-        for (i, inst) in instances.iter().enumerate() {
-            if inst.group_path.is_empty() {
-                ungrouped.push(i);
-            } else {
-                by_group.entry(inst.group_path.clone()).or_default().push(i);
-            }
-        }
-        
-        // Sort ungrouped by last_accessed_at desc
-        ungrouped.sort_by(|&a, &b| {
-            instances[b].last_accessed_at.cmp(&instances[a].last_accessed_at)
-        });
-        
-        let mut items: Vec<SwitcherItem> = Vec::new();
-        
-        // Root groups first
-        let mut roots: Vec<String> = groups
-            .all_groups()
-            .into_iter()
-            .map(|g| g.path)
-            .filter(|p| !p.contains('/'))
-            .collect();
-        roots.sort();
-        
-        fn visit(
-            items: &mut Vec<SwitcherItem>,
-            groups: &GroupTree,
-            instances: &[crate::session::Instance],
-            by_group: &BTreeMap<String, Vec<usize>>,
-            path: &str,
-            depth: usize,
-        ) {
-            let name = groups
-                .get_group(path)
-                .map(|g| g.name.clone())
-                .unwrap_or_else(|| path.split('/').last().unwrap_or(path).to_string());
-            
-            items.push(SwitcherItem::Group {
-                name,
-                depth,
-            });
-            
-            // Child groups
-            let mut children = groups.children(path);
-            children.sort();
-            for c in children {
-                visit(items, groups, instances, by_group, &c, depth + 1);
-            }
-            
-            // Sessions in this group
-            if let Some(sessions) = by_group.get(path) {
-                let mut sorted = sessions.clone();
-                sorted.sort_by(|&a, &b| {
-                    instances[b].last_accessed_at.cmp(&instances[a].last_accessed_at)
-                });
-                for idx in sorted {
-                    items.push(SwitcherItem::Session { idx, depth: depth + 1 });
+    let build_tree =
+        |groups: &GroupTree, instances: &[crate::session::Instance]| -> Vec<SwitcherItem> {
+            use std::collections::BTreeMap;
+
+            let mut by_group: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+            let mut ungrouped: Vec<usize> = Vec::new();
+
+            for (i, inst) in instances.iter().enumerate() {
+                if inst.group_path.is_empty() {
+                    ungrouped.push(i);
+                } else {
+                    by_group.entry(inst.group_path.clone()).or_default().push(i);
                 }
             }
-        }
-        
-        for r in roots {
-            visit(&mut items, groups, instances, &by_group, &r, 0);
-        }
-        
-        // Ungrouped sessions at bottom
-        for idx in ungrouped {
-            items.push(SwitcherItem::Session { idx, depth: 0 });
-        }
-        
-        items
-    };
+
+            // Sort ungrouped by last_accessed_at desc
+            ungrouped.sort_by(|&a, &b| {
+                instances[b]
+                    .last_accessed_at
+                    .cmp(&instances[a].last_accessed_at)
+            });
+
+            let mut items: Vec<SwitcherItem> = Vec::new();
+
+            // Root groups first
+            let mut roots: Vec<String> = groups
+                .all_groups()
+                .into_iter()
+                .map(|g| g.path)
+                .filter(|p| !p.contains('/'))
+                .collect();
+            roots.sort();
+
+            fn visit(
+                items: &mut Vec<SwitcherItem>,
+                groups: &GroupTree,
+                instances: &[crate::session::Instance],
+                by_group: &BTreeMap<String, Vec<usize>>,
+                path: &str,
+                depth: usize,
+            ) {
+                let name = groups
+                    .get_group(path)
+                    .map(|g| g.name.clone())
+                    .unwrap_or_else(|| path.split('/').last().unwrap_or(path).to_string());
+
+                items.push(SwitcherItem::Group { name, depth });
+
+                // Child groups
+                let mut children = groups.children(path);
+                children.sort();
+                for c in children {
+                    visit(items, groups, instances, by_group, &c, depth + 1);
+                }
+
+                // Sessions in this group
+                if let Some(sessions) = by_group.get(path) {
+                    let mut sorted = sessions.clone();
+                    sorted.sort_by(|&a, &b| {
+                        instances[b]
+                            .last_accessed_at
+                            .cmp(&instances[a].last_accessed_at)
+                    });
+                    for idx in sorted {
+                        items.push(SwitcherItem::Session {
+                            idx,
+                            depth: depth + 1,
+                        });
+                    }
+                }
+            }
+
+            for r in roots {
+                visit(&mut items, groups, instances, &by_group, &r, 0);
+            }
+
+            // Ungrouped sessions at bottom
+            for idx in ungrouped {
+                items.push(SwitcherItem::Session { idx, depth: 0 });
+            }
+
+            items
+        };
 
     // Build flat matches (fuzzy search)
     let build_flat = |query: &str, instances: &[crate::session::Instance]| -> Vec<usize> {
@@ -160,7 +165,7 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
             });
             return all.into_iter().take(50).collect();
         }
-        
+
         let mut scored: Vec<(i32, usize)> = Vec::new();
         for (idx, inst) in instances.iter().enumerate() {
             let hay = format!(
@@ -174,7 +179,7 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
                 scored.push((score, idx));
             }
         }
-        
+
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
         scored.into_iter().map(|(_, idx)| idx).take(50).collect()
     };
@@ -198,14 +203,22 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
         let now = Instant::now();
         let visible_sessions: Vec<usize> = if query.trim().is_empty() {
             // Tree mode - collect session indices from tree items
-            tree_items.iter().filter_map(|item| {
-                if let SwitcherItem::Session { idx, .. } = item { Some(*idx) } else { None }
-            }).take(20).collect()
+            tree_items
+                .iter()
+                .filter_map(|item| {
+                    if let SwitcherItem::Session { idx, .. } = item {
+                        Some(*idx)
+                    } else {
+                        None
+                    }
+                })
+                .take(20)
+                .collect()
         } else {
             // Flat mode
             flat_matches.iter().copied().take(20).collect()
         };
-        
+
         for idx in visible_sessions {
             let inst = &instances[idx];
             let id = inst.id.as_str();
@@ -265,8 +278,12 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
 
         // Determine display mode and item count
         let is_tree_mode = query.trim().is_empty();
-        let item_count = if is_tree_mode { tree_items.len() } else { flat_matches.len() };
-        
+        let item_count = if is_tree_mode {
+            tree_items.len()
+        } else {
+            flat_matches.len()
+        };
+
         // Clamp selection
         if selected >= item_count && item_count > 0 {
             selected = item_count - 1;
@@ -297,19 +314,23 @@ pub async fn run_switcher(profile: &str) -> Result<()> {
                         // Find selected session
                         let session_idx = if is_tree_mode {
                             tree_items.get(selected).and_then(|item| {
-                                if let SwitcherItem::Session { idx, .. } = item { Some(*idx) } else { None }
+                                if let SwitcherItem::Session { idx, .. } = item {
+                                    Some(*idx)
+                                } else {
+                                    None
+                                }
                             })
                         } else {
                             flat_matches.get(selected).copied()
                         };
-                        
+
                         if let Some(idx) = session_idx {
                             let inst = &instances[idx];
                             let tmux_name = inst.tmux_name();
-                            
+
                             // Record analytics: switcher usage
                             let _ = analytics.record_switch(&inst.id, &inst.title).await;
-                            
+
                             let _ = manager
                                 .set_environment_global("AGENTHAND_LAST_SESSION", &tmux_name)
                                 .await;
@@ -403,7 +424,7 @@ fn draw_switcher(
     let selected = list_state.selected().unwrap_or(0);
 
     let mut items: Vec<ListItem> = Vec::new();
-    
+
     if is_tree_mode {
         // Tree view mode
         for (row, item) in tree_items.iter().enumerate() {
@@ -430,7 +451,7 @@ fn draw_switcher(
                 SwitcherItem::Session { idx, depth } => {
                     let inst = &instances[*idx];
                     let indent = "  ".repeat(*depth);
-                    
+
                     let status = status_by_id.get(&inst.id).copied().unwrap_or(Status::Idle);
                     let (icon, color) = match status {
                         Status::Waiting => (waiting_anim(tick), Color::Blue),
@@ -439,7 +460,7 @@ fn draw_switcher(
                         Status::Error => ("✕", Color::Red),
                         Status::Starting => ("⋯", Color::Cyan),
                     };
-                    
+
                     let is_selected = row == selected;
                     let icon_style = if is_selected {
                         Style::default().fg(color).bg(Color::Cyan)
@@ -459,17 +480,14 @@ fn draw_switcher(
                     } else {
                         Style::default().fg(Color::DarkGray)
                     };
-                    
+
                     let line = Line::from(vec![
                         Span::raw(indent),
                         Span::styled(icon, icon_style),
                         Span::raw(" "),
                         Span::styled(inst.title.clone(), text_style),
                         Span::raw("  "),
-                        Span::styled(
-                            inst.project_path.to_string_lossy().to_string(),
-                            path_style,
-                        ),
+                        Span::styled(inst.project_path.to_string_lossy().to_string(), path_style),
                     ]);
                     items.push(ListItem::new(line));
                 }
@@ -550,7 +568,7 @@ fn draw_switcher(
     } else {
         format!("Search: {query}")
     };
-    
+
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title(title_str))
         .highlight_symbol("");

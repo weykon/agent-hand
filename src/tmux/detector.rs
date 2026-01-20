@@ -1,3 +1,4 @@
+use parking_lot::RwLock;
 use regex::Regex;
 use std::fmt;
 use std::sync::OnceLock;
@@ -51,6 +52,53 @@ impl Tool {
 /// Uses unified pattern matching across all tools (Claude, Copilot, OpenCode, etc.)
 pub struct PromptDetector;
 
+#[derive(Debug, Clone)]
+pub struct StatusDetectionConfig {
+    pub prompt_contains: Vec<String>,
+    pub prompt_regex: Vec<Regex>,
+    pub busy_contains: Vec<String>,
+    pub busy_regex: Vec<Regex>,
+}
+
+static DETECTION_CONFIG: OnceLock<RwLock<StatusDetectionConfig>> = OnceLock::new();
+
+pub fn set_status_detection_config(
+    raw: &crate::config::StatusDetectionConfig,
+) -> Result<(), regex::Error> {
+    let prompt_regex = raw
+        .prompt_regex
+        .iter()
+        .map(|p| Regex::new(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let busy_regex = raw
+        .busy_regex
+        .iter()
+        .map(|p| Regex::new(p))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let cfg = StatusDetectionConfig {
+        prompt_contains: raw
+            .prompt_contains
+            .iter()
+            .map(|s| s.to_lowercase())
+            .collect(),
+        prompt_regex,
+        busy_contains: raw.busy_contains.iter().map(|s| s.to_lowercase()).collect(),
+        busy_regex,
+    };
+
+    let lock = DETECTION_CONFIG.get_or_init(|| {
+        RwLock::new(StatusDetectionConfig {
+            prompt_contains: Vec::new(),
+            prompt_regex: Vec::new(),
+            busy_contains: Vec::new(),
+            busy_regex: Vec::new(),
+        })
+    });
+    *lock.write() = cfg;
+    Ok(())
+}
+
 impl PromptDetector {
     pub fn new(_tool: Tool) -> Self {
         // Tool parameter kept for API compatibility but no longer used for dispatch
@@ -60,13 +108,21 @@ impl PromptDetector {
     /// Check if terminal content shows the agent is currently busy (running/thinking).
     pub fn is_busy(&self, content: &str) -> bool {
         let lines = get_last_lines(content, 15);
-        let recent = strip_ansi(&lines.join("\n")).to_lowercase();
+        let recent_raw = strip_ansi(&lines.join("\n"));
+        let recent = recent_raw.to_lowercase();
 
         // Busy indicators across all tools
+        // NOTE: Claude CLI wording can vary by version (esc vs ctrl+c)
         let busy_indicators = [
             "esc to interrupt",
             "(esc to interrupt)",
             "· esc to interrupt",
+            "ctrl+c to interrupt",
+            "(ctrl+c to interrupt)",
+            "· ctrl+c to interrupt",
+            "ctrl-c to interrupt",
+            "(ctrl-c to interrupt)",
+            "· ctrl-c to interrupt",
             "esc to cancel",
             "(esc to cancel)",
         ];
@@ -100,6 +156,16 @@ impl PromptDetector {
             || (recent.contains("connecting") && recent.contains("tokens"))
         {
             return true;
+        }
+
+        if let Some(cfg) = DETECTION_CONFIG.get() {
+            let cfg = cfg.read();
+            if cfg.busy_contains.iter().any(|p| recent.contains(p)) {
+                return true;
+            }
+            if cfg.busy_regex.iter().any(|re| re.is_match(&recent_raw)) {
+                return true;
+            }
         }
 
         false
@@ -138,6 +204,9 @@ impl PromptDetector {
             "execute plan?",
             "enter to continue",
             "enter to select",
+            "enter to confirm",
+            "press enter to confirm",
+            "press enter to confirm or esc to cancel",
         ];
 
         if blocking_prompts.iter().any(|p| recent_lower.contains(p)) {
@@ -157,6 +226,16 @@ impl PromptDetector {
         let box_prompts = ["│ do you want", "│ would you like", "│ allow"];
         if box_prompts.iter().any(|p| recent_lower.contains(p)) {
             return true;
+        }
+
+        if let Some(cfg) = DETECTION_CONFIG.get() {
+            let cfg = cfg.read();
+            if cfg.prompt_contains.iter().any(|p| recent_lower.contains(p)) {
+                return true;
+            }
+            if cfg.prompt_regex.iter().any(|re| re.is_match(&recent)) {
+                return true;
+            }
         }
 
         false
@@ -192,8 +271,10 @@ mod tests {
     #[test]
     fn test_busy_detection() {
         let detector = PromptDetector::new(Tool::Shell);
-        // Spinner and "esc to interrupt" = busy
+        // Spinner and interrupt hints = busy
         assert!(detector.is_busy("Thinking… (45s · 1234 tokens · esc to interrupt)"));
+        assert!(detector.is_busy("Thinking… (45s · 1234 tokens · ctrl+c to interrupt)"));
+        assert!(detector.is_busy("ctrl+c to interrupt    claude"));
         assert!(detector.is_busy("⠋ Processing..."));
         // Progress dots = busy
         assert!(detector.is_busy("⬝⬝⬝⬝⬝⬝⬝⬝"));
@@ -218,6 +299,23 @@ mod tests {
         // Plain prompts should NOT be waiting
         assert!(!detector.has_prompt(">"));
         assert!(!detector.has_prompt("> "));
+    }
+
+    #[test]
+    fn test_custom_detection_patterns() {
+        let cfg = crate::config::StatusDetectionConfig {
+            prompt_contains: vec!["press enter to confirm".to_string()],
+            prompt_regex: vec!["Do you want to proceed\\?".to_string()],
+            busy_contains: vec!["building project".to_string()],
+            busy_regex: vec!["\\bcompiling\\b".to_string()],
+        };
+        set_status_detection_config(&cfg).unwrap();
+
+        let detector = PromptDetector::new(Tool::Shell);
+        assert!(detector.has_prompt("Press Enter to confirm or Esc to cancel"));
+        assert!(detector.has_prompt("Do you want to proceed?"));
+        assert!(detector.is_busy("Building project..."));
+        assert!(detector.is_busy("compiling crate foo"));
     }
 
     #[test]

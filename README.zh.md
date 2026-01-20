@@ -22,10 +22,14 @@ Agent Hand 解决这些问题：
 
 | 状态图标 | 含义 | 你需要做什么 |
 |---------|------|-------------|
-| `!` 蓝色闪烁 | **需要确认** - agent 等你选 Yes/No | 赶紧去看！ |
+| `!` 蓝色闪烁 | **需要确认** - agent 在等待你输入（确认/选择/批准/y/n 等） | 赶紧去看！ |
 | `●` 黄色动画 | **正在运行** - agent 在思考/执行 | 可以先做别的 |
 | `✓` 青色 | **刚跑完** - 约40分钟内完成（可配置） | 去看看结果 |
 | `○` 灰色 | **空闲** - 还没启动或已经看过了 | 随时可以继续 |
+
+说明：
+- **刚跑完** 是派生状态：`空闲` + “最近跑过”（TTL 由 `ready_ttl_minutes` 控制）。
+- **需要确认/正在运行** 来自对 tmux pane 最近输出的检测；可通过配置里的 `status_detection` 扩展规则。
 
 ## Highlights
 
@@ -56,6 +60,60 @@ cargo build --release
 
 # optional
 cargo install --path .
+```
+
+## Claude Code 输入日志（可选）
+
+可以启用 Claude Code 的钩子来记录你自己提交的提示词。该功能**默认关闭**，需要手动开启。
+
+日志保存在 `~/.agent-hand/logs/claude-prompts/`，包含时间戳、去空行、长度限制，并支持达到阈值后压缩归档。
+
+需要 `jq` 和 `python3`。
+
+启动时自动修复（可选）：
+
+```json
+{
+  "claude": {
+    "user_prompt_logging": true
+  }
+}
+```
+
+启用：
+
+```bash
+./scripts/claude/install-claude-userprompt-hook.sh --enable
+```
+
+关闭：
+
+```bash
+./scripts/claude/install-claude-userprompt-hook.sh --disable
+```
+
+可选环境变量：
+
+```bash
+CLAUDE_PROMPT_LOG_MAX_CHARS=4000
+CLAUDE_PROMPT_LOG_MAX_BYTES=1048576
+CLAUDE_PROMPT_LOG_COMPRESS=1
+CLAUDE_PROMPT_LOG_DIR=~/.agent-hand/logs/claude-prompts
+```
+
+## 状态检测自定义（可选）
+
+可以通过自定义子串或正则来扩展 **需要确认/正在运行** 的检测规则。
+
+```json
+{
+  "status_detection": {
+    "prompt_contains": ["press enter to confirm", "esc to cancel"],
+    "prompt_regex": ["confirm\\s+with\\s+enter"],
+    "busy_contains": ["thinking..."],
+    "busy_regex": ["\\bprocessing\\b"]
+  }
+}
 ```
 
 ## Quickstart

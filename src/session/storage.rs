@@ -219,9 +219,9 @@ impl Storage {
         // Acquire cross-process file lock for multi-instance safety
         let lock_path = self.path.with_extension("lock");
         let lock_file = std::fs::File::create(&lock_path)?;
-        lock_file.lock_exclusive().map_err(|e| {
-            Error::Other(format!("Failed to acquire file lock: {}", e))
-        })?;
+        lock_file
+            .lock_exclusive()
+            .map_err(|e| Error::Other(format!("Failed to acquire file lock: {}", e)))?;
 
         // Create rolling backups
         self.create_backup().await?;

@@ -30,7 +30,6 @@ impl TmuxManager {
     }
 
     async fn ensure_server_bindings(&self) {
-
         // Best-effort: bind keys on our dedicated tmux server.
         let cfg = crate::config::ConfigFile::load().await.ok().flatten();
 
@@ -225,27 +224,67 @@ impl TmuxManager {
             if mode_keys == "vi" {
                 let _ = self
                     .tmux_cmd()
-                    .args(["bind-key", "-T", "copy-mode-vi", "v", "send", "-X", "begin-selection"])
+                    .args([
+                        "bind-key",
+                        "-T",
+                        "copy-mode-vi",
+                        "v",
+                        "send",
+                        "-X",
+                        "begin-selection",
+                    ])
                     .status()
                     .await;
                 let _ = self
                     .tmux_cmd()
-                    .args(["bind-key", "-T", "copy-mode-vi", "Space", "send", "-X", "begin-selection"])
+                    .args([
+                        "bind-key",
+                        "-T",
+                        "copy-mode-vi",
+                        "Space",
+                        "send",
+                        "-X",
+                        "begin-selection",
+                    ])
                     .status()
                     .await;
                 let _ = self
                     .tmux_cmd()
-                    .args(["bind-key", "-T", "copy-mode-vi", "V", "send", "-X", "select-line"])
+                    .args([
+                        "bind-key",
+                        "-T",
+                        "copy-mode-vi",
+                        "V",
+                        "send",
+                        "-X",
+                        "select-line",
+                    ])
                     .status()
                     .await;
                 let _ = self
                     .tmux_cmd()
-                    .args(["bind-key", "-T", "copy-mode-vi", "y", "send", "-X", "copy-selection-and-cancel"])
+                    .args([
+                        "bind-key",
+                        "-T",
+                        "copy-mode-vi",
+                        "y",
+                        "send",
+                        "-X",
+                        "copy-selection-and-cancel",
+                    ])
                     .status()
                     .await;
                 let _ = self
                     .tmux_cmd()
-                    .args(["bind-key", "-T", "copy-mode-vi", "Enter", "send", "-X", "copy-selection-and-cancel"])
+                    .args([
+                        "bind-key",
+                        "-T",
+                        "copy-mode-vi",
+                        "Enter",
+                        "send",
+                        "-X",
+                        "copy-selection-and-cancel",
+                    ])
                     .status()
                     .await;
             }
@@ -360,7 +399,7 @@ impl TmuxManager {
 
         // Build the shell command
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        
+
         if let Some(command) = command {
             cmd.arg(command);
         } else {

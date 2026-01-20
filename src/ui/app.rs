@@ -233,9 +233,12 @@ impl App {
             if let Some(name) = self.pending_attach.take() {
                 // Record analytics: session enter
                 if let Some(session) = self.find_session_by_tmux_name(&name) {
-                    let _ = self.analytics.record_enter(&session.id, &session.title).await;
+                    let _ = self
+                        .analytics
+                        .record_enter(&session.id, &session.title)
+                        .await;
                 }
-                
+
                 self.perform_attach(terminal, &name).await?;
                 let _ = self.cache_preview_by_tmux_name(&name).await;
                 self.refresh_sessions().await?;
@@ -287,16 +290,27 @@ impl App {
             }
 
             if self.last_status_refresh.elapsed() >= Self::STATUS_REFRESH {
-                if let Ok(Some(detach_at)) = self.tmux.get_environment_global("AGENTHAND_LAST_DETACH_AT").await {
+                if let Ok(Some(detach_at)) = self
+                    .tmux
+                    .get_environment_global("AGENTHAND_LAST_DETACH_AT")
+                    .await
+                {
                     if self.last_seen_detach_at.as_deref() != Some(detach_at.as_str()) {
                         self.last_seen_detach_at = Some(detach_at);
                         // Use cached session name (written by Ctrl+Q binding).
-                        if let Ok(Some(name)) = self.tmux.get_environment_global("AGENTHAND_LAST_SESSION").await {
+                        if let Ok(Some(name)) = self
+                            .tmux
+                            .get_environment_global("AGENTHAND_LAST_SESSION")
+                            .await
+                        {
                             self.force_probe_tmux = Some(name.clone());
-                            
+
                             // Record analytics: session exit (Ctrl+Q detach)
                             if let Some(session) = self.find_session_by_tmux_name(&name) {
-                                let _ = self.analytics.record_exit(&session.id, &session.title).await;
+                                let _ = self
+                                    .analytics
+                                    .record_exit(&session.id, &session.title)
+                                    .await;
                             }
                         }
                     }
@@ -753,7 +767,8 @@ impl App {
                             d.group_path.set_text(sel.to_string());
                             d.update_group_matches();
                         } else {
-                            d.group_path.set_text(d.group_path.text().trim().to_string());
+                            d.group_path
+                                .set_text(d.group_path.text().trim().to_string());
                             d.update_group_matches();
                         }
 
@@ -801,67 +816,58 @@ impl App {
                         }
                     };
                 }
-                KeyCode::Left => {
-                    match d.field {
-                        NewSessionField::Path => {
-                            if d.path_suggestions_visible {
-                                d.complete_path_or_cycle(true);
-                            } else {
-                                d.path.move_left();
-                            }
-                        }
-                        NewSessionField::Title => {
-                            d.title.move_left();
-                        }
-                        NewSessionField::Group => {
-                            if !d.group_matches.is_empty() {
-                                if d.group_selected == 0 {
-                                    d.group_selected = d.group_matches.len() - 1;
-                                } else {
-                                    d.group_selected -= 1;
-                                }
-                            } else {
-                                d.group_path.move_left();
-                            }
+                KeyCode::Left => match d.field {
+                    NewSessionField::Path => {
+                        if d.path_suggestions_visible {
+                            d.complete_path_or_cycle(true);
+                        } else {
+                            d.path.move_left();
                         }
                     }
-                }
-                KeyCode::Right => {
-                    match d.field {
-                        NewSessionField::Path => {
-                            if d.path_suggestions_visible {
-                                d.complete_path_or_cycle(false);
+                    NewSessionField::Title => {
+                        d.title.move_left();
+                    }
+                    NewSessionField::Group => {
+                        if !d.group_matches.is_empty() {
+                            if d.group_selected == 0 {
+                                d.group_selected = d.group_matches.len() - 1;
                             } else {
-                                d.path.move_right();
+                                d.group_selected -= 1;
                             }
-                        }
-                        NewSessionField::Title => {
-                            d.title.move_right();
-                        }
-                        NewSessionField::Group => {
-                            if !d.group_matches.is_empty() {
-                                d.group_selected =
-                                    (d.group_selected + 1) % d.group_matches.len();
-                            } else {
-                                d.group_path.move_right();
-                            }
+                        } else {
+                            d.group_path.move_left();
                         }
                     }
-                }
-                KeyCode::Home => {
-                    match d.field {
-                        NewSessionField::Path => d.path.move_home(),
-                        NewSessionField::Title => d.title.move_home(),
-                        NewSessionField::Group => d.group_path.move_home(),
+                },
+                KeyCode::Right => match d.field {
+                    NewSessionField::Path => {
+                        if d.path_suggestions_visible {
+                            d.complete_path_or_cycle(false);
+                        } else {
+                            d.path.move_right();
+                        }
                     }
-                }
-                KeyCode::End => {
-                    match d.field {
-                        NewSessionField::Path => d.path.move_end(),
-                        NewSessionField::Title => d.title.move_end(),
-                        NewSessionField::Group => d.group_path.move_end(),
+                    NewSessionField::Title => {
+                        d.title.move_right();
                     }
-                }
+                    NewSessionField::Group => {
+                        if !d.group_matches.is_empty() {
+                            d.group_selected = (d.group_selected + 1) % d.group_matches.len();
+                        } else {
+                            d.group_path.move_right();
+                        }
+                    }
+                },
+                KeyCode::Home => match d.field {
+                    NewSessionField::Path => d.path.move_home(),
+                    NewSessionField::Title => d.title.move_home(),
+                    NewSessionField::Group => d.group_path.move_home(),
+                },
+                KeyCode::End => match d.field {
+                    NewSessionField::Path => d.path.move_end(),
+                    NewSessionField::Title => d.title.move_end(),
+                    NewSessionField::Group => d.group_path.move_end(),
+                },
                 KeyCode::Char(ch) => {
                     if modifiers.contains(KeyModifiers::CONTROL) {
                         return Ok(());
@@ -1511,8 +1517,14 @@ impl App {
                         return Ok(());
                     };
                     let old_title = s.title.clone();
-                    self.apply_edit_session(&session_id, &old_title, &old_title, &tag.name, tag.color)
-                        .await?;
+                    self.apply_edit_session(
+                        &session_id,
+                        &old_title,
+                        &old_title,
+                        &tag.name,
+                        tag.color,
+                    )
+                    .await?;
                     self.refresh_sessions().await?;
                     self.focus_session(&session_id).await?;
                 }
@@ -1644,7 +1656,9 @@ impl App {
         let tags = self.collect_existing_tags();
         let mut selected = 0usize;
         if !tags.is_empty() {
-            if let Some(i) = tags.iter().position(|t| t.name == s.label && t.color == s.label_color)
+            if let Some(i) = tags
+                .iter()
+                .position(|t| t.name == s.label && t.color == s.label_color)
             {
                 selected = i;
             }
@@ -2304,9 +2318,11 @@ impl App {
     }
 
     async fn queue_attach_by_id(&mut self, id: &str) -> Result<()> {
-        if let Some(pos) = self.tree.iter().position(|item| {
-            matches!(item, TreeItem::Session { id: sid, .. } if sid == id)
-        }) {
+        if let Some(pos) = self
+            .tree
+            .iter()
+            .position(|item| matches!(item, TreeItem::Session { id: sid, .. } if sid == id))
+        {
             self.selected_index = pos;
             self.on_navigation();
             self.preview.clear();

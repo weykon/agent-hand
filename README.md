@@ -22,10 +22,14 @@ Agent Hand makes this manageable with clear status icons:
 
 | Icon | Meaning | What you should do |
 |------|---------|--------------------|
-| `!` (blue, blinking) | **WAITING** – the agent is blocked on a Yes/No style prompt | go check it now |
+| `!` (blue, blinking) | **WAITING** – the agent is blocked on an input prompt (confirm/select/approve/y/n, etc.) | go check it now |
 | `●` (yellow, animated) | **RUNNING** – the agent is thinking/executing | you can do something else |
 | `✓` (cyan) | **READY** – finished within the last ~40 minutes (configurable) | read the output |
 | `○` (gray) | **IDLE** – not started yet or already seen | continue anytime |
+
+Notes:
+- **READY** is derived: `IDLE` + “was Running recently” (TTL via `ready_ttl_minutes`).
+- **WAITING/RUNNING** are detected from the last pane output; you can extend detection via `status_detection` in config.
 
 ## Highlights
 
@@ -80,6 +84,60 @@ cargo build --release
 
 # optional
 cargo install --path .
+```
+
+## Claude Code input logging (optional)
+
+You can enable a Claude Code hook to record your own prompts. This is **opt-in** and disabled by default.
+
+Logs are stored under `~/.agent-hand/logs/claude-prompts/` with timestamps, empty lines removed, length limits, and optional compression.
+
+Requires `jq` and `python3`.
+
+Enable auto-restore on startup (optional):
+
+```json
+{
+  "claude": {
+    "user_prompt_logging": true
+  }
+}
+```
+
+Enable:
+
+```bash
+./scripts/claude/install-claude-userprompt-hook.sh --enable
+```
+
+Disable:
+
+```bash
+./scripts/claude/install-claude-userprompt-hook.sh --disable
+```
+
+Optional env vars for tuning:
+
+```bash
+CLAUDE_PROMPT_LOG_MAX_CHARS=4000
+CLAUDE_PROMPT_LOG_MAX_BYTES=1048576
+CLAUDE_PROMPT_LOG_COMPRESS=1
+CLAUDE_PROMPT_LOG_DIR=~/.agent-hand/logs/claude-prompts
+```
+
+## Status detection customization (optional)
+
+You can extend **WAITING**/**RUNNING** detection with custom substrings or regex patterns.
+
+```json
+{
+  "status_detection": {
+    "prompt_contains": ["press enter to confirm", "esc to cancel"],
+    "prompt_regex": ["confirm\\s+with\\s+enter"],
+    "busy_contains": ["thinking..."],
+    "busy_regex": ["\\bprocessing\\b"]
+  }
+}
 ```
 
 ## Quickstart

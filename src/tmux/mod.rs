@@ -4,7 +4,7 @@ mod manager;
 mod session;
 
 pub use cache::SessionCache;
-pub use detector::{PromptDetector, Tool};
+pub use detector::{set_status_detection_config, PromptDetector, Tool};
 pub use manager::TmuxManager;
 pub use session::{SessionStatus, TmuxSession};
 
