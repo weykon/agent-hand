@@ -36,7 +36,7 @@
 - 📦 **Instance 结构** - 完整的会话元数据
   - ID, 标题, 路径, 分组
   - Claude/Gemini session ID 追踪
-  - MCP 加载列表
+  - （已移除）MCP 相关内容
   - 父子会话关系
 
 - 💾 **Storage 层**
@@ -93,7 +93,7 @@
 - cli/       ~700 行 (33%)  
 - session/   ~600 行 (28%)  
 - error/     ~60 行  (3%)   
-- mcp/       ~20 行  (1%)   (占位符)
+- (removed)  mcp/
 - ui/        ~10 行  (0%)   (占位符)
 ```
 
@@ -227,7 +227,7 @@ cargo install --path .
 1. `ui/app.rs` - 主应用状态机
 2. `ui/list.rs` - 会话列表组件
 3. `ui/search.rs` - 模糊搜索对话框
-4. `ui/mcp_dialog.rs` - MCP 管理界面
+4. （已移除）MCP 管理界面
 5. `ui/styles.rs` - 样式系统
 
 **核心代码结构**:
@@ -260,58 +260,13 @@ impl App {
 }
 ```
 
-### Phase 6: MCP 集成 (预计 1-2 周)
+### Phase 6: （已移除）MCP 集成
 
-**目标**: 完整 MCP 服务器管理
+> 注：agent-hand 当前不包含 MCP（Model Context Protocol）相关功能；相关代码与规划已移除。
 
-**要实现**:
-1. `mcp/config.rs` - TOML 配置解析
-2. `mcp/manager.rs` - MCP 生命周期管理
-3. `mcp/claude.rs` - Claude `.mcp.json` 集成
-4. `mcp/gemini.rs` - Gemini MCP 支持
+（已移除）Socket Pool
 
-**核心功能**:
-```rust
-pub struct MCPManager {
-    available: HashMap<String, MCPConfig>,
-    config_dir: PathBuf,
-}
-
-impl MCPManager {
-    // 读取 ~/.agent-deck/config.toml
-    pub async fn load_available_mcps(&mut self) -> Result<()>
-    
-    // 获取会话的 MCP 信息
-    pub async fn get_session_mcps(&self, path: &Path) -> Result<MCPInfo>
-    
-    // 附加 MCP (修改 .claude.json 或 .mcp.json)
-    pub async fn attach_mcp(&self, session: &Instance, mcp: &str, scope: Scope) -> Result<()>
-    
-    // 分离 MCP
-    pub async fn detach_mcp(&self, session: &Instance, mcp: &str, scope: Scope) -> Result<()>
-}
-```
-
-### Phase 7: Socket Pool (预计 1 周)
-
-**目标**: 多会话共享 MCP 进程
-
-**要实现**:
-1. `mcp/pool/proxy.rs` - Unix Socket 代理
-2. `mcp/pool/manager.rs` - Pool 管理器
-
-**工作原理**:
-```
-传统方式:
-Session1 → MCP-memory (进程1)
-Session2 → MCP-memory (进程2)
-Session3 → MCP-memory (进程3)
-
-Pool 方式:
-Session1 ─┐
-Session2 ─┼─→ Unix Socket → MCP-memory (单进程)
-Session3 ─┘
-```
+> 注：此处原计划用于 MCP 进程复用；由于 MCP 功能已移除，本节不再适用。
 
 ## 🔬 技术深入
 
@@ -536,8 +491,8 @@ ls -lh target/release/agent-deck
 ### 待完成 (下一阶段)
 
 🚧 TUI 界面 (ratatui)
-🚧 MCP 完整集成
-🚧 Socket Pool 实现
+🚧 （已移除）MCP 完整集成
+🚧 （已移除）Socket Pool 实现
 🚧 会话分叉功能
 🚧 集成测试套件
 
@@ -551,9 +506,7 @@ ls -lh target/release/agent-deck
 
 ### 中期 (2-4 周)
 
-1. MCP 配置解析
-2. MCP 动态管理
-3. 会话分叉 (Claude)
+1. 会话分叉 (Claude)
 
 ### 长期 (1-2 月)
 

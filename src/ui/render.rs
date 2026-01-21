@@ -291,11 +291,6 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    if let Some(d) = app.mcp_dialog() {
-        render_mcp_dialog(f, area, d);
-        return;
-    }
-
     if let Some(d) = app.fork_dialog() {
         render_fork_dialog(f, area, d);
         return;
@@ -1001,95 +996,6 @@ fn render_search_popup(f: &mut Frame, area: Rect, app: &App) {
         .block(Block::default().borders(Borders::ALL).title("Search"));
 
     f.render_widget(p, popup_area);
-}
-
-fn render_mcp_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MCPDialog) {
-    let popup_area = centered_rect(85, 65, area);
-    f.render_widget(Clear, popup_area);
-
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(3)])
-        .split(popup_area);
-
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(outer[0]);
-
-    let left_title = if d.column == crate::ui::MCPColumn::Attached {
-        "Attached (Enter to detach)"
-    } else {
-        "Attached"
-    };
-
-    let right_title = if d.column == crate::ui::MCPColumn::Available {
-        "Available (Enter to attach)"
-    } else {
-        "Available"
-    };
-
-    let attached_items: Vec<ListItem> = if d.attached.is_empty() {
-        vec![ListItem::new(Span::styled(
-            "(none)",
-            Style::default().fg(Color::DarkGray),
-        ))]
-    } else {
-        d.attached
-            .iter()
-            .enumerate()
-            .map(|(i, name)| {
-                let style = if d.column == crate::ui::MCPColumn::Attached && i == d.attached_idx {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(Span::styled(name.clone(), style))
-            })
-            .collect()
-    };
-
-    let available_items: Vec<ListItem> = if d.available.is_empty() {
-        vec![ListItem::new(Span::styled(
-            "(none)",
-            Style::default().fg(Color::DarkGray),
-        ))]
-    } else {
-        d.available
-            .iter()
-            .enumerate()
-            .map(|(i, name)| {
-                let style = if d.column == crate::ui::MCPColumn::Available && i == d.available_idx {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(Span::styled(name.clone(), style))
-            })
-            .collect()
-    };
-
-    let left =
-        List::new(attached_items).block(Block::default().borders(Borders::ALL).title(left_title));
-    let right =
-        List::new(available_items).block(Block::default().borders(Borders::ALL).title(right_title));
-
-    f.render_widget(left, cols[0]);
-    f.render_widget(right, cols[1]);
-
-    let hint = Paragraph::new(
-        "Tab: switch column • ↑/↓: move • Enter: toggle • a: apply(restart) • Esc: close",
-    )
-    .style(Style::default().fg(Color::DarkGray))
-    .alignment(Alignment::Center)
-    .block(Block::default().borders(Borders::ALL));
-    f.render_widget(hint, outer[1]);
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

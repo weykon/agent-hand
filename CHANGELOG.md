@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.2.5] - 2026-01-20
 
 ### Fixed
-- CI/release: Windows build now succeeds by disabling Unix-socket MCP pool on non-Unix platforms.
+- CI/release: Windows build now succeeds (Windows no longer relies on Unix-only components).
 
 ## [0.2.4] - 2026-01-20
 

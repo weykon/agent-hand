@@ -87,10 +87,6 @@ pub struct Instance {
     pub gemini_session_id: Option<String>,
     pub gemini_detected_at: Option<DateTime<Utc>>,
 
-    // MCP tracking
-    #[serde(default)]
-    pub loaded_mcp_names: Vec<String>,
-
     // Non-serialized fields
     #[serde(skip)]
     tmux_session: Option<Arc<TmuxSession>>,
@@ -121,7 +117,6 @@ impl Instance {
             claude_detected_at: None,
             gemini_session_id: None,
             gemini_detected_at: None,
-            loaded_mcp_names: Vec::new(),
             tmux_session: None,
         }
     }

@@ -274,7 +274,7 @@ pub async fn refresh_cache(&self) -> Result<()> {
 1. `ui/app.rs` - 主应用循环
 2. `ui/list.rs` - 会话列表渲染
 3. `ui/search.rs` - 模糊搜索
-4. `ui/mcp_dialog.rs` - MCP 管理对话框
+4. （已移除）MCP 管理相关功能
 5. 键盘事件处理 (j/k, /, M, n, d, etc.)
 
 **技术**:
@@ -282,30 +282,13 @@ pub async fn refresh_cache(&self) -> Result<()> {
 - `crossterm` - 终端控制
 - `fuzzy-matcher` - 模糊搜索
 
-### Phase 6: MCP 完整集成 (1-2 周)
+### Phase 6: （已移除）MCP 集成
 
-**目标**: 动态 MCP 服务器管理
+> 注：agent-hand 当前不包含 MCP（Model Context Protocol）相关功能；代码与文档中已移除该规划。
 
-**要做**:
-1. 解析 `~/.agent-deck/config.toml` (MCP 定义)
-2. 读取 `.mcp.json` (本地 MCP)
-3. 修改 `.claude.json` (附加/分离 MCP)
-4. Gemini MCP 支持
-5. CLI 命令: `agent-deck mcp attach/detach`
+### Phase 7: （已移除）Socket Pool (1 周)
 
-### Phase 7: Socket Pool (1 周)
-
-**目标**: 多会话共享 MCP 进程
-
-**要做**:
-1. `mcp/pool/proxy.rs` - Unix Socket 代理
-2. `mcp/pool/manager.rs` - Pool 生命周期
-3. 启动时预创建 socket
-4. 会话连接到 socket 而非启动新进程
-
-**收益**:
-- 30 sessions × 5 MCPs = 150 进程
-- → 5 个共享进程 (节省 85-90% 内存)
+> 注：此阶段原计划用于 MCP 进程复用；由于 MCP 功能已移除，本阶段不再适用。
 
 ## 🎓 学到的东西
 
@@ -347,7 +330,7 @@ agent-deck-rs/
 │   ├── cli/               # CLI 命令 (700 行) ⭐
 │   ├── session/           # 会话管理 (600 行) ⭐
 │   ├── tmux/              # Tmux 集成 (800 行) ⭐⭐⭐
-│   ├── mcp/               # MCP (占位)
+│   ├── (removed) mcp/
 │   └── ui/                # TUI (占位)
 └── target/
     └── release/
@@ -390,7 +373,7 @@ agent-deck-rs/
 ### 待完成 🚧
 
 1. TUI 交互界面
-2. MCP 完整集成
+2. （已移除）MCP 集成
 3. Socket Pool 优化
 4. 会话分叉功能
 5. 集成测试

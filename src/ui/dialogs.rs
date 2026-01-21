@@ -93,24 +93,6 @@ pub struct DeleteGroupDialog {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MCPColumn {
-    Attached,
-    Available,
-}
-
-#[derive(Debug, Clone)]
-pub struct MCPDialog {
-    pub session_id: String,
-    pub project_path: PathBuf,
-    pub attached: Vec<String>,
-    pub available: Vec<String>,
-    pub column: MCPColumn,
-    pub attached_idx: usize,
-    pub available_idx: usize,
-    pub dirty: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForkField {
     Title,
     Group,
@@ -260,7 +242,6 @@ pub enum Dialog {
     NewSession(NewSessionDialog),
     DeleteConfirm(DeleteConfirmDialog),
     DeleteGroup(DeleteGroupDialog),
-    MCP(MCPDialog),
     Fork(ForkDialog),
     CreateGroup(CreateGroupDialog),
     MoveGroup(MoveGroupDialog),

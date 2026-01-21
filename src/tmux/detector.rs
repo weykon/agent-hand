@@ -194,7 +194,6 @@ impl PromptDetector {
             "do you want to create",
             "do you want to run this command",
             "do you trust the files in this folder",
-            "allow this mcp server",
             "run this command?",
             "execute this?",
             // Copilot/Codex

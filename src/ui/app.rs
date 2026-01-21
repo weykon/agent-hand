@@ -15,15 +15,13 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::Mutex;
 
 use crate::error::Result;
-use crate::mcp::{pooled_mcp_config, MCPManager, MCPPool};
 use crate::session::{GroupTree, Instance, Status, Storage};
 use crate::tmux::{TmuxManager, SESSION_PREFIX};
 
 use super::{
     AppState, CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
-    ForkDialog, ForkField, MCPColumn, MCPDialog, MoveGroupDialog, NewSessionDialog,
-    NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, TagPickerDialog,
-    TagSpec, TextInput, TreeItem,
+    ForkDialog, ForkField, MoveGroupDialog, NewSessionDialog, NewSessionField, RenameGroupDialog,
+    RenameSessionDialog, SessionEditField, TagPickerDialog, TagSpec, TextInput, TreeItem,
 };
 
 /// Main TUI application
@@ -978,88 +976,6 @@ impl App {
                 }
                 _ => {}
             },
-            Dialog::MCP(d) => match key {
-                KeyCode::Esc | KeyCode::Char('q') => {
-                    self.dialog = None;
-                    self.state = AppState::Normal;
-                }
-                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.dialog = None;
-                    self.state = AppState::Normal;
-                }
-                KeyCode::Tab => {
-                    d.column = match d.column {
-                        MCPColumn::Attached => MCPColumn::Available,
-                        MCPColumn::Available => MCPColumn::Attached,
-                    };
-                }
-                KeyCode::Up | KeyCode::Char('k') => {
-                    match d.column {
-                        MCPColumn::Attached => {
-                            if !d.attached.is_empty() {
-                                d.attached_idx = d.attached_idx.saturating_sub(1);
-                            }
-                        }
-                        MCPColumn::Available => {
-                            if !d.available.is_empty() {
-                                d.available_idx = d.available_idx.saturating_sub(1);
-                            }
-                        }
-                    };
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    match d.column {
-                        MCPColumn::Attached => {
-                            if !d.attached.is_empty() && d.attached_idx + 1 < d.attached.len() {
-                                d.attached_idx += 1;
-                            }
-                        }
-                        MCPColumn::Available => {
-                            if !d.available.is_empty() && d.available_idx + 1 < d.available.len() {
-                                d.available_idx += 1;
-                            }
-                        }
-                    };
-                }
-                KeyCode::Enter => {
-                    d.dirty = true;
-                    match d.column {
-                        MCPColumn::Attached => {
-                            if d.attached.is_empty() {
-                                return Ok(());
-                            }
-                            let name = d.attached.remove(d.attached_idx);
-                            d.available.push(name);
-                            d.available.sort();
-                            if d.attached_idx >= d.attached.len() && !d.attached.is_empty() {
-                                d.attached_idx = d.attached.len() - 1;
-                            }
-                        }
-                        MCPColumn::Available => {
-                            if d.available.is_empty() {
-                                return Ok(());
-                            }
-                            let name = d.available.remove(d.available_idx);
-                            d.attached.push(name);
-                            d.attached.sort();
-                            if d.available_idx >= d.available.len() && !d.available.is_empty() {
-                                d.available_idx = d.available.len() - 1;
-                            }
-                        }
-                    }
-                }
-                KeyCode::Char('a') | KeyCode::Char('A') => {
-                    let session_id = d.session_id.clone();
-                    let project_path = d.project_path.clone();
-                    let attached = d.attached.clone();
-                    self.apply_mcp_changes(&session_id, &project_path, &attached)
-                        .await?;
-                    self.dialog = None;
-                    self.state = AppState::Normal;
-                    self.refresh_sessions().await?;
-                }
-                _ => {}
-            },
             Dialog::Fork(d) => match key {
                 KeyCode::Esc => {
                     self.dialog = None;
@@ -1684,40 +1600,6 @@ impl App {
         self.state = AppState::Dialog;
     }
 
-    #[allow(dead_code)]
-    async fn open_mcp_dialog(&mut self) -> Result<()> {
-        let Some(session) = self.selected_session() else {
-            return Ok(());
-        };
-
-        let pool = MCPManager::load_global_pool().await.unwrap_or_default();
-        let mut available: Vec<String> = pool.keys().cloned().collect();
-        available.sort();
-
-        let project_mcp = MCPManager::load_project_mcp(&session.project_path)
-            .await
-            .unwrap_or_default();
-        let mut attached: Vec<String> = project_mcp.keys().cloned().collect();
-        attached.sort();
-
-        // Remove attached from available
-        available.retain(|n| !attached.contains(n));
-
-        self.dialog = Some(Dialog::MCP(MCPDialog {
-            session_id: session.id.clone(),
-            project_path: session.project_path.clone(),
-            attached,
-            available,
-            column: MCPColumn::Attached,
-            attached_idx: 0,
-            available_idx: 0,
-            dirty: false,
-        }));
-        self.state = AppState::Dialog;
-
-        Ok(())
-    }
-
     async fn create_fork_session(
         &mut self,
         parent_session_id: &str,
@@ -1741,7 +1623,6 @@ impl App {
         inst.group_path = group_path;
         inst.command = parent.command.clone();
         inst.tool = parent.tool;
-        inst.loaded_mcp_names = parent.loaded_mcp_names.clone();
         inst.parent_session_id = Some(parent_session_id.to_string());
 
         let storage = self.storage.lock().await;
@@ -1908,67 +1789,6 @@ impl App {
 
         tree.rename_prefix(old_path, new_path);
         storage.save(&instances, &tree).await?;
-        Ok(())
-    }
-
-    async fn apply_mcp_changes(
-        &mut self,
-        session_id: &str,
-        project_path: &std::path::Path,
-        attached: &[String],
-    ) -> Result<()> {
-        let pool = MCPManager::load_global_pool().await.unwrap_or_default();
-        let existing = MCPManager::load_project_mcp(project_path)
-            .await
-            .unwrap_or_default();
-
-        let mut next = std::collections::HashMap::new();
-        for name in attached {
-            if let Some(cfg) = pool.get(name) {
-                if MCPPool::is_running(name).await {
-                    if let Ok(sock) = MCPPool::socket_path(name) {
-                        next.insert(name.clone(), pooled_mcp_config(name, &sock, cfg));
-                        continue;
-                    }
-                }
-                next.insert(name.clone(), cfg.clone());
-            } else if let Some(cfg) = existing.get(name) {
-                next.insert(name.clone(), cfg.clone());
-            }
-        }
-
-        MCPManager::write_project_mcp(project_path, &next).await?;
-
-        // Persist to sessions.json
-        {
-            let storage = self.storage.lock().await;
-            let (mut instances, tree) = storage.load().await?;
-            if let Some(inst) = instances.iter_mut().find(|s| s.id == session_id) {
-                inst.loaded_mcp_names = attached.to_vec();
-            }
-            storage.save(&instances, &tree).await?;
-        }
-
-        // Restart if running
-        let tmux_session = TmuxManager::session_name(session_id);
-        if self.tmux.session_exists(&tmux_session).unwrap_or(false) {
-            let _ = self.tmux.kill_session(&tmux_session).await;
-            if let Some(inst) = self.session_by_id(session_id) {
-                let _ = self
-                    .tmux
-                    .create_session(
-                        &tmux_session,
-                        &inst.project_path.to_string_lossy(),
-                        if inst.command.trim().is_empty() {
-                            None
-                        } else {
-                            Some(inst.command.as_str())
-                        },
-                    )
-                    .await;
-            }
-        }
-
         Ok(())
     }
 
@@ -2631,13 +2451,6 @@ impl App {
     pub fn delete_group_dialog(&self) -> Option<&DeleteGroupDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::DeleteGroup(d)) => Some(d),
-            _ => None,
-        }
-    }
-
-    pub fn mcp_dialog(&self) -> Option<&MCPDialog> {
-        match self.dialog.as_ref() {
-            Some(Dialog::MCP(d)) => Some(d),
             _ => None,
         }
     }

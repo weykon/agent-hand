@@ -47,10 +47,10 @@ fuzzy-matcher = "0.3"
 # File watching
 notify = "6"
 
-# HTTP for MCP
+# HTTP client
 reqwest = { version = "0.12", features = ["json", "stream"] }
 
-# Unix socket
+# Unix socket helpers
 tokio-util = { version = "0.7", features = ["codec"] }
 
 # Regex

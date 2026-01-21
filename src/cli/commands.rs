@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tokio::process::Command as TokioCommand;
 
-use crate::cli::{Args, Command, McpSubAction, PoolAction, ProfileAction, SessionAction};
+use crate::cli::{Args, Command, ProfileAction, SessionAction};
 use crate::error::Result;
 use crate::session::{Instance, Storage, DEFAULT_PROFILE};
 use crate::tmux::TmuxManager;
@@ -56,8 +56,6 @@ pub async fn run_cli(args: Args) -> Result<()> {
         Some(Command::Session { action }) => handle_session(profile, action).await,
 
         Some(Command::Profile { action }) => handle_profile(action).await,
-
-        Some(Command::Mcp { action }) => handle_mcp(action).await,
 
         Some(Command::Upgrade { prefix, version }) => handle_upgrade(prefix, version).await,
 
@@ -719,42 +717,6 @@ async fn handle_session(profile: &str, action: SessionAction) -> Result<()> {
     }
 
     Ok(())
-}
-
-async fn handle_mcp(action: McpSubAction) -> Result<()> {
-    use crate::mcp::MCPPool;
-
-    match action {
-        McpSubAction::Pool { action } => match action {
-            PoolAction::Start { name } => {
-                MCPPool::start(&name).await?;
-                println!("✓ MCP pool started: {name}");
-                println!("  Socket: {}", MCPPool::socket_path(&name)?.display());
-                Ok(())
-            }
-            PoolAction::Serve { name } => MCPPool::serve(&name).await,
-            PoolAction::Stop { name } => {
-                MCPPool::stop(&name).await?;
-                println!("✓ MCP pool stopped: {name}");
-                Ok(())
-            }
-            PoolAction::Status => {
-                let names = MCPPool::list_available().await?;
-                for n in names {
-                    let running = MCPPool::is_running(&n).await;
-                    println!("{} {}", if running { "●" } else { "○" }, n);
-                }
-                Ok(())
-            }
-            PoolAction::List => {
-                let names = MCPPool::list_available().await?;
-                for n in names {
-                    println!("{n}");
-                }
-                Ok(())
-            }
-        },
-    }
 }
 
 async fn handle_profile(action: ProfileAction) -> Result<()> {

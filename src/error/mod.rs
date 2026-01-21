@@ -19,9 +19,6 @@ pub enum Error {
     #[error("Session not found: {0}")]
     SessionNotFound(String),
 
-    #[error("MCP error: {0}")]
-    Mcp(String),
-
     #[error("Configuration error: {0}")]
     Config(String),
 
@@ -44,10 +41,6 @@ pub enum Error {
 impl Error {
     pub fn tmux(msg: impl Into<String>) -> Self {
         Self::Tmux(msg.into())
-    }
-
-    pub fn mcp(msg: impl Into<String>) -> Self {
-        Self::Mcp(msg.into())
     }
 
     pub fn config(msg: impl Into<String>) -> Self {

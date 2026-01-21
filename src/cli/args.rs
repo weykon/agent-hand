@@ -79,12 +79,6 @@ pub enum Command {
         action: ProfileAction,
     },
 
-    /// MCP tools
-    Mcp {
-        #[command(subcommand)]
-        action: McpSubAction,
-    },
-
     /// Upgrade agent-hand from GitHub Releases
     Upgrade {
         /// Install directory (default: /usr/local/bin if writable, else ~/.local/bin)
@@ -122,33 +116,6 @@ pub enum SessionAction {
 
     /// Show session details
     Show { id: Option<String> },
-}
-
-#[derive(Subcommand, Debug)]
-pub enum McpSubAction {
-    /// MCP socket pool
-    Pool {
-        #[command(subcommand)]
-        action: PoolAction,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub enum PoolAction {
-    /// Start pooled MCP server in background
-    Start { name: String },
-
-    /// Run pooled MCP server (foreground)
-    Serve { name: String },
-
-    /// Stop pooled MCP server
-    Stop { name: String },
-
-    /// Show pooled MCP servers status
-    Status,
-
-    /// List MCP servers available in global pool config
-    List,
 }
 
 #[derive(Subcommand, Debug)]
