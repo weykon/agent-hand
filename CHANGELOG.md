@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-01-21
+
+### Added
+- Windows: PowerShell installer (`install.ps1`) and clearer tmux installation guidance (recommend WSL).
+
 ## [0.2.5] - 2026-01-20
 
 ### Fixed
