@@ -553,6 +553,10 @@ async fn handle_statusline(profile: &str) -> Result<()> {
         line.push_str(&format!(" ✕{}", error));
     }
 
+    if let Some(hint) = crate::update::statusline_update_hint().await {
+        line.push_str(&format!("  {hint}"));
+    }
+
     println!("{line}");
     Ok(())
 }

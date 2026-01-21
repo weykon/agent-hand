@@ -6,6 +6,7 @@ pub mod error;
 pub mod session;
 pub mod tmux;
 pub mod ui;
+pub mod update;
 
 pub use error::{Error, Result};
 
