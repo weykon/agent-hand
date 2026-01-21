@@ -73,45 +73,6 @@ cargo build --release
 cargo install --path .
 ```
 
-## Claude Code 输入日志（可选）
-
-可以启用 Claude Code 的钩子来记录你自己提交的提示词。该功能**默认关闭**，需要手动开启。
-
-日志保存在 `~/.agent-hand/logs/claude-prompts/`，包含时间戳、去空行、长度限制，并支持达到阈值后压缩归档。
-
-需要 `jq` 和 `python3`。
-
-启动时自动修复（可选）：
-
-```json
-{
-  "claude": {
-    "user_prompt_logging": true
-  }
-}
-```
-
-启用：
-
-```bash
-./scripts/claude/install-claude-userprompt-hook.sh --enable
-```
-
-关闭：
-
-```bash
-./scripts/claude/install-claude-userprompt-hook.sh --disable
-```
-
-可选环境变量：
-
-```bash
-CLAUDE_PROMPT_LOG_MAX_CHARS=4000
-CLAUDE_PROMPT_LOG_MAX_BYTES=1048576
-CLAUDE_PROMPT_LOG_COMPRESS=1
-CLAUDE_PROMPT_LOG_DIR=~/.agent-hand/logs/claude-prompts
-```
-
 ## 状态检测自定义（可选）
 
 可以通过自定义子串或正则来扩展 **需要确认/正在运行** 的检测规则。

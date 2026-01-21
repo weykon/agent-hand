@@ -100,45 +100,6 @@ cargo build --release
 cargo install --path .
 ```
 
-## Claude Code input logging (optional)
-
-You can enable a Claude Code hook to record your own prompts. This is **opt-in** and disabled by default.
-
-Logs are stored under `~/.agent-hand/logs/claude-prompts/` with timestamps, empty lines removed, length limits, and optional compression.
-
-Requires `jq` and `python3`.
-
-Enable auto-restore on startup (optional):
-
-```json
-{
-  "claude": {
-    "user_prompt_logging": true
-  }
-}
-```
-
-Enable:
-
-```bash
-./scripts/claude/install-claude-userprompt-hook.sh --enable
-```
-
-Disable:
-
-```bash
-./scripts/claude/install-claude-userprompt-hook.sh --disable
-```
-
-Optional env vars for tuning:
-
-```bash
-CLAUDE_PROMPT_LOG_MAX_CHARS=4000
-CLAUDE_PROMPT_LOG_MAX_BYTES=1048576
-CLAUDE_PROMPT_LOG_COMPRESS=1
-CLAUDE_PROMPT_LOG_DIR=~/.agent-hand/logs/claude-prompts
-```
-
 ## Status detection customization (optional)
 
 You can extend **WAITING**/**RUNNING** detection with custom substrings or regex patterns.
