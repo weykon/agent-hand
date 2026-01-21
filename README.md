@@ -56,10 +56,13 @@ sudo apt install tmux
 # Fedora
 sudo dnf install tmux
 
-# Windows (WSL)
-sudo apt install tmux
-# or use Chocolatey (native Windows)
-choco install tmux
+# Windows (recommended: WSL2)
+# tmux must be installed in the *same environment* where you run agent-hand.
+# 1) Install WSL if needed: https://learn.microsoft.com/windows/wsl/install
+# 2) In WSL:
+sudo apt update && sudo apt install tmux
+# (Alternative) MSYS2 shell:
+# pacman -S tmux
 ```
 
 ## Install
@@ -72,7 +75,10 @@ macOS / Linux / WSL:
 curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash
 ```
 
-Windows (PowerShell):
+Windows:
+
+- **Recommended (WSL):** run the macOS/Linux one-liner *inside WSL*.
+- **Native PowerShell (advanced):** only useful if you already have a POSIX layer with `tmux` (e.g. MSYS2/Cygwin).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "iwr -useb https://raw.githubusercontent.com/weykon/agent-hand/master/install.ps1 | iex"

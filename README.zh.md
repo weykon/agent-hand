@@ -51,7 +51,10 @@ macOS / Linux / WSL：
 curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash
 ```
 
-Windows（PowerShell）：
+Windows：
+
+- **推荐（WSL）**：请在 WSL 里执行上面的 macOS/Linux one-liner。
+- **PowerShell 原生安装（进阶）**：仅适用于你已经有可用的 `tmux`（例如 MSYS2/Cygwin）的情况。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "iwr -useb https://raw.githubusercontent.com/weykon/agent-hand/master/install.ps1 | iex"

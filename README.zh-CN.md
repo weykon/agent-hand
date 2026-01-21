@@ -2,4 +2,4 @@
 >
 > English: [README.md](README.md)
 >
-> Windows 安装：见 [README.md](README.md) 的 PowerShell one-liner，或直接下载 Release 里的 `agent-hand-x86_64-pc-windows-msvc.tar.gz`。
+> Windows 安装：推荐使用 **WSL**，在 WSL 里跑 `install.sh` 并 `sudo apt install tmux`；PowerShell one-liner 仅适用于已具备 MSYS2/Cygwin 等可运行 tmux 的环境。

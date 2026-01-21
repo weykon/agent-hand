@@ -50,7 +50,7 @@ try {
   $dest = Join-Path $Prefix "$BIN_NAME.exe"
   Copy-Item -Force $tmpBin $dest
 
-  Warn "Note: agent-hand requires tmux. On Windows, using WSL is recommended."
+  Warn "Note: agent-hand requires tmux. Recommended: run agent-hand inside WSL (and install tmux there). If you're using WSL, prefer install.sh inside WSL instead of this PowerShell installer."
   Info "Installed $BIN_NAME.exe to $dest"
   Write-Host ""
   Write-Host "Next steps:"
