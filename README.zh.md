@@ -45,8 +45,16 @@ Agent Hand 解决这些问题：
 
 ### One-liner (recommended)
 
+macOS / Linux / WSL：
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash
+```
+
+Windows（PowerShell）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "iwr -useb https://raw.githubusercontent.com/weykon/agent-hand/master/install.ps1 | iex"
 ```
 
 By default it installs to `/usr/local/bin` (if writable), otherwise `~/.local/bin`.

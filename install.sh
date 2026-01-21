@@ -37,11 +37,11 @@ check_tmux() {
   fi
 
   warn "tmux is not installed. ${BIN_NAME} requires tmux to function."
-  
+
   # Detect OS and package manager
   local os
   os="$(uname -s)"
-  
+
   case "$os" in
     Darwin)
       if command -v brew &>/dev/null; then
@@ -78,13 +78,18 @@ check_tmux() {
         return 1
       fi
       ;;
+    MINGW*|MSYS*|CYGWIN*)
+      warn "Detected Windows shell environment ($os). Auto-installing tmux is not supported."
+      warn "Tip: Use WSL (recommended) or MSYS2, then install tmux there."
+      return 0
+      ;;
     *)
       error "Unsupported OS for automatic tmux installation: $os"
       echo "Please install tmux manually: https://github.com/tmux/tmux/wiki/Installing" >&2
       return 1
       ;;
   esac
-  
+
   # Verify installation
   if command -v tmux &>/dev/null; then
     info "tmux installed successfully: $(tmux -V)"
@@ -128,6 +133,7 @@ arch="$(uname -m)"
 case "$os" in
   Darwin) os="apple-darwin" ;;
   Linux)  os="unknown-linux-gnu" ;;
+  MINGW*|MSYS*|CYGWIN*) os="pc-windows-msvc" ;;
   *)
     echo "Unsupported OS: $os" >&2
     exit 1
@@ -145,6 +151,12 @@ esac
 
 target="${arch}-${os}"
 asset="${BIN_NAME}-${target}.tar.gz"
+
+# Windows release contains an .exe inside the tarball.
+out_bin="${BIN_NAME}"
+if [[ "$os" == "pc-windows-msvc" ]]; then
+  out_bin="${BIN_NAME}.exe"
+fi
 
 if [[ -z "$PREFIX" ]]; then
   if [[ -w "/usr/local/bin" ]]; then
@@ -171,14 +183,23 @@ curl -fsSL "$url" -o "${tmpdir}/${asset}"
 
 tar -xzf "${tmpdir}/${asset}" -C "$tmpdir"
 
-if [[ ! -f "${tmpdir}/${BIN_NAME}" ]]; then
-  echo "Malformed archive: ${asset} (missing ${BIN_NAME})" >&2
+if [[ ! -f "${tmpdir}/${out_bin}" ]]; then
+  echo "Malformed archive: ${asset} (missing ${out_bin})" >&2
   exit 1
 fi
 
-install -m 0755 "${tmpdir}/${BIN_NAME}" "${PREFIX}/${BIN_NAME}"
+# Prefer install if available; fallback to cp.
+if command -v install &>/dev/null; then
+  if [[ "$os" == "pc-windows-msvc" ]]; then
+    install "${tmpdir}/${out_bin}" "${PREFIX}/${out_bin}" || cp "${tmpdir}/${out_bin}" "${PREFIX}/${out_bin}"
+  else
+    install -m 0755 "${tmpdir}/${out_bin}" "${PREFIX}/${out_bin}"
+  fi
+else
+  cp "${tmpdir}/${out_bin}" "${PREFIX}/${out_bin}"
+fi
 
-info "Installed ${BIN_NAME} to ${PREFIX}/${BIN_NAME}"
+info "Installed ${out_bin} to ${PREFIX}/${out_bin}"
 echo ""
 echo "Next steps:"
 echo "  1. Run: ${BIN_NAME}"
