@@ -392,7 +392,6 @@ async fn handle_status(profile: &str, verbose: bool, quiet: bool, json: bool) ->
 
     // Update statuses
     let manager = Arc::new(TmuxManager::new());
-    manager.ensure_server().await;
     manager.refresh_cache().await?;
 
     for inst in &mut instances {
@@ -435,6 +434,27 @@ async fn handle_status(profile: &str, verbose: bool, quiet: bool, json: bool) ->
 async fn handle_statusline(profile: &str) -> Result<()> {
     use crate::session::Status;
 
+    // tmux status-left may spawn this command again before the previous run finishes.
+    // Prevent piling up shells/PTYs by allowing only one in-flight statusline instance.
+    {
+        use fs2::FileExt;
+
+        if let Ok(lock_path) = Storage::get_agent_hand_dir().map(|d| d.join("statusline.lock")) {
+            if let Ok(f) = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(lock_path)
+            {
+                if f.try_lock_exclusive().is_err() {
+                    println!("AH");
+                    return Ok(());
+                }
+                // keep file handle alive until function returns
+                let _statusline_lock = f;
+            }
+        }
+    }
+
     let cfg = crate::config::ConfigFile::load().await.ok().flatten();
     let ready_ttl_secs: i64 = cfg.as_ref().map(|c| c.ready_ttl_minutes()).unwrap_or(40) as i64 * 60;
 
@@ -447,7 +467,6 @@ async fn handle_statusline(profile: &str) -> Result<()> {
     }
 
     let manager = Arc::new(TmuxManager::new());
-    manager.ensure_server().await;
     manager.refresh_cache().await?;
 
     let now = chrono::Utc::now();
