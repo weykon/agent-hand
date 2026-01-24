@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-01-25
+
+### Changed
+- Ctrl+N jump: round-robin rotation among Ready sessions instead of always jumping to newest.
+- Ctrl+N jump: Idle sessions are now excluded from jump targets.
+
 ## [0.2.7] - 2026-01-21
 
 ### Fixed

@@ -580,8 +580,13 @@ async fn handle_statusline(profile: &str) -> Result<()> {
     Ok(())
 }
 
-/// Jump to the highest-priority session (Waiting > Ready).
+/// Jump to the highest-priority session (Waiting > Ready with round-robin).
 /// Called by tmux Ctrl+N binding via `run-shell`.
+///
+/// Priority logic:
+/// 1. Waiting sessions: Jump to the newest one (highest urgency)
+/// 2. Ready sessions: Round-robin rotation among all Ready sessions
+/// 3. Idle sessions: Excluded from jump (not frequently needed)
 async fn handle_jump(profile: &str) -> Result<()> {
     use crate::session::Status;
 
@@ -603,7 +608,7 @@ async fn handle_jump(profile: &str) -> Result<()> {
     let manager = Arc::new(TmuxManager::new());
     manager.refresh_cache().await?;
 
-    // Get current tmux session name to exclude from jump targets
+    // Get current tmux session name to find position for round-robin
     let current_session = TokioCommand::new("tmux")
         .args([
             "-L",
@@ -632,20 +637,53 @@ async fn handle_jump(profile: &str) -> Result<()> {
             .is_some_and(|t| now.signed_duration_since(t).num_seconds() < ready_ttl_secs)
     };
 
-    // Find priority target: Waiting first (newest), then Ready (newest)
-    // Exclude the current session so we actually jump somewhere else
-    let target = instances
+    // Priority 1: Waiting sessions (jump to newest - highest urgency)
+    let waiting_target = instances
         .iter()
         .filter(|s| s.status == Status::Waiting && s.tmux_name() != current_session)
-        .max_by_key(|s| s.last_waiting_at.unwrap_or(s.created_at))
-        .or_else(|| {
-            instances
+        .max_by_key(|s| s.last_waiting_at.unwrap_or(s.created_at));
+
+    // Priority 2: Ready sessions (round-robin rotation)
+    let ready_target = if waiting_target.is_none() {
+        // Collect all Ready sessions, sorted by tmux_name for consistent ordering
+        let mut ready_sessions: Vec<_> = instances
+            .iter()
+            .filter(|s| s.status == Status::Idle && is_ready(s))
+            .collect();
+        ready_sessions.sort_by(|a, b| a.tmux_name().cmp(&b.tmux_name()));
+
+        if ready_sessions.is_empty() {
+            None
+        } else if ready_sessions.len() == 1 {
+            // Only one Ready session - jump to it if not current
+            if ready_sessions[0].tmux_name() != current_session {
+                Some(ready_sessions[0])
+            } else {
+                None
+            }
+        } else {
+            // Round-robin: find current position and jump to next
+            let current_pos = ready_sessions
                 .iter()
-                .filter(|s| {
-                    s.status == Status::Idle && is_ready(s) && s.tmux_name() != current_session
-                })
-                .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
-        });
+                .position(|s| s.tmux_name() == current_session);
+
+            match current_pos {
+                Some(pos) => {
+                    // Jump to next session (wrap around)
+                    let next_pos = (pos + 1) % ready_sessions.len();
+                    Some(ready_sessions[next_pos])
+                }
+                None => {
+                    // Current session is not in Ready list, jump to first Ready
+                    Some(ready_sessions[0])
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    let target = waiting_target.or(ready_target);
 
     match target {
         Some(inst) => {
