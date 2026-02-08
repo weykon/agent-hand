@@ -106,6 +106,18 @@ impl App {
         }
 
         let tmux = TmuxManager::new();
+
+        // Clean up orphaned tmux sessions (exist in tmux but not in storage).
+        // This prevents PTY leaks from sessions that were deleted but whose tmux
+        // process was not properly killed.
+        {
+            let known_ids: Vec<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
+            let killed = tmux.cleanup_orphaned_sessions(&known_ids).await;
+            if killed > 0 {
+                tracing::info!("Cleaned up {} orphaned tmux session(s)", killed);
+            }
+        }
+
         let keybindings = crate::config::KeyBindings::load_or_default().await;
         let analytics = crate::analytics::ActivityTracker::new(profile).await;
 
@@ -1831,7 +1843,9 @@ impl App {
         let tmux_name = TmuxManager::session_name(session_id);
 
         if kill_tmux && self.tmux.session_exists(&tmux_name).unwrap_or(false) {
-            let _ = self.tmux.kill_session(&tmux_name).await;
+            if let Err(e) = self.tmux.kill_session(&tmux_name).await {
+                tracing::warn!("Failed to kill tmux session {}: {}", tmux_name, e);
+            }
         }
 
         let storage = self.storage.lock().await;

@@ -567,6 +567,32 @@ impl TmuxManager {
         Ok(())
     }
 
+    /// Kill orphaned tmux sessions that exist in tmux but not in the known set of IDs.
+    /// Returns the number of sessions killed.
+    pub async fn cleanup_orphaned_sessions(&self, known_ids: &[&str]) -> usize {
+        let tmux_sessions = match self.list_sessions().await {
+            Ok(s) => s,
+            Err(_) => return 0,
+        };
+
+        let prefix_len = SESSION_PREFIX.len();
+        let mut killed = 0;
+
+        for tmux_name in &tmux_sessions {
+            if tmux_name.len() <= prefix_len {
+                continue;
+            }
+            let session_id = &tmux_name[prefix_len..];
+            if !known_ids.iter().any(|id| *id == session_id) {
+                if self.kill_session(tmux_name).await.is_ok() {
+                    killed += 1;
+                }
+            }
+        }
+
+        killed
+    }
+
     /// List all agent-deck sessions
     pub async fn list_sessions(&self) -> Result<Vec<String>> {
         let output = self
