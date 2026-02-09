@@ -31,7 +31,51 @@ Agent Hand 解决这些问题：
 - **刚跑完** 是派生状态：`空闲` + “最近跑过”（TTL 由 `ready_ttl_minutes` 控制）。
 - **需要确认/正在运行** 来自对 tmux pane 最近输出的检测；可通过配置里的 `status_detection` 扩展规则。
 
-## Highlights
+## Agent Hand 的由来
+
+2024 年初，我同时在跑 **5+ 个 Claude Code 实例**做不同的项目。那叫一个乱：
+
+- 四个终端窗口，每个 3-4 个 tmux pane
+- "我刚才确认那个提示了吗？"
+- "哪个 Claude 在做哪个任务？"
+- 光找对 session 就花了 10+ 分钟
+
+我试了原版 [agent-deck](https://github.com/asheshgoplani/agent-deck)（Go），喜欢这个概念，但想要：
+- **更好的性能**（Rust 的零成本抽象）
+- **更多功能**（Ctrl+N 优先级跳转、Ctrl+G 切换器）
+- **更干净的集成**（专用 tmux server）
+
+Agent Hand 就这样诞生了 —— Rust 重写版，保留好用的，加进我需要的。
+
+> *"最好的工具，是你会真正去用的那个。"*
+
+## 核心亮点
+
+### 🦀 Rust 驱动的高性能
+- **启动 < 50ms** — 几乎瞬间完成
+- **内存 ~8MB** — 轻量级
+- **二进制 2.7MB** — 单文件，无运行时依赖
+
+### 🎯 智能优先级跳转
+- **Ctrl+N** 瞬间跳转到最紧急的 session (! 待确认 → ✓ 刚完成)
+- 再也不会错过确认提示
+
+### 🔍 闪电般快速切换
+- **Ctrl+G** 模糊搜索弹窗 — 毫秒级定位任意 session
+- 敲几个字符，直接跳转
+
+### 📊 资源使用感知
+- 实时监控每个 session 的 PTY（伪终端）数量
+- 系统级 PTY 仪表板，红黄绿颜色预警
+- 在 PTY 耗尽前预警
+
+### 🔒 隔离设计
+- **专用 tmux server** (`agentdeck_rs`) — 绝不干扰你的默认 tmux
+- 你的配置、你的 sessions、你的工作流
+
+### 🔌 可扩展
+- 基于正则的状态检测 — 兼容任何 agent（Claude、Copilot、OpenCode、自定义提示词）
+- 自定义快捷键 — 适应你的肌肉记忆
 
 - **一目了然的状态列表**：所有 session 的状态实时显示
 - **快速跳转**：`Ctrl+G` 弹出搜索框，秒切到任意 session

@@ -31,7 +31,51 @@ Notes:
 - **READY** is derived: `IDLE` + “was Running recently” (TTL via `ready_ttl_minutes`).
 - **WAITING/RUNNING** are detected from the last pane output; you can extend detection via `status_detection` in config.
 
+## The Story Behind Agent Hand
+
+In early 2024, I was juggling **5+ Claude Code instances** simultaneously for different projects. The chaos was real:
+
+- Four terminal windows, each with 3-4 tmux panes
+- "Did I already respond to that prompt?"
+- "Which Claude is working on which task?"
+- Wasting 10+ minutes just finding the right session
+
+I tried the original [agent-deck](https://github.com/asheshgoplani/agent-deck) (Go) and loved the concept, but wanted:
+- **Better performance** (Rust's zero-cost abstractions)
+- **More features** (Ctrl+N priority jump, Ctrl+G switcher)
+- **Cleaner integration** (dedicated tmux server)
+
+Agent Hand was born — a Rust rewrite that keeps what works and adds what I needed.
+
+> *"The best tool is the one you'll actually use."*
+
 ## Highlights
+
+### 🦀 Rust-Powered Performance
+- **< 50ms startup** — nearly instant
+- **~8MB memory** — lightweight
+- **2.7MB binary** — single file, no runtime dependencies
+
+### 🎯 Intelligent Prioritization
+- **Ctrl+N** instantly jumps to the most urgent session (! WAITING → ✓ READY)
+- Never miss a confirmation prompt again
+
+### 🔍 Lightning-Fast Switching
+- **Ctrl+G** fuzzy search popup — find any session in milliseconds
+- Type a few chars, jump directly
+
+### 📊 Resource Awareness
+- Real-time PTY (pseudo-terminal) monitoring per session
+- System-wide PTY gauge with color-coded warnings
+- Prevent PTY exhaustion before it happens
+
+### 🔒 Isolation by Design
+- **Dedicated tmux server** (`agentdeck_rs`) — never touches your default tmux
+- Your configs, your sessions, your workflow
+
+### 🔌 Extensible
+- Regex-based status detection — works with any agent (Claude, Copilot, OpenCode, custom prompts)
+- Customizable keybindings — adapt to your muscle memory
 
 - **At-a-glance status list** for all sessions
 - **Smart priority jumping**: `Ctrl+N` inside any session jumps to the highest-priority session (🔵! → 🟢✓)
