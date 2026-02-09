@@ -12,11 +12,14 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::error::Result;
 use crate::session::{GroupTree, Instance, Status, Storage};
-use crate::tmux::{TmuxManager, SESSION_PREFIX};
+use crate::tmux::{
+    ptmx::{spawn_ptmx_monitor, SharedPtmxState},
+    TmuxManager, SESSION_PREFIX,
+};
 
 use super::{
     AppState, CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
@@ -74,6 +77,12 @@ pub struct App {
     last_seen_detach_at: Option<String>,
     force_probe_tmux: Option<String>,
 
+    // PTY monitoring (background task + shared state)
+    ptmx_state: crate::tmux::ptmx::SharedPtmxState,
+    _ptmx_task: tokio::task::JoinHandle<()>,
+    cached_ptmx_total: u32,
+    cached_ptmx_max: u32,
+
     // UI animation
     tick_count: u64,
     attention_ttl: Duration,
@@ -89,7 +98,6 @@ impl App {
     const NAVIGATION_SETTLE: Duration = Duration::from_millis(300);
     const STATUS_REFRESH: Duration = Duration::from_secs(1);
     const CACHE_REFRESH: Duration = Duration::from_secs(2);
-
     const STATUS_COOLDOWN: Duration = Duration::from_secs(2);
     const STATUS_FALLBACK: Duration = Duration::from_secs(10);
 
@@ -121,6 +129,9 @@ impl App {
         let keybindings = crate::config::KeyBindings::load_or_default().await;
         let analytics = crate::analytics::ActivityTracker::new(profile).await;
 
+        // Get system PTY limit once at startup.
+        let system_ptmx_max = crate::tmux::ptmx::get_ptmx_max().await;
+
         let cfg = crate::config::ConfigFile::load().await.ok().flatten();
         let attention_ttl = Duration::from_secs(
             cfg.as_ref()
@@ -128,6 +139,15 @@ impl App {
                 .unwrap_or(Self::DEFAULT_READY_TTL.as_secs() / 60)
                 * 60,
         );
+
+        // Create shared PTY state and spawn background monitor
+        let ptmx_state: SharedPtmxState = Arc::new(RwLock::new(
+            crate::tmux::ptmx::PtmxState {
+                system_max: system_ptmx_max,
+                ..Default::default()
+            }
+        ));
+        let ptmx_task = spawn_ptmx_monitor(system_ptmx_max, Arc::clone(&ptmx_state));
 
         let mut app = Self {
             width: 0,
@@ -163,6 +183,10 @@ impl App {
             storage: Arc::new(Mutex::new(storage)),
             tmux: Arc::new(tmux),
             analytics,
+            ptmx_state,
+            _ptmx_task: ptmx_task,
+            cached_ptmx_total: 0,
+            cached_ptmx_max: system_ptmx_max,
         };
 
         app.ensure_groups_exist();
@@ -329,6 +353,18 @@ impl App {
                 self.refresh_statuses().await?;
                 self.last_status_refresh = Instant::now();
             }
+        }
+
+        // Update PTY counts from background task (non-blocking)
+        // The background task scans every 30 minutes, we just read the cached state
+        {
+            let state = self.ptmx_state.read().await;
+            for session in &mut self.sessions {
+                session.ptmx_count = state.per_session.get(&session.id).copied().unwrap_or(0);
+            }
+            // Update cached values for synchronous getters
+            self.cached_ptmx_total = state.system_total;
+            self.cached_ptmx_max = state.system_max;
         }
 
         if self.pending_preview_id.is_some()
@@ -2343,19 +2379,31 @@ impl App {
                 if let Some(cached) = self.preview_cache.get(&session.id) {
                     self.preview = cached.clone();
                 } else {
+                    let ptmx_line = if session.ptmx_count > 0 {
+                        format!("PTY FDs: {}\n", session.ptmx_count)
+                    } else {
+                        String::new()
+                    };
                     self.preview = format!(
-                        "{}\n\nPath: {}\nLabel: {}\n\nPreview not cached. Press 'p' to capture a snapshot.",
+                        "{}\n\nPath: {}\nLabel: {}\n{}\nPreview not cached. Press 'p' to capture a snapshot.",
                         session.title,
                         session.project_path.to_string_lossy(),
-                        session.label
+                        session.label,
+                        ptmx_line
                     );
                 }
             } else {
+                let ptmx_line = if session.ptmx_count > 0 {
+                    format!("PTY FDs: {}\n", session.ptmx_count)
+                } else {
+                    String::new()
+                };
                 self.preview = format!(
-                    "{}\n\nPath: {}\nLabel: {}\n\nNot running. Press 's' to start, Enter to start+attach.",
+                    "{}\n\nPath: {}\nLabel: {}\n{}\nNot running. Press 's' to start, Enter to start+attach.",
                     session.title,
                     session.project_path.to_string_lossy(),
-                    session.label
+                    session.label,
+                    ptmx_line
                 );
             }
 
@@ -2531,5 +2579,13 @@ impl App {
 
     pub fn tick_count(&self) -> u64 {
         self.tick_count
+    }
+
+    pub fn system_ptmx_total(&self) -> u32 {
+        self.cached_ptmx_total
+    }
+
+    pub fn system_ptmx_max(&self) -> u32 {
+        self.cached_ptmx_max
     }
 }

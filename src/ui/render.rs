@@ -241,6 +241,17 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
                         ));
                     }
 
+                    // PTY leak warning badge
+                    if let Some(session) = s {
+                        if session.ptmx_count > 0 {
+                            spans.push(Span::raw("  "));
+                            spans.push(Span::styled(
+                                format!("⚠ {} pty", session.ptmx_count),
+                                Style::default().fg(Color::Yellow),
+                            ));
+                        }
+                    }
+
                     let line = Line::from(spans);
                     ListItem::new(line)
                 }
@@ -1226,6 +1237,25 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         Span::raw(format!("{}", idle)),
         Span::raw("  |  "),
     ];
+
+    // PTY gauge: green < 50%, yellow 50-80%, red > 80%
+    let pty_pct = if app.system_ptmx_max() > 0 {
+        app.system_ptmx_total() as f32 / app.system_ptmx_max() as f32
+    } else {
+        0.0
+    };
+    let pty_color = if pty_pct < 0.5 {
+        Color::Green
+    } else if pty_pct < 0.8 {
+        Color::Yellow
+    } else {
+        Color::Red
+    };
+    spans.push(Span::styled(
+        format!("PTY: {}/{}", app.system_ptmx_total(), app.system_ptmx_max()),
+        Style::default().fg(pty_color),
+    ));
+    spans.push(Span::raw("  |  "));
 
     match app.selected_item() {
         Some(TreeItem::Group { .. }) => {

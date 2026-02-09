@@ -90,6 +90,10 @@ pub struct Instance {
     // Non-serialized fields
     #[serde(skip)]
     tmux_session: Option<Arc<TmuxSession>>,
+
+    /// Number of /dev/ptmx FDs held by this session's process tree (runtime-only).
+    #[serde(skip)]
+    pub ptmx_count: u32,
 }
 
 impl Instance {
@@ -118,6 +122,7 @@ impl Instance {
             gemini_session_id: None,
             gemini_detected_at: None,
             tmux_session: None,
+            ptmx_count: 0,
         }
     }
 

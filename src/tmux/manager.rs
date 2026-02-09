@@ -8,7 +8,7 @@ use crate::error::Result;
 use super::cache::SessionCache;
 use super::SESSION_PREFIX;
 
-const TMUX_SERVER_NAME: &str = "agentdeck_rs";
+pub(crate) const TMUX_SERVER_NAME: &str = "agentdeck_rs";
 
 /// Tmux manager - handles all tmux operations
 #[derive(Debug)]
