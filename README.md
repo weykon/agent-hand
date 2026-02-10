@@ -33,7 +33,7 @@ Notes:
 
 ## The Story Behind Agent Hand
 
-In early 2024, I was juggling **5+ Claude Code instances** simultaneously for different projects. The chaos was real:
+In early 2025, I was juggling **5+ Claude Code instances** simultaneously for different projects. The chaos was real:
 
 - Four terminal windows, each with 3-4 tmux panes
 - "Did I already respond to that prompt?"

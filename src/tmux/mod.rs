@@ -1,6 +1,7 @@
 mod cache;
 mod detector;
 mod manager;
+pub mod ptmx;
 mod session;
 
 pub use cache::SessionCache;
