@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Privacy Policy - Agent Hand</title>
+        <link rel="stylesheet" href="css/style.css" />
+        <link
+            rel="icon"
+            href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>"
+        />
+        <style>
+            .legal-content {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 3rem 2rem;
+                color: #cbd5e1;
+                line-height: 1.8;
+            }
+            .legal-content h1 {
+                color: #f1f5f9;
+                font-size: 2rem;
+                margin-bottom: 0.5rem;
+            }
+            .legal-content .last-updated {
+                color: #64748b;
+                font-size: 0.9rem;
+                margin-bottom: 2.5rem;
+            }
+            .legal-content h2 {
+                color: #e2e8f0;
+                font-size: 1.2rem;
+                margin-top: 2rem;
+                margin-bottom: 0.75rem;
+                border-bottom: 1px solid #1e293b;
+                padding-bottom: 0.4rem;
+            }
+            .legal-content p {
+                margin-bottom: 1rem;
+            }
+            .legal-content ul {
+                margin: 0.5rem 0 1rem 1.5rem;
+            }
+            .legal-content ul li {
+                margin-bottom: 0.4rem;
+            }
+            .legal-content a {
+                color: #7c3aed;
+            }
+            .legal-navbar {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 1rem 2rem;
+                background: rgba(10, 10, 20, 0.95);
+                border-bottom: 1px solid #1e293b;
+            }
+            .legal-navbar .logo {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                text-decoration: none;
+                color: #f1f5f9;
+                font-weight: 700;
+                font-size: 1.1rem;
+            }
+            .legal-navbar .back-link {
+                color: #94a3b8;
+                text-decoration: none;
+                font-size: 0.9rem;
+            }
+            .legal-navbar .back-link:hover {
+                color: #f1f5f9;
+            }
+        </style>
+    </head>
+    <body>
+        <nav class="legal-navbar">
+            <a href="index.html" class="logo">
+                <span>🦀</span>
+                <span>Agent Hand</span>
+            </a>
+            <a href="index.html" class="back-link">← Back to Home</a>
+        </nav>
+
+        <main class="legal-content">
+            <h1>Privacy Policy</h1>
+            <p class="last-updated">Last updated: February 2026</p>
+
+            <h2>1. Overview</h2>
+            <p>
+                Agent Hand is a local CLI tool. We are committed to collecting as little data as
+                possible. This policy explains what we collect, why, and how it is stored.
+            </p>
+
+            <h2>2. Data We Collect</h2>
+            <p>We collect only the following:</p>
+            <ul>
+                <li>
+                    <strong>Email address</strong> — provided at the time of purchase (processed by
+                    Paddle) and used when you run <code>agent-hand login</code> to activate your
+                    Pro license.
+                </li>
+            </ul>
+            <p>We do <strong>not</strong> collect:</p>
+            <ul>
+                <li>Usage data, telemetry, or analytics</li>
+                <li>Terminal session content or command history</li>
+                <li>IP addresses or device identifiers beyond license validation</li>
+            </ul>
+
+            <h2>3. How We Use Your Data</h2>
+            <p>Your email address is used solely to:</p>
+            <ul>
+                <li>Validate your Pro license during activation</li>
+                <li>Send purchase receipts and license keys (via Paddle)</li>
+                <li>Respond to support or refund requests</li>
+            </ul>
+
+            <h2>4. Data Storage</h2>
+            <p>
+                License validation data is stored in Cloudflare KV, which may reside in EU or US
+                data centers depending on your region. Cloudflare's infrastructure is subject to
+                their own privacy and security standards.
+            </p>
+
+            <h2>5. Third-Party Payment Processor</h2>
+            <p>
+                Payments are processed by <strong>Paddle</strong>. Paddle acts as the Merchant of
+                Record and has its own privacy policy governing payment data. We do not store
+                credit card or payment information. Please review
+                <a href="https://www.paddle.com/legal/privacy" target="_blank">Paddle's Privacy Policy</a>
+                for details.
+            </p>
+
+            <h2>6. Data Retention and Deletion</h2>
+            <p>
+                We retain your email address for as long as your license is active. To request
+                deletion of your data, email us at
+                <a href="mailto:contact@asymptai.com">contact@asymptai.com</a>. We will process
+                deletion requests within 30 days.
+            </p>
+
+            <h2>7. Changes to This Policy</h2>
+            <p>
+                We may update this Privacy Policy from time to time. We will post the updated
+                version on this page with a revised date.
+            </p>
+
+            <h2>8. Contact</h2>
+            <p>
+                For privacy-related questions, contact us at
+                <a href="mailto:contact@asymptai.com">contact@asymptai.com</a>.
+            </p>
+        </main>
+
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-links">
+                    <a href="https://github.com/weykon/agent-hand" target="_blank">GitHub</a>
+                    <a href="terms.html">Terms</a>
+                    <a href="privacy.html">Privacy</a>
+                    <a href="refund.html">Refund Policy</a>
+                </div>
+                <p class="license">MIT License</p>
+            </div>
+        </footer>
+    </body>
+</html>

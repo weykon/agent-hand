@@ -5,6 +5,13 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Agent Hand - Terminal Session Manager for AI Agents</title>
         <link rel="stylesheet" href="css/style.css" />
+    <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+    <script>
+        // Initialize Paddle — replace with your actual vendor/client token
+        if (typeof Paddle !== "undefined") {
+            Paddle.Initialize({ token: "REPLACE_WITH_PADDLE_CLIENT_TOKEN" });
+        }
+    </script>
         <link
             rel="icon"
             href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>"
@@ -20,6 +27,7 @@
                 <div class="nav-links">
                     <a href="#features">Features</a>
                     <a href="#install">Install</a>
+                    <a href="#pricing">Pricing</a>
                     <a href="#story">Story</a>
                     <a
                         href="https://github.com/weykon/agent-hand"
@@ -259,6 +267,44 @@ cargo build --release</pre
             </div>
         </section>
 
+        <!-- Pricing -->
+        <section id="pricing" style="padding:4rem 2rem; text-align:center; background:#0f0f1a;">
+            <h2 style="color:#e2e8f0; font-size:2rem; margin-bottom:0.5rem;">Simple Pricing</h2>
+            <p style="color:#94a3b8; margin-bottom:3rem;">Core features are free forever. Pay once for premium.</p>
+            <div style="display:flex; gap:2rem; justify-content:center; flex-wrap:wrap;">
+                <div style="background:#1a1a2e; border:1px solid #333; border-radius:12px; padding:2rem; width:260px;">
+                    <h3 style="color:#e2e8f0; margin-bottom:0.5rem;">Free</h3>
+                    <p style="color:#6366f1; font-size:2rem; font-weight:700; margin:0.5rem 0;">$0</p>
+                    <ul style="color:#94a3b8; text-align:left; padding-left:1.2rem; margin:1rem 0 1.5rem;">
+                        <li>Session management TUI</li>
+                        <li>tmux integration</li>
+                        <li>Status monitoring</li>
+                        <li>All open-source features</li>
+                    </ul>
+                    <a href="https://github.com/weykon/agent-hand" target="_blank"
+                        style="display:block; padding:0.75rem; border-radius:8px; border:1px solid #444; color:#e2e8f0; text-decoration:none; font-weight:600;">
+                        Get Started Free
+                    </a>
+                </div>
+                <div style="background:#1a1a2e; border:2px solid #6366f1; border-radius:12px; padding:2rem; width:260px; position:relative;">
+                    <span style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:#6366f1; color:#fff; padding:2px 12px; border-radius:20px; font-size:0.8rem; font-weight:600;">POPULAR</span>
+                    <h3 style="color:#e2e8f0; margin-bottom:0.5rem;">Pro</h3>
+                    <p style="color:#6366f1; font-size:2rem; font-weight:700; margin:0.5rem 0;">$19 <span style="font-size:1rem; color:#94a3b8;">one-time</span></p>
+                    <ul style="color:#94a3b8; text-align:left; padding-left:1.2rem; margin:1rem 0 1.5rem;">
+                        <li>Everything in Free</li>
+                        <li><strong style="color:#e2e8f0;">Auto-upgrade</strong> command</li>
+                        <li>Priority support</li>
+                        <li>Future premium features</li>
+                    </ul>
+                    <button onclick="buyLicense()"
+                        style="width:100%; padding:0.75rem; border-radius:8px; background:#6366f1; color:#fff; font-size:1rem; font-weight:600; border:none; cursor:pointer;">
+                        Buy License
+                    </button>
+                </div>
+            </div>
+            <p style="color:#64748b; margin-top:2rem; font-size:0.9rem;">After purchase, run <code style="background:#1a1a2e; padding:2px 6px; border-radius:4px;">agent-hand login</code> to activate.</p>
+        </section>
+
         <footer class="footer">
             <div class="footer-content">
                 <div class="footer-links">
@@ -282,12 +328,83 @@ cargo build --release</pre
                         target="_blank"
                         >Changelog</a
                     >
+                    <a href="terms.html">Terms</a>
+                    <a href="privacy.html">Privacy</a>
+                    <a href="refund.html">Refund Policy</a>
                 </div>
                 <p class="license">MIT License</p>
                 <p class="stars">Star us on GitHub</p>
             </div>
         </footer>
 
+        <!-- Activate page overlay (shown when ?code=... is in URL) -->
+        <div id="activate-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; display:flex; align-items:center; justify-content:center;">
+            <div style="background:#1a1a2e; border:1px solid #333; border-radius:12px; padding:2rem; max-width:420px; width:90%; text-align:center;">
+                <h2 style="color:#e2e8f0; margin-bottom:0.5rem;">Authorize Device</h2>
+                <p style="color:#94a3b8; margin-bottom:1.5rem;">Enter your email to link your license to this device.</p>
+                <input id="activate-email" type="email" placeholder="you@example.com"
+                    style="width:100%; padding:0.75rem 1rem; border-radius:8px; border:1px solid #444; background:#0f0f1a; color:#e2e8f0; font-size:1rem; box-sizing:border-box; margin-bottom:1rem;" />
+                <button id="activate-btn" onclick="activateDevice()"
+                    style="width:100%; padding:0.75rem; border-radius:8px; background:#6366f1; color:#fff; font-size:1rem; font-weight:600; border:none; cursor:pointer;">
+                    Authorize
+                </button>
+                <p id="activate-status" style="color:#94a3b8; margin-top:1rem; min-height:1.5rem;"></p>
+            </div>
+        </div>
+
         <script src="js/main.js"></script>
+        <script>
+            // Pricing: Paddle Checkout
+            function buyLicense() {
+                if (typeof Paddle !== "undefined") {
+                    Paddle.Checkout.open({ items: [{ priceId: "REPLACE_WITH_PADDLE_PRICE_ID", quantity: 1 }] });
+                } else {
+                    window.open("https://agent-hand.dev/#pricing", "_blank");
+                }
+            }
+
+            // Device activation flow
+            (function () {
+                const params = new URLSearchParams(window.location.search);
+                const code = params.get("code");
+                if (code) {
+                    const overlay = document.getElementById("activate-overlay");
+                    if (overlay) overlay.style.display = "flex";
+                }
+            })();
+
+            async function activateDevice() {
+                const params = new URLSearchParams(window.location.search);
+                const code = params.get("code");
+                const email = document.getElementById("activate-email").value.trim();
+                const status = document.getElementById("activate-status");
+                const btn = document.getElementById("activate-btn");
+
+                if (!email) { status.textContent = "Please enter your email."; return; }
+                if (!code) { status.textContent = "No device code found in URL."; return; }
+
+                btn.disabled = true;
+                status.textContent = "Authorizing...";
+
+                try {
+                    const res = await fetch("https://auth.agent-hand.dev/device/activate", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ code, email }),
+                    });
+                    if (res.ok) {
+                        status.style.color = "#4ade80";
+                        status.textContent = "✓ Device authorized! You can close this tab and return to your terminal.";
+                    } else {
+                        const err = await res.json();
+                        status.textContent = err.error || "Authorization failed.";
+                        btn.disabled = false;
+                    }
+                } catch (e) {
+                    status.textContent = "Network error. Please try again.";
+                    btn.disabled = false;
+                }
+            }
+        </script>
     </body>
 </html>
