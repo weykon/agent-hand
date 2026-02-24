@@ -97,9 +97,8 @@
             <p>We collect only the following:</p>
             <ul>
                 <li>
-                    <strong>Email address</strong> — provided at the time of purchase (processed by
-                    Paddle) and used when you run <code>agent-hand login</code> to activate your
-                    Pro license.
+                    <strong>Email address</strong> — obtained via Google OAuth when you run
+                    <code>agent-hand login</code> to activate your Pro license.
                 </li>
             </ul>
             <p>We do <strong>not</strong> collect:</p>
@@ -113,23 +112,23 @@
             <p>Your email address is used solely to:</p>
             <ul>
                 <li>Validate your Pro license during activation</li>
-                <li>Send purchase receipts and license keys (via Paddle)</li>
+                <li>Send purchase receipts (via creem.io)</li>
                 <li>Respond to support or refund requests</li>
             </ul>
 
             <h2>4. Data Storage</h2>
             <p>
-                License validation data is stored in Cloudflare KV, which may reside in EU or US
-                data centers depending on your region. Cloudflare's infrastructure is subject to
-                their own privacy and security standards.
+                License validation data is stored in a PostgreSQL database hosted on a dedicated
+                server (107.175.136.185). Data is not shared with third parties beyond what is
+                necessary for payment processing.
             </p>
 
             <h2>5. Third-Party Payment Processor</h2>
             <p>
-                Payments are processed by <strong>Paddle</strong>. Paddle acts as the Merchant of
-                Record and has its own privacy policy governing payment data. We do not store
-                credit card or payment information. Please review
-                <a href="https://www.paddle.com/legal/privacy" target="_blank">Paddle's Privacy Policy</a>
+                Payments are processed by <strong>creem.io</strong>. creem.io has its own privacy
+                policy governing payment data. We do not store credit card or payment information.
+                Please review
+                <a href="https://www.creem.io/privacy" target="_blank">creem.io's Privacy Policy</a>
                 for details.
             </p>
 

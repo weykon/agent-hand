@@ -5,13 +5,6 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Agent Hand - Terminal Session Manager for AI Agents</title>
         <link rel="stylesheet" href="css/style.css" />
-    <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
-    <script>
-        // Initialize Paddle — replace with your actual vendor/client token
-        if (typeof Paddle !== "undefined") {
-            Paddle.Initialize({ token: "REPLACE_WITH_PADDLE_CLIENT_TOKEN" });
-        }
-    </script>
         <link
             rel="icon"
             href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>"
@@ -338,15 +331,14 @@ cargo build --release</pre
         </footer>
 
         <!-- Activate page overlay (shown when ?code=... is in URL) -->
-        <div id="activate-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; display:flex; align-items:center; justify-content:center;">
+        <div id="activate-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; align-items:center; justify-content:center;">
             <div style="background:#1a1a2e; border:1px solid #333; border-radius:12px; padding:2rem; max-width:420px; width:90%; text-align:center;">
                 <h2 style="color:#e2e8f0; margin-bottom:0.5rem;">Authorize Device</h2>
-                <p style="color:#94a3b8; margin-bottom:1.5rem;">Enter your email to link your license to this device.</p>
-                <input id="activate-email" type="email" placeholder="you@example.com"
-                    style="width:100%; padding:0.75rem 1rem; border-radius:8px; border:1px solid #444; background:#0f0f1a; color:#e2e8f0; font-size:1rem; box-sizing:border-box; margin-bottom:1rem;" />
-                <button id="activate-btn" onclick="activateDevice()"
-                    style="width:100%; padding:0.75rem; border-radius:8px; background:#6366f1; color:#fff; font-size:1rem; font-weight:600; border:none; cursor:pointer;">
-                    Authorize
+                <p style="color:#94a3b8; margin-bottom:1.5rem;">Sign in with Google to link your account to this device.</p>
+                <button id="activate-btn" onclick="loginWithGoogle()"
+                    style="width:100%; padding:0.75rem; border-radius:8px; background:#fff; color:#333; font-size:1rem; font-weight:600; border:1px solid #ddd; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.75rem;">
+                    <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                    Sign in with Google
                 </button>
                 <p id="activate-status" style="color:#94a3b8; margin-top:1rem; min-height:1.5rem;"></p>
             </div>
@@ -354,16 +346,14 @@ cargo build --release</pre
 
         <script src="js/main.js"></script>
         <script>
-            // Pricing: Paddle Checkout
+            const AUTH_BASE = "https://auth.asymptai.com";
+
+            // Pricing: creem.io checkout
             function buyLicense() {
-                if (typeof Paddle !== "undefined") {
-                    Paddle.Checkout.open({ items: [{ priceId: "REPLACE_WITH_PADDLE_PRICE_ID", quantity: 1 }] });
-                } else {
-                    window.open("https://agent-hand.dev/#pricing", "_blank");
-                }
+                window.open("REPLACE_WITH_CREEM_CHECKOUT_URL", "_blank");
             }
 
-            // Device activation flow
+            // Device activation flow — show overlay if ?code= is present
             (function () {
                 const params = new URLSearchParams(window.location.search);
                 const code = params.get("code");
@@ -373,37 +363,15 @@ cargo build --release</pre
                 }
             })();
 
-            async function activateDevice() {
+            // Redirect to Google OAuth with the device code as state
+            function loginWithGoogle() {
                 const params = new URLSearchParams(window.location.search);
                 const code = params.get("code");
-                const email = document.getElementById("activate-email").value.trim();
-                const status = document.getElementById("activate-status");
-                const btn = document.getElementById("activate-btn");
-
-                if (!email) { status.textContent = "Please enter your email."; return; }
-                if (!code) { status.textContent = "No device code found in URL."; return; }
-
-                btn.disabled = true;
-                status.textContent = "Authorizing...";
-
-                try {
-                    const res = await fetch("https://auth.agent-hand.dev/device/activate", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ code, email }),
-                    });
-                    if (res.ok) {
-                        status.style.color = "#4ade80";
-                        status.textContent = "✓ Device authorized! You can close this tab and return to your terminal.";
-                    } else {
-                        const err = await res.json();
-                        status.textContent = err.error || "Authorization failed.";
-                        btn.disabled = false;
-                    }
-                } catch (e) {
-                    status.textContent = "Network error. Please try again.";
-                    btn.disabled = false;
+                if (!code) {
+                    document.getElementById("activate-status").textContent = "No device code found in URL.";
+                    return;
                 }
+                window.location.href = `${AUTH_BASE}/auth/google?code=${encodeURIComponent(code)}`;
             }
         </script>
     </body>
