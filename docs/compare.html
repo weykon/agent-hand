@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Agent Hand vs tmux vs tmuxinator: AI Agent Session Manager Comparison</title>
+        <meta
+            name="description"
+            content="Compare Agent Hand vs tmux, tmuxinator, and tmuxp for managing AI coding agents. See which terminal session manager fits your AI workflow best."
+        />
+        <link rel="stylesheet" href="css/style.css" />
+        <link
+            rel="icon"
+            href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>"
+        />
+
+        <!-- Schema.org markup for comparison content -->
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "Article",
+                "headline": "Agent Hand vs tmux vs tmuxinator: AI Agent Session Manager Comparison",
+                "description": "Detailed comparison of terminal session managers for AI coding workflows",
+                "author": {
+                    "@type": "Organization",
+                    "name": "Agent Hand"
+                },
+                "datePublished": "2025-02-25",
+                "dateModified": "2025-02-25"
+            }
+        </script>
+    </head>
+    <body>
+        <header class="hero" style="min-height: auto; padding: 2rem 0">
+            <nav class="navbar">
+                <div class="logo">
+                    <span class="logo-icon">🦀</span>
+                    <span class="logo-text">Agent Hand</span>
+                </div>
+                <div class="nav-links">
+                    <a href="index.html">Home</a>
+                    <a href="faq.html">FAQ</a>
+                    <a href="privacy.html">Privacy</a>
+                    <a href="terms.html">Terms</a>
+                </div>
+            </nav>
+        </header>
+
+        <main class="container" style="max-width: 900px; padding: 2rem 1rem">
+            <article>
+                <!-- Direct answer for GEO (first 100 words) -->
+                <header style="text-align: center; margin-bottom: 3rem">
+                    <h1>Agent Hand vs tmux vs tmuxinator</h1>
+                    <p
+                        class="lead"
+                        style="
+                            font-size: 1.2rem;
+                            color: var(--text-muted);
+                            max-width: 700px;
+                            margin: 1rem auto;
+                            line-height: 1.6;
+                        "
+                    >
+                        Choosing the right terminal session manager for AI coding agents depends on your workflow.
+                        <strong>Agent Hand</strong>
+                        is purpose-built for AI agents with status tracking and smart switching.
+                        <strong>tmux</strong>
+                        is the powerful base that requires manual configuration.
+                        <strong>tmuxinator</strong>
+                        excels at project-specific layouts. This guide helps you decide.
+                    </p>
+                </header>
+
+                <!-- Quick recommendation boxes -->
+                <section
+                    class="recommendations"
+                    style="
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                        gap: 1.5rem;
+                        margin-bottom: 3rem;
+                    "
+                >
+                    <div
+                        class="rec-card"
+                        style="
+                            background: var(--accent-color);
+                            color: var(--bg-color);
+                            padding: 1.5rem;
+                            border-radius: 12px;
+                        "
+                    >
+                        <h3 style="color: var(--bg-color); margin-bottom: 0.5rem">
+                            Choose Agent Hand if...
+                        </h3>
+                        <ul style="font-size: 0.95rem; padding-left: 1.2rem">
+                            <li>You run multiple AI agents (Claude, Copilot)</li>
+                            <li>You miss prompts waiting in background</li>
+                            <li>You want visual status indicators</li>
+                            <li>You need priority-based switching (Ctrl+N)</li>
+                        </ul>
+                    </div>
+
+                    <div
+                        class="rec-card"
+                        style="
+                            background: var(--card-bg);
+                            padding: 1.5rem;
+                            border-radius: 12px;
+                            border: 1px solid var(--border-color);
+                        "
+                    >
+                        <h3 style="margin-bottom: 0.5rem">Choose tmux if...</h3>
+                        <ul style="font-size: 0.95rem; padding-left: 1.2rem">
+                            <li>You want maximum control and customization</li>
+                            <li>You're comfortable with manual configuration</li>
+                            <li>You don't need AI-specific features</li>
+                            <li>You prefer minimal dependencies</li>
+                        </ul>
+                    </div>
+
+                    <div
+                        class="rec-card"
+                        style="
+                            background: var(--card-bg);
+                            padding: 1.5rem;
+                            border-radius: 12px;
+                            border: 1px solid var(--border-color);
+                        "
+                    >
+                        <h3 style="margin-bottom: 0.5rem">Choose tmuxinator if...</h3>
+                        <ul style="font-size: 0.95rem; padding-left: 1.2rem">
+                            <li>You have complex project layouts</li>
+                            <li>You need predefined window/pane setups</li>
+                            <li>You work with consistent project structures</li>
+                            <li>You prefer YAML configuration</li>
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- Detailed comparison table -->
+                <section class="comparison-table" style="margin-bottom: 3rem">
+                    <h2 style="margin-bottom: 1.5rem">Feature Comparison</h2>
+
+                    <div style="overflow-x: auto">
+                        <table
+                            style="
+                                width: 100%;
+                                border-collapse: collapse;
+                                font-size: 0.95rem;
+                            "
+                        >
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border-color)">
+                                    <th
+                                        style="
+                                            text-align: left;
+                                            padding: 1rem;
+                                            font-weight: 600;
+                                        "
+                                    >
+                                        Feature
+                                    </th>
+                                    <th
+                                        style="
+                                            text-align: center;
+                                            padding: 1rem;
+                                            background: var(--accent-color);
+                                            color: var(--bg-color);
+                                            border-radius: 8px 8px 0 0;
+                                        "
+                                    >
+                                        Agent Hand
+                                    </th>
+                                    <th style="text-align: center; padding: 1rem">
+                                        tmux
+                                    </th>
+                                    <th style="text-align: center; padding: 1rem">
+                                        tmuxinator
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">AI agent status tracking</td>
+                                    <td
+                                        style="
+                                            text-align: center;
+                                            padding: 1rem;
+                                            color: var(--success-color);
+                                        "
+                                    >
+                                        ✓ Built-in
+                                    </td>
+                                    <td style="text-align: center; padding: 1rem">—</td>
+                                    <td style="text-align: center; padding: 1rem">—</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">Priority jumping (Ctrl+N)</td>
+                                    <td
+                                        style="
+                                            text-align: center;
+                                            padding: 1rem;
+                                            color: var(--success-color);
+                                        "
+                                    >
+                                        ✓ Built-in
+                                    </td>
+                                    <td style="text-align: center; padding: 1rem">—</td>
+                                    <td style="text-align: center; padding: 1rem">—</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">Fuzzy search (Ctrl+G)</td>
+                                    <td
+                                        style="
+                                            text-align: center;
+                                            padding: 1rem;
+                                            color: var(--success-color);
+                                        "
+                                    >
+                                        ✓ Built-in
+                                    </td>
+                                    <td style="text-align: center; padding: 1rem">—</td>
+                                    <td style="text-align: center; padding: 1rem">—</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">TUI dashboard</td>
+                                    <td
+                                        style="
+                                            text-align: center;
+                                            padding: 1rem;
+                                            color: var(--success-color);
+                                        "
+                                    >
+                                        ✓ Yes
+                                    </td>
+                                    <td style="text-align: center; padding: 1rem">—</td>
+                                    <td style="text-align: center; padding: 1rem">—</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">Session groups & labels</td>
+                                    <td
+                                        style="
+                                            text-align: center;
+                                            padding: 1rem;
+                                            color: var(--success-color);
+                                        "
+                                    >
+                                        ✓ Yes
+                                    </td>
+                                    <td style="text-align: center; padding: 1rem">Basic only</td>
+                                    <td style="text-align: center; padding: 1rem">Via naming</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">Dedicated tmux server</td>
+                                    <td
+                                        style="
+                                            text-align: center;
+                                            padding: 1rem;
+                                            color: var(--success-color);
+                                        "
+                                    >
+                                        ✓ Yes (isolated)
+                                    </td>
+                                    <td
+                                        style="text-align: center; padding: 1rem"
+                                    >
+                                        Shared
+                                    </td>
+                                    <td
+                                        style="text-align: center; padding: 1rem"
+                                    >
+                                        Shared
+                                    </td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">Project layouts</td>
+                                    <td style="text-align: center; padding: 1rem">Basic</td>
+                                    <td style="text-align: center; padding: 1rem">Manual</td>
+                                    <td
+                                        style="
+                                            text-align: center;
+                                            padding: 1rem;
+                                            color: var(--success-color);
+                                        "
+                                    >
+                                        ✓ Advanced
+                                    </td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">YAML configuration</td>
+                                    <td style="text-align: center; padding: 1rem">JSON</td>
+                                    <td style="text-align: center; padding: 1rem">Config files</td>
+                                    <td
+                                        style="
+                                            text-align: center;
+                                            padding: 1rem;
+                                            color: var(--success-color);
+                                        "
+                                    >
+                                        ✓ Yes
+                                    </td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">Startup time</td>
+                                    <td style="text-align: center; padding: 1rem">< 50ms</td>
+                                    <td style="text-align: center; padding: 1rem">Instant</td>
+                                    <td style="text-align: center; padding: 1rem">~1s</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid var(--border-color)">
+                                    <td style="padding: 1rem">Memory usage</td>
+                                    <td style="text-align: center; padding: 1rem">~8MB</td>
+                                    <td style="text-align: center; padding: 1rem">Minimal</td>
+                                    <td style="text-align: center; padding: 1rem">~15MB</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 1rem">Binary size</td>
+                                    <td style="text-align: center; padding: 1rem">2.7MB</td>
+                                    <td style="text-align: center; padding: 1rem">N/A (system)</td>
+                                    <td style="text-align: center; padding: 1rem">Ruby gem</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Detailed sections -->
+                <section class="details" style="margin-bottom: 3rem">
+                    <h2 style="margin-bottom: 1.5rem">Detailed Comparison</h2>
+
+                    <div class="detail-section" style="margin-bottom: 2rem">
+                        <h3>AI Agent Workflows</h3>
+                        <p>
+                            Agent Hand is the only tool designed specifically for AI coding agents. When you run multiple Claude instances or mix Claude with Copilot, you need to know which agent is waiting for your input. Agent Hand's status icons (!, ●, ✓, ○) make this instant.
+                        </p>
+                        <p>
+                            tmux and tmuxinator are general-purpose tools. They excel at terminal multiplexing and project layouts but have no awareness of AI agent states. You would need to manually check each pane to see if an agent needs attention.
+                        </p>
+                    </div>
+
+                    <div class="detail-section" style="margin-bottom: 2rem">
+                        <h3>Switching & Navigation</h3>
+                        <p><strong>Agent Hand:</strong></p>
+                        <ul>
+                            <li>Ctrl+G: Fuzzy search all sessions</li>
+                            <li>Ctrl+N: Jump to highest-priority (waiting first)</li>
+                            <li>Ctrl+Q: Detach to dashboard</li>
+                            <li>Visual dashboard with status at a glance</li>
+                        </ul>
+
+                        <p><strong>tmux:</strong></p>
+                        <ul>
+                            <li>Prefix + number: Switch to window</li>
+                            <li>Prefix + w: Interactive window list</li>
+                            <li>Prefix + s: Session list</li>
+                            <li>Requires memorizing window numbers</li>
+                        </ul>
+
+                        <p><strong>tmuxinator:</strong></p>
+                        <ul>
+                            <li>tmuxinator start [project]: Load project</li>
+                            <li>Focuses on project bootstrapping</li>
+                            <li>Navigation is standard tmux after startup</li>
+                        </ul>
+                    </div>
+
+                    <div class="detail-section" style="margin-bottom: 2rem">
+                        <h3>Configuration</h3>
+                        <p><strong>Agent Hand:</strong> JSON config with GUI-like TUI. Keybindings, status detection patterns, and TTL settings are configurable. Focus on simplicity with smart defaults.</p>
+
+                        <p><strong>tmux:</strong> Full `.tmux.conf` control. Nearly unlimited customization but requires learning the configuration syntax and maintaining your setup across machines.</p>
+
+                        <p><strong>tmuxinator:</strong> YAML-based project definitions. Excellent for complex multi-pane, multi-window project setups. Less focus on runtime navigation.</p>
+                    </div>
+
+                    <div class="detail-section" style="margin-bottom: 2rem">
+                        <h3>Isolation & Safety</h3>
+                        <p>
+                            Agent Hand's dedicated tmux server (
+                            <code>tmux -L agentdeck_rs</code>
+                            ) is unique. Your personal tmux config and sessions are completely separate. This is ideal if:
+                        </p>
+                        <ul>
+                            <li>You use tmux for non-AI work</li>
+                            <li>You have complex personal tmux configs</li>
+                            <li>You don't want AI agent keybindings interfering</li>
+                        </ul>
+
+                        <p>
+                            With tmux or tmuxinator, AI agent sessions share your main tmux server. This can lead to keybinding conflicts and cluttered session lists.
+                        </p>
+                    </div>
+                </section>
+
+                <!-- Use case scenarios -->
+                <section class="scenarios" style="margin-bottom: 3rem">
+                    <h2 style="margin-bottom: 1.5rem">Choose Based on Your Use Case</h2>
+
+                    <div
+                        class="scenario"
+                        style="
+                            background: var(--card-bg);
+                            padding: 1.5rem;
+                            border-radius: 12px;
+                            margin-bottom: 1rem;
+                            border-left: 4px solid var(--accent-color);
+                        "
+                    >
+                        <h4>"I run 3+ Claude Code instances daily"</h4>
+                        <p>
+                            <strong>Recommendation: Agent Hand</strong>
+                            — The status tracking alone will save you from missing prompts. Priority jumping (Ctrl+N) becomes essential when agents finish at different times.
+                        </p>
+                    </div>
+
+                    <div
+                        class="scenario"
+                        style="
+                            background: var(--card-bg);
+                            padding: 1.5rem;
+                            border-radius: 12px;
+                            margin-bottom: 1rem;
+                            border-left: 4px solid var(--border-color);
+                        "
+                    >
+                        <h4>"I need complex project-specific layouts"</h4>
+                        <p>
+                            <strong>Recommendation: tmuxinator</strong>
+                            — If your workflow involves specific pane arrangements, pre-configured commands, and multiple windows per project, tmuxinator's YAML definitions are unmatched.
+                        </p>
+                    </div>
+
+                    <div
+                        class="scenario"
+                        style="
+                            background: var(--card-bg);
+                            padding: 1.5rem;
+                            border-radius: 12px;
+                            margin-bottom: 1rem;
+                            border-left: 4px solid var(--border-color);
+                        "
+                    >
+                        <h4>"I want complete control over every aspect"</h4>
+                        <p>
+                            <strong>Recommendation: tmux</strong>
+                            — If you enjoy crafting the perfect terminal environment and don't mind maintaining your configuration, raw tmux gives you maximum flexibility.
+                        </p>
+                    </div>
+
+                    <div
+                        class="scenario"
+                        style="
+                            background: var(--card-bg);
+                            padding: 1.5rem;
+                            border-radius: 12px;
+                            border-left: 4px solid var(--accent-color);
+                        "
+                    >
+                        <h4>"I mix AI agents with regular terminal work"</h4>
+                        <p>
+                            <strong>Recommendation: Agent Hand + tmux</strong>
+                            — Use Agent Hand's isolated server for AI agents while keeping your personal tmux setup untouched. This is the best of both worlds.
+                        </p>
+                    </div>
+                </section>
+
+                <!-- FAQ Section -->
+                <section class="mini-faq" style="margin-bottom: 3rem">
+                    <h2 style="margin-bottom: 1.5rem">Common Questions</h2>
+
+                    <div class="faq-item" style="margin-bottom: 1.5rem">
+                        <h4>Can I use Agent Hand with tmuxinator?</h4>
+                        <p>
+                            Yes, though it's uncommon. You could use tmuxinator to define your AI agent project layouts, then use Agent Hand for ongoing session management. However, Agent Hand's built-in session management usually eliminates the need for tmuxinator.
+                        </p>
+                    </div>
+
+                    <div class="faq-item" style="margin-bottom: 1.5rem">
+                        <h4>Will Agent Hand conflict with my existing tmux sessions?</h4>
+                        <p>
+                            No. Agent Hand uses a completely separate tmux server socket. Your existing tmux sessions and configuration remain untouched.
+                        </p>
+                    </div>
+
+                    <div class="faq-item" style="margin-bottom: 1.5rem">
+                        <h4>Is Agent Hand a replacement for tmux?</h4>
+                        <p>
+                            No, it's a specialized tool built on tmux. Agent Hand manages the tmux sessions for you — you don't interact with tmux directly when using Agent Hand, but tmux is doing the underlying work.
+                        </p>
+                    </div>
+
+                    <div class="faq-item">
+                        <h4>Which is fastest?</h4>
+                        <p></p><pre>tmux: Instant (native)
+Agent Hand: &lt;50ms (2.7MB Rust binary)
+tmuxinator: ~1s (Ruby startup)</pre>
+                        <p>
+                            All are fast enough for interactive use. Agent Hand's TUI adds minimal overhead while providing significant productivity features.
+                        </p>
+                    </div>
+                </section>
+
+                <!-- CTA -->
+                <section class="cta" style="text-align: center; padding: 3rem 0">
+                    <h2>Try Agent Hand free</h2>
+                    <p style="margin: 1rem 0 2rem; color: var(--text-muted)">
+                        The fastest way to manage multiple AI coding agents
+                    </p>
+                    <a
+                        href="index.html#install"
+                        class="cta-btn"
+                        style="display: inline-block; text-decoration: none"
+                    >
+                        Install Now
+                    </a>
+                    <p style="margin-top: 1rem; font-size: 0.875rem">
+                        <a href="faq.html" style="color: var(--text-muted)"
+                        >Read FAQ →</a>
+                    </p>
+                </section>
+            </article>
+        </main>
+
+        <footer class="footer" style="margin-top: 4rem">
+            <div class="container">
+                <p>&copy; 2025 Agent Hand. Open source under MIT License.</p>
+            </div>
+        </footer>
+    </body>
+</html>

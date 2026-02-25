@@ -9,6 +9,39 @@
             rel="icon"
             href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>"
         />
+
+        <!-- Schema.org markup for GEO optimization -->
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "SoftwareApplication",
+                "name": "Agent Hand",
+                "description": "A fast tmux-backed terminal session manager for AI coding agents like Claude, Copilot, and OpenCode",
+                "applicationCategory": "DeveloperApplication",
+                "operatingSystem": ["Linux", "macOS", "Windows (WSL)"],
+                "offers": {
+                    "@type": "Offer",
+                    "price": "0",
+                    "priceCurrency": "USD"
+                },
+                "featureList": "tmux session management, AI agent status tracking, fuzzy search switching, priority jumping with Ctrl+N, groups and labels, dedicated tmux server isolation",
+                "softwareVersion": "0.2.13",
+                "programmingLanguage": "Rust",
+                "downloadUrl": "https://github.com/weykon/agent-hand/releases",
+                "codeRepository": "https://github.com/weykon/agent-hand"
+            }
+        </script>
+
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "Organization",
+                "name": "Agent Hand",
+                "url": "https://weykon.github.io/agent-hand",
+                "logo": "https://weykon.github.io/agent-hand/assets/preview.jpg",
+                "sameAs": ["https://github.com/weykon/agent-hand"]
+            }
+        </script>
     </head>
     <body>
         <header class="hero">
@@ -20,6 +53,8 @@
                 <div class="nav-links">
                     <a href="#features">Features</a>
                     <a href="#install">Install</a>
+                    <a href="faq.html">FAQ</a>
+                    <a href="compare.html">Compare</a>
                     <a href="#pricing">Pricing</a>
                     <a href="#story">Story</a>
                     <a
