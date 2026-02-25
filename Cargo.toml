@@ -72,6 +72,9 @@ uuid = { version = "1", features = ["v4", "fast-rng"] }
 # Directory utilities
 dirs = "5"
 
+# Cross-platform browser opener
+open = "5"
+
 # File locking for multi-instance safety
 fs2 = "0.4"
 

@@ -1,4 +1,5 @@
 pub mod analytics;
+pub mod auth;
 pub mod claude;
 pub mod cli;
 pub mod config;

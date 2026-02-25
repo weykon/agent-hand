@@ -68,6 +68,10 @@ pub async fn run_cli(args: Args) -> Result<()> {
             Ok(())
         }
 
+        Some(Command::Login) => handle_login().await,
+
+        Some(Command::Logout) => handle_logout(),
+
         None => {
             // Check tmux availability before launching TUI
             if !crate::tmux::TmuxManager::is_available()
@@ -96,6 +100,21 @@ pub async fn run_cli(args: Args) -> Result<()> {
 }
 
 async fn handle_upgrade(prefix: Option<String>, version: Option<String>) -> Result<()> {
+    // Auth gate: upgrade is a premium feature
+    match crate::auth::AuthToken::load() {
+        None => {
+            eprintln!("Upgrade requires a license. Purchase at: https://agent-hand.dev");
+            eprintln!("Run `agent-hand login` to authenticate.");
+            return Ok(());
+        }
+        Some(token) if !token.has_feature("upgrade") => {
+            eprintln!("Your license does not include the auto-upgrade feature.");
+            eprintln!("Visit https://agent-hand.dev to upgrade your plan.");
+            return Ok(());
+        }
+        Some(_) => {} // authorized
+    }
+
     const REPO: &str = "weykon/agent-hand";
     const BIN_NAME: &str = "agent-hand";
 
@@ -853,4 +872,102 @@ fn print_status_verbose(instances: &[Instance]) {
         }
         println!();
     }
+}
+
+async fn handle_login() -> Result<()> {
+    use crate::auth::{AuthToken, DeviceCodeResponse, DeviceTokenResponse, AUTH_SERVER};
+
+    let client = reqwest::Client::new();
+
+    // 1. Request a device code
+    let resp = client
+        .post(format!("{AUTH_SERVER}/device/code"))
+        .send()
+        .await
+        .map_err(|e| crate::Error::InvalidInput(format!("Network error: {e}")))?;
+
+    if !resp.status().is_success() {
+        return Err(crate::Error::InvalidInput(
+            "Failed to request device code from auth server".to_string(),
+        ));
+    }
+
+    let device: DeviceCodeResponse = resp
+        .json()
+        .await
+        .map_err(|e| crate::Error::InvalidInput(format!("Invalid server response: {e}")))?;
+
+    // 2. Show URL and open browser
+    println!("Complete verification in your browser:");
+    println!("  {}", device.url);
+    println!();
+    println!("Waiting for authorization...");
+
+    let _ = open::that(&device.url);
+
+    // 3. Poll for token
+    let interval = tokio::time::Duration::from_secs(device.interval.max(3));
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(300);
+
+    loop {
+        tokio::time::sleep(interval).await;
+
+        if tokio::time::Instant::now() > deadline {
+            eprintln!("Timed out waiting for authorization (5 minutes).");
+            return Ok(());
+        }
+
+        let poll = client
+            .get(format!("{AUTH_SERVER}/device/token"))
+            .query(&[("code", &device.code)])
+            .send()
+            .await;
+
+        let poll = match poll {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        let token_resp: DeviceTokenResponse = match poll.json().await {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        match token_resp.status.as_str() {
+            "pending" => {
+                eprint!(".");
+                continue;
+            }
+            "expired" => {
+                eprintln!("\nDevice code expired. Run `agent-hand login` again.");
+                return Ok(());
+            }
+            "authorized" => {
+                let auth = AuthToken {
+                    access_token: token_resp.access_token.unwrap_or_default(),
+                    email: token_resp.email.unwrap_or_default(),
+                    features: token_resp.features.unwrap_or_default(),
+                    purchased_at: token_resp.purchased_at.unwrap_or_default(),
+                };
+                auth.save()?;
+                println!("\n✓ Logged in as {}", auth.email);
+                if auth.features.is_empty() {
+                    println!("  No premium features unlocked yet.");
+                } else {
+                    println!("  Unlocked: {}", auth.features.join(", "));
+                }
+                return Ok(());
+            }
+            other => {
+                eprintln!("\nUnexpected status: {other}");
+                return Ok(());
+            }
+        }
+    }
+}
+
+fn handle_logout() -> Result<()> {
+    crate::auth::AuthToken::delete()?;
+    println!("✓ Logged out. Credentials removed.");
+    Ok(())
 }

@@ -98,6 +98,12 @@ pub enum Command {
 
     /// Show version
     Version,
+
+    /// Authenticate with agent-hand.dev to unlock premium features
+    Login,
+
+    /// Remove stored authentication credentials
+    Logout,
 }
 
 #[derive(Subcommand, Debug)]
