@@ -40,6 +40,10 @@ pub struct ConfigFile {
     #[serde(default)]
     status_detection: StatusDetectionConfig,
 
+    /// Sharing configuration (Premium)
+    #[serde(default)]
+    sharing: SharingConfig,
+
     /// How long a session stays in “Ready (✓)” after leaving Running.
     /// Unit: minutes. Default: 40.
     #[serde(default)]
@@ -80,6 +84,46 @@ pub struct StatusDetectionConfig {
     pub busy_contains: Vec<String>,
     #[serde(default)]
     pub busy_regex: Vec<String>,
+}
+
+/// Configuration for remote session sharing (Premium)
+#[derive(Debug, Clone, Deserialize)]
+pub struct SharingConfig {
+    /// tmate relay host (default: tmate.io, or self-hosted)
+    #[serde(default = "default_tmate_host")]
+    pub tmate_server_host: String,
+    /// tmate relay SSH port
+    #[serde(default = "default_tmate_port")]
+    pub tmate_server_port: u16,
+    /// Default permission for new shares
+    #[serde(default = "default_share_permission")]
+    pub default_permission: String,
+    /// Default auto-expire in minutes (None = no expiry)
+    #[serde(default)]
+    pub auto_expire_minutes: Option<u64>,
+}
+
+fn default_tmate_host() -> String {
+    "tmate.io".to_string()
+}
+
+fn default_tmate_port() -> u16 {
+    22
+}
+
+fn default_share_permission() -> String {
+    "ro".to_string()
+}
+
+impl Default for SharingConfig {
+    fn default() -> Self {
+        Self {
+            tmate_server_host: default_tmate_host(),
+            tmate_server_port: default_tmate_port(),
+            default_permission: default_share_permission(),
+            auto_expire_minutes: None,
+        }
+    }
 }
 
 fn default_analytics_enabled() -> bool {
@@ -159,6 +203,10 @@ impl ConfigFile {
 
     pub fn ready_ttl_minutes(&self) -> u64 {
         self.ready_ttl_minutes.unwrap_or(40)
+    }
+
+    pub fn sharing(&self) -> &SharingConfig {
+        &self.sharing
     }
 }
 

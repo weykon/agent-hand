@@ -7,9 +7,10 @@ mod switcher;
 
 pub use app::App;
 pub use dialogs::{
-    CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
-    ForkDialog, ForkField, MoveGroupDialog, NewSessionDialog, NewSessionField, RenameGroupDialog,
-    RenameSessionDialog, SessionEditField, TagPickerDialog, TagSpec,
+    AnnotateDialog, ContextInjectionMethod, CreateGroupDialog, CreateRelationshipDialog,
+    DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog, ForkDialog, ForkField,
+    MoveGroupDialog, NewFromContextDialog, NewSessionDialog, NewSessionField, RenameGroupDialog,
+    RenameSessionDialog, SessionEditField, ShareDialog, TagPickerDialog, TagSpec,
 };
 pub use input::TextInput;
 pub use switcher::run_switcher;
@@ -32,6 +33,7 @@ pub enum AppState {
     Search,
     Dialog,
     Help,
+    Relationships,
 }
 
 #[derive(Debug, Clone)]

@@ -76,6 +76,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Render content
     if app.help_visible() {
         render_help(f, chunks[1]);
+    } else if app.state() == crate::ui::AppState::Relationships {
+        render_relationships(f, chunks[1], app);
     } else {
         render_main(f, chunks[1], app);
     }
@@ -250,6 +252,18 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
                                 Style::default().fg(Color::Yellow),
                             ));
                         }
+
+                        // Sharing badge (Premium)
+                        if let Some(ref sharing) = session.sharing {
+                            if sharing.active {
+                                spans.push(Span::raw("  "));
+                                let perm = &sharing.default_permission;
+                                spans.push(Span::styled(
+                                    format!("[share: {}]", perm),
+                                    Style::default().fg(Color::Magenta),
+                                ));
+                            }
+                        }
                     }
 
                     let line = Line::from(spans);
@@ -329,6 +343,33 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
 
     if let Some(d) = app.rename_group_dialog() {
         render_rename_group_dialog(f, area, d);
+    }
+
+    // Premium dialogs (stub rendering for now)
+    if let Some(_d) = app.share_dialog() {
+        let popup_area = centered_rect(60, 40, area);
+        f.render_widget(Clear, popup_area);
+        let text = Paragraph::new("Share Dialog\n\n(Coming in Phase 4)")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Share Session"),
+            )
+            .alignment(Alignment::Center);
+        f.render_widget(text, popup_area);
+    }
+
+    if let Some(_d) = app.create_relationship_dialog() {
+        let popup_area = centered_rect(60, 50, area);
+        f.render_widget(Clear, popup_area);
+        let text = Paragraph::new("Create Relationship Dialog\n\n(Coming in Phase 2)")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("New Relationship"),
+            )
+            .alignment(Alignment::Center);
+        f.render_widget(text, popup_area);
     }
 }
 
@@ -1315,9 +1356,111 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         spans.push(Span::raw(format!(" ({})", app.search_matches())));
     }
 
+    // User account badge
+    spans.push(Span::raw("  |  "));
+    if let Some(token) = app.auth_token() {
+        if token.is_pro() {
+            spans.push(Span::styled(
+                "PRO",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled("FREE", Style::default().fg(Color::DarkGray)));
+        }
+        let email_display = token.email.split('@').next().unwrap_or(&token.email);
+        spans.push(Span::raw(format!(" {}", email_display)));
+    } else {
+        spans.push(Span::styled("not logged in", Style::default().fg(Color::DarkGray)));
+    }
+
     let status_line = Line::from(spans);
 
     let status = Paragraph::new(status_line).block(Block::default().borders(Borders::ALL));
 
     f.render_widget(status, area);
+}
+
+/// Render the Relationships view (Premium)
+fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+
+    let relationships = app.relationships();
+
+    // Left panel: relationship list
+    let items: Vec<ListItem> = if relationships.is_empty() {
+        vec![ListItem::new(Line::from(vec![Span::styled(
+            "  No relationships yet. Press 'n' to create one.",
+            Style::default().fg(Color::DarkGray),
+        )]))]
+    } else {
+        relationships
+            .iter()
+            .map(|rel| {
+                let a_title = app
+                    .session_by_id(&rel.session_a_id)
+                    .map(|s| s.title.as_str())
+                    .unwrap_or("?");
+                let b_title = app
+                    .session_by_id(&rel.session_b_id)
+                    .map(|s| s.title.as_str())
+                    .unwrap_or("?");
+                let indicator = rel.direction_indicator();
+                let label = rel
+                    .label
+                    .as_deref()
+                    .map(|l| format!(" \"{}\"", l))
+                    .unwrap_or_default();
+
+                let line = Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(a_title.to_string(), Style::default().fg(Color::Cyan)),
+                    Span::raw(format!(" {} ", indicator)),
+                    Span::styled(b_title.to_string(), Style::default().fg(Color::Cyan)),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("[{}]", rel.relation_type),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(label, Style::default().fg(Color::Yellow)),
+                ]);
+                ListItem::new(line)
+            })
+            .collect()
+    };
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(format!("Relationships ({})", relationships.len())),
+    );
+    f.render_widget(list, chunks[0]);
+
+    // Right panel: context preview placeholder
+    let preview_text = if relationships.is_empty() {
+        "Select a relationship to see context.\n\n\
+         Ctrl+E: back to sessions\n\
+         n: new relationship\n\
+         d: delete relationship\n\
+         c: capture context\n\
+         a: annotate"
+            .to_string()
+    } else {
+        "Context Preview\n\n\
+         (Select a relationship and press 'c' to capture context)"
+            .to_string()
+    };
+
+    let preview = Paragraph::new(preview_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Context Preview"),
+        )
+        .wrap(Wrap { trim: false });
+    f.render_widget(preview, chunks[1]);
 }

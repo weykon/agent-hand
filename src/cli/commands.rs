@@ -72,6 +72,16 @@ pub async fn run_cli(args: Args) -> Result<()> {
 
         Some(Command::Logout) => handle_logout(),
 
+        Some(Command::Account { refresh }) => handle_account(refresh).await,
+
+        Some(Command::Share {
+            id,
+            permission,
+            expire,
+        }) => handle_share(profile, &id, &permission, expire).await,
+
+        Some(Command::Unshare { id }) => handle_unshare(profile, &id).await,
+
         None => {
             // Check tmux availability before launching TUI
             if !crate::tmux::TmuxManager::is_available()
@@ -276,7 +286,7 @@ async fn handle_add(
 
     // Load existing sessions
     let storage = Storage::new(profile).await?;
-    let (mut instances, tree) = storage.load().await?;
+    let (mut instances, tree, relationships) = storage.load().await?;
 
     // Check for duplicates
     for inst in &instances {
@@ -302,7 +312,7 @@ async fn handle_add(
     instances.push(instance.clone());
 
     // Save
-    storage.save(&instances, &tree).await?;
+    storage.save(&instances, &tree, &relationships).await?;
 
     println!("✓ Added session: {}", title);
     println!("  Profile: {}", profile);
@@ -328,7 +338,7 @@ async fn handle_list(profile: &str, json: bool, all: bool) -> Result<()> {
 
 async fn list_profile(profile: &str, json: bool) -> Result<()> {
     let storage = Storage::new(profile).await?;
-    let (instances, _) = storage.load().await?;
+    let (instances, _, _) = storage.load().await?;
 
     if instances.is_empty() {
         if !json {
@@ -367,7 +377,7 @@ async fn list_profile(profile: &str, json: bool) -> Result<()> {
 
 async fn handle_remove(profile: &str, identifier: &str) -> Result<()> {
     let storage = Storage::new(profile).await?;
-    let (instances, tree) = storage.load().await?;
+    let (instances, tree, relationships) = storage.load().await?;
 
     let (to_remove, to_keep): (Vec<_>, Vec<_>) = instances.into_iter().partition(|inst| {
         inst.id == identifier || inst.id.starts_with(identifier) || inst.title == identifier
@@ -390,7 +400,7 @@ async fn handle_remove(profile: &str, identifier: &str) -> Result<()> {
     }
 
     // Save
-    storage.save(&to_keep, &tree).await?;
+    storage.save(&to_keep, &tree, &relationships).await?;
 
     println!("✓ Removed session: {} (from profile '{}')", title, profile);
     Ok(())
@@ -398,7 +408,7 @@ async fn handle_remove(profile: &str, identifier: &str) -> Result<()> {
 
 async fn handle_status(profile: &str, verbose: bool, quiet: bool, json: bool) -> Result<()> {
     let storage = Storage::new(profile).await?;
-    let (mut instances, _) = storage.load().await?;
+    let (mut instances, _, _) = storage.load().await?;
 
     if instances.is_empty() {
         if json {
@@ -478,7 +488,7 @@ async fn handle_statusline(profile: &str) -> Result<()> {
     let ready_ttl_secs: i64 = cfg.as_ref().map(|c| c.ready_ttl_minutes()).unwrap_or(40) as i64 * 60;
 
     let storage = Storage::new(profile).await?;
-    let (mut instances, tree) = storage.load().await?;
+    let (mut instances, tree, relationships) = storage.load().await?;
 
     if instances.is_empty() {
         println!("AH");
@@ -513,7 +523,7 @@ async fn handle_statusline(profile: &str) -> Result<()> {
     }
 
     if dirty {
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
     }
 
     let is_ready = |inst: &Instance| {
@@ -613,7 +623,7 @@ async fn handle_jump(profile: &str) -> Result<()> {
     let ready_ttl_secs: i64 = cfg.as_ref().map(|c| c.ready_ttl_minutes()).unwrap_or(40) as i64 * 60;
 
     let storage = Storage::new(profile).await?;
-    let (mut instances, _tree) = storage.load().await?;
+    let (mut instances, _tree, _) = storage.load().await?;
 
     if instances.is_empty() {
         // Use tmux display-message instead of eprintln so user sees it in tmux
@@ -737,7 +747,7 @@ async fn handle_jump(profile: &str) -> Result<()> {
 
 async fn handle_session(profile: &str, action: SessionAction) -> Result<()> {
     let storage = Storage::new(profile).await?;
-    let (mut instances, tree) = storage.load().await?;
+    let (mut instances, tree, relationships) = storage.load().await?;
     let manager = Arc::new(TmuxManager::new());
 
     match action {
@@ -746,7 +756,7 @@ async fn handle_session(profile: &str, action: SessionAction) -> Result<()> {
             let title = inst.title.clone(); // Clone before operations
             inst.init_tmux(manager.clone());
             inst.start().await?;
-            storage.save(&instances, &tree).await?;
+            storage.save(&instances, &tree, &relationships).await?;
             println!("✓ Started session: {}", title);
         }
 
@@ -755,7 +765,7 @@ async fn handle_session(profile: &str, action: SessionAction) -> Result<()> {
             let title = inst.title.clone();
             inst.init_tmux(manager.clone());
             inst.stop().await?;
-            storage.save(&instances, &tree).await?;
+            storage.save(&instances, &tree, &relationships).await?;
             println!("✓ Stopped session: {}", title);
         }
 
@@ -766,7 +776,7 @@ async fn handle_session(profile: &str, action: SessionAction) -> Result<()> {
             inst.stop().await?;
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             inst.start().await?;
-            storage.save(&instances, &tree).await?;
+            storage.save(&instances, &tree, &relationships).await?;
             println!("✓ Restarted session: {}", title);
         }
 
@@ -774,7 +784,7 @@ async fn handle_session(profile: &str, action: SessionAction) -> Result<()> {
             let inst = find_session(&mut instances, &id)?;
             inst.init_tmux(manager.clone());
             inst.attach().await?;
-            storage.save(&instances, &tree).await?;
+            storage.save(&instances, &tree, &relationships).await?;
         }
 
         SessionAction::Show { id } => {
@@ -969,5 +979,114 @@ async fn handle_login() -> Result<()> {
 fn handle_logout() -> Result<()> {
     crate::auth::AuthToken::delete()?;
     println!("✓ Logged out. Credentials removed.");
+    Ok(())
+}
+
+async fn handle_account(refresh: bool) -> Result<()> {
+    let mut token = match crate::auth::AuthToken::load() {
+        Some(t) => t,
+        None => {
+            eprintln!("Not logged in. Run `agent-hand login` to authenticate.");
+            return Ok(());
+        }
+    };
+
+    if refresh {
+        eprint!("Refreshing account status... ");
+        match token.refresh().await {
+            Ok(changed) => {
+                if changed {
+                    eprintln!("updated!");
+                } else {
+                    eprintln!("no changes.");
+                }
+            }
+            Err(e) => {
+                eprintln!("failed: {e}");
+                eprintln!("Showing cached info.");
+            }
+        }
+    }
+
+    let plan = if token.is_pro() { "Pro" } else { "Free" };
+
+    println!("Account: {}", token.email);
+    println!("Plan:    {}", plan);
+    if !token.features.is_empty() {
+        println!("Features: {}", token.features.join(", "));
+    }
+    if !token.purchased_at.is_empty() {
+        println!("Purchased: {}", token.purchased_at);
+    }
+    if !token.is_pro() {
+        println!();
+        println!("Upgrade at: https://agent-hand.dev");
+    }
+
+    Ok(())
+}
+
+async fn handle_share(
+    profile: &str,
+    id: &str,
+    permission: &str,
+    expire: Option<u64>,
+) -> Result<()> {
+    // Gate behind premium feature
+    let feature = match permission {
+        "rw" => "sharing_rw",
+        _ => "sharing",
+    };
+    crate::auth::AuthToken::require_feature(feature)?;
+
+    // Verify tmate is available
+    if !crate::sharing::tmate::TmateManager::is_available().await {
+        eprintln!("Error: tmate is not installed or not in PATH.");
+        eprintln!();
+        eprintln!("Install tmate:");
+        eprintln!("  macOS:        brew install tmate");
+        eprintln!("  Ubuntu/Debian: sudo apt install tmate");
+        eprintln!();
+        eprintln!("Or visit: https://tmate.io");
+        return Err(crate::Error::InvalidInput("tmate is not installed".to_string()));
+    }
+
+    let storage = Storage::new(profile).await?;
+    let (instances, _, _) = storage.load().await?;
+
+    let inst = instances
+        .iter()
+        .find(|i| i.id == id || i.id.starts_with(id) || i.title == id)
+        .ok_or_else(|| crate::Error::SessionNotFound(id.to_string()))?;
+
+    let perm_display = if permission == "rw" {
+        "read-write"
+    } else {
+        "read-only"
+    };
+
+    println!("[premium] Sharing \"{}\" ({})...", inst.title, perm_display);
+    if let Some(mins) = expire {
+        println!("  Auto-expires in {} minutes", mins);
+    }
+    println!();
+    println!("  (tmate integration will be fully wired in Phase 4)");
+
+    Ok(())
+}
+
+async fn handle_unshare(profile: &str, id: &str) -> Result<()> {
+    crate::auth::AuthToken::require_feature("sharing")?;
+
+    let storage = Storage::new(profile).await?;
+    let (instances, _, _) = storage.load().await?;
+
+    let inst = instances
+        .iter()
+        .find(|i| i.id == id || i.id.starts_with(id) || i.title == id)
+        .ok_or_else(|| crate::Error::SessionNotFound(id.to_string()))?;
+
+    println!("Stopped sharing \"{}\".", inst.title);
+
     Ok(())
 }

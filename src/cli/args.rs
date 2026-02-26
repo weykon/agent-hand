@@ -104,6 +104,33 @@ pub enum Command {
 
     /// Remove stored authentication credentials
     Logout,
+
+    /// Show account status and license info
+    Account {
+        /// Refresh features from server before displaying
+        #[arg(long)]
+        refresh: bool,
+    },
+
+    /// Share a session remotely via tmate (Premium)
+    Share {
+        /// Session ID or title
+        id: String,
+
+        /// Permission level: "ro" (read-only) or "rw" (read-write)
+        #[arg(long, default_value = "ro")]
+        permission: String,
+
+        /// Auto-expire after N minutes
+        #[arg(long)]
+        expire: Option<u64>,
+    },
+
+    /// Stop sharing a session
+    Unshare {
+        /// Session ID or title
+        id: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

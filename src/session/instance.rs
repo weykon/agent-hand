@@ -7,6 +7,8 @@ use uuid::Uuid;
 
 use crate::tmux::{SessionStatus, TmuxManager, TmuxSession, Tool};
 
+use crate::sharing::SharingState;
+
 /// Session status (persisted)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -87,6 +89,10 @@ pub struct Instance {
     pub gemini_session_id: Option<String>,
     pub gemini_detected_at: Option<DateTime<Utc>>,
 
+    // Premium: remote sharing state
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharing: Option<SharingState>,
+
     // Non-serialized fields
     #[serde(skip)]
     tmux_session: Option<Arc<TmuxSession>>,
@@ -121,6 +127,7 @@ impl Instance {
             claude_detected_at: None,
             gemini_session_id: None,
             gemini_detected_at: None,
+            sharing: None,
             tmux_session: None,
             ptmx_count: 0,
         }

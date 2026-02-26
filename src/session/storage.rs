@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use fs2::FileExt;
 use parking_lot::Mutex;
 
-use super::{GroupData, GroupTree, Instance};
+use super::{GroupData, GroupTree, Instance, Relationship};
 use crate::error::{Error, Result};
 
 fn copy_dir_recursive_sync(src: &PathBuf, dst: &PathBuf) -> Result<()> {
@@ -69,6 +69,8 @@ const MAX_BACKUP_GENERATIONS: usize = 3;
 pub struct StorageData {
     pub instances: Vec<Instance>,
     pub groups: Vec<GroupData>,
+    #[serde(default)]
+    pub relationships: Vec<Relationship>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -197,23 +199,28 @@ impl Storage {
         &self.profile
     }
 
-    /// Load sessions and groups
-    pub async fn load(&self) -> Result<(Vec<Instance>, GroupTree)> {
+    /// Load sessions, groups, and relationships
+    pub async fn load(&self) -> Result<(Vec<Instance>, GroupTree, Vec<Relationship>)> {
         let _lock = self.lock.lock();
 
         if !self.path.exists() {
-            return Ok((Vec::new(), GroupTree::new()));
+            return Ok((Vec::new(), GroupTree::new(), Vec::new()));
         }
 
         let content = fs::read_to_string(&self.path).await?;
         let data: StorageData = serde_json::from_str(&content)?;
 
         let tree = GroupTree::from_groups(data.groups);
-        Ok((data.instances, tree))
+        Ok((data.instances, tree, data.relationships))
     }
 
-    /// Save sessions and groups
-    pub async fn save(&self, instances: &[Instance], tree: &GroupTree) -> Result<()> {
+    /// Save sessions, groups, and relationships
+    pub async fn save(
+        &self,
+        instances: &[Instance],
+        tree: &GroupTree,
+        relationships: &[Relationship],
+    ) -> Result<()> {
         let _lock = self.lock.lock();
 
         // Acquire cross-process file lock for multi-instance safety
@@ -230,6 +237,7 @@ impl Storage {
         let data = StorageData {
             instances: instances.to_vec(),
             groups: tree.all_groups(),
+            relationships: relationships.to_vec(),
             updated_at: Utc::now(),
         };
 
@@ -326,6 +334,7 @@ impl Storage {
         let data = StorageData {
             instances: Vec::new(),
             groups: Vec::new(),
+            relationships: Vec::new(),
             updated_at: Utc::now(),
         };
         let json = serde_json::to_string_pretty(&data)?;
@@ -375,9 +384,9 @@ mod tests {
 
         let tree = GroupTree::new();
 
-        storage.save(&instances, &tree).await.unwrap();
+        storage.save(&instances, &tree, &[]).await.unwrap();
 
-        let (loaded_instances, _) = storage.load().await.unwrap();
+        let (loaded_instances, _, _) = storage.load().await.unwrap();
         assert_eq!(loaded_instances.len(), 1);
         assert_eq!(loaded_instances[0].title, "test");
     }

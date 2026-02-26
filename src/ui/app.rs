@@ -15,16 +15,17 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::error::Result;
-use crate::session::{GroupTree, Instance, Status, Storage};
+use crate::session::{GroupTree, Instance, Relationship, Status, Storage};
 use crate::tmux::{
     ptmx::{spawn_ptmx_monitor, SharedPtmxState},
     TmuxManager, SESSION_PREFIX,
 };
 
 use super::{
-    AppState, CreateGroupDialog, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
-    ForkDialog, ForkField, MoveGroupDialog, NewSessionDialog, NewSessionField, RenameGroupDialog,
-    RenameSessionDialog, SessionEditField, TagPickerDialog, TagSpec, TextInput, TreeItem,
+    AppState, CreateGroupDialog, CreateRelationshipDialog, DeleteConfirmDialog, DeleteGroupChoice,
+    DeleteGroupDialog, Dialog, ForkDialog, ForkField, MoveGroupDialog, NewSessionDialog,
+    NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, ShareDialog,
+    TagPickerDialog, TagSpec, TextInput, TreeItem,
 };
 
 /// Main TUI application
@@ -41,6 +42,7 @@ pub struct App {
     sessions: Vec<Instance>,
     sessions_by_id: HashMap<String, usize>,
     groups: GroupTree,
+    relationships: Vec<Relationship>,
     tree: Vec<TreeItem>,
     selected_index: usize,
 
@@ -91,6 +93,9 @@ pub struct App {
     storage: Arc<Mutex<Storage>>,
     tmux: Arc<TmuxManager>,
     analytics: crate::analytics::ActivityTracker,
+
+    // Auth
+    auth_token: Option<crate::auth::AuthToken>,
 }
 
 impl App {
@@ -106,7 +111,7 @@ impl App {
     /// Create new application
     pub async fn new(profile: &str) -> Result<Self> {
         let storage = Storage::new(profile).await?;
-        let (mut sessions, groups) = storage.load().await?;
+        let (mut sessions, groups, relationships) = storage.load().await?;
         // Status is derived from tmux probes; the persisted value can be stale across restarts.
         // Reset to avoid treating old Running→Idle as a fresh completion.
         for s in &mut sessions {
@@ -157,6 +162,7 @@ impl App {
             sessions,
             sessions_by_id: HashMap::new(),
             groups,
+            relationships,
             tree: Vec::new(),
             selected_index: 0,
             help_visible: false,
@@ -187,6 +193,7 @@ impl App {
             _ptmx_task: ptmx_task,
             cached_ptmx_total: 0,
             cached_ptmx_max: system_ptmx_max,
+            auth_token: crate::auth::AuthToken::load(),
         };
 
         app.ensure_groups_exist();
@@ -472,7 +479,7 @@ impl App {
         // Persist last_running_at changes
         {
             let storage = self.storage.lock().await;
-            storage.save(&self.sessions, &self.groups).await?;
+            storage.save(&self.sessions, &self.groups, &self.relationships).await?;
         }
         Ok(())
     }
@@ -518,6 +525,7 @@ impl App {
             AppState::Search => self.handle_search_key(key, modifiers).await,
             AppState::Dialog => self.handle_dialog_key(key, modifiers).await,
             AppState::Help => self.handle_help_key(key),
+            AppState::Relationships => self.handle_relationships_key(key, modifiers).await,
         }
     }
 
@@ -704,6 +712,60 @@ impl App {
             return Ok(());
         }
 
+        // Ctrl+R: toggle Relationships view (Premium)
+        // Note: Ctrl+R is already used for refresh. Use Ctrl+E instead.
+        if key == KeyCode::Char('e') && modifiers == KeyModifiers::CONTROL {
+            if crate::auth::AuthToken::require_feature("relationships").is_ok() {
+                self.state = AppState::Relationships;
+            }
+            return Ok(());
+        }
+
+        // S: Share selected session (Premium)
+        if key == KeyCode::Char('S') && modifiers == KeyModifiers::SHIFT {
+            if let Some(inst) = self.selected_session() {
+                if crate::auth::AuthToken::require_feature("sharing").is_ok() {
+                    let already_sharing = inst.sharing.is_some()
+                        && inst.sharing.as_ref().is_some_and(|s| s.active);
+                    let dialog = ShareDialog {
+                        session_id: inst.id.clone(),
+                        session_title: inst.title.clone(),
+                        permission: crate::sharing::SharePermission::ReadOnly,
+                        expire_minutes: TextInput::new(),
+                        ssh_url: None,
+                        web_url: None,
+                        already_sharing,
+                    };
+                    self.dialog = Some(Dialog::Share(dialog));
+                    self.state = AppState::Dialog;
+                }
+            }
+            return Ok(());
+        }
+
+        Ok(())
+    }
+
+    /// Handle keys in Relationships view
+    async fn handle_relationships_key(
+        &mut self,
+        key: KeyCode,
+        modifiers: KeyModifiers,
+    ) -> Result<()> {
+        match key {
+            // Ctrl+E or Esc: back to Normal
+            KeyCode::Char('e') if modifiers == KeyModifiers::CONTROL => {
+                self.state = AppState::Normal;
+            }
+            KeyCode::Esc => {
+                self.state = AppState::Normal;
+            }
+            // q: quit
+            KeyCode::Char('q') => {
+                self.should_quit = true;
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -1494,6 +1556,17 @@ impl App {
                 }
                 _ => {}
             },
+
+            // Premium dialogs: Esc to close for now (full interaction in later phases)
+            Dialog::Share(_)
+            | Dialog::CreateRelationship(_)
+            | Dialog::Annotate(_)
+            | Dialog::NewFromContext(_) => {
+                if key == KeyCode::Esc {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+            }
         }
 
         Ok(())
@@ -1674,9 +1747,9 @@ impl App {
         inst.parent_session_id = Some(parent_session_id.to_string());
 
         let storage = self.storage.lock().await;
-        let (mut instances, tree) = storage.load().await?;
+        let (mut instances, tree, relationships) = storage.load().await?;
         instances.push(inst.clone());
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
 
         Ok(inst.id)
     }
@@ -1688,7 +1761,7 @@ impl App {
         }
 
         let storage = self.storage.lock().await;
-        let (instances, mut tree) = storage.load().await?;
+        let (instances, mut tree, relationships) = storage.load().await?;
 
         tree.create_group(group_path.to_string());
 
@@ -1698,7 +1771,7 @@ impl App {
             tree.set_expanded(&p, true);
         }
 
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
         Ok(())
     }
 
@@ -1709,11 +1782,11 @@ impl App {
         }
 
         let storage = self.storage.lock().await;
-        let (instances, mut tree) = storage.load().await?;
+        let (instances, mut tree, relationships) = storage.load().await?;
 
         tree.delete_group_prefix(group_path);
 
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
         Ok(())
     }
 
@@ -1726,7 +1799,7 @@ impl App {
         let prefix = format!("{}/", group_path);
 
         let storage = self.storage.lock().await;
-        let (mut instances, mut tree) = storage.load().await?;
+        let (mut instances, mut tree, relationships) = storage.load().await?;
 
         for inst in instances.iter_mut() {
             if inst.group_path == group_path || inst.group_path.starts_with(&prefix) {
@@ -1735,7 +1808,7 @@ impl App {
         }
 
         tree.delete_group_prefix(group_path);
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
         Ok(())
     }
 
@@ -1748,7 +1821,7 @@ impl App {
         let prefix = format!("{}/", group_path);
 
         let storage = self.storage.lock().await;
-        let (mut instances, mut tree) = storage.load().await?;
+        let (mut instances, mut tree, relationships) = storage.load().await?;
 
         // Kill tmux sessions (best-effort) before removing from storage.
         for inst in instances.iter() {
@@ -1763,7 +1836,7 @@ impl App {
         instances.retain(|s| !(s.group_path == group_path || s.group_path.starts_with(&prefix)));
 
         tree.delete_group_prefix(group_path);
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
         Ok(())
     }
 
@@ -1771,7 +1844,7 @@ impl App {
         let group_path = group_path.trim();
 
         let storage = self.storage.lock().await;
-        let (mut instances, mut tree) = storage.load().await?;
+        let (mut instances, mut tree, relationships) = storage.load().await?;
 
         if let Some(inst) = instances.iter_mut().find(|s| s.id == session_id) {
             inst.group_path = group_path.to_string();
@@ -1788,7 +1861,7 @@ impl App {
             }
         }
 
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
         Ok(())
     }
 
@@ -1805,7 +1878,7 @@ impl App {
         let label = label.trim();
 
         let storage = self.storage.lock().await;
-        let (mut instances, tree) = storage.load().await?;
+        let (mut instances, tree, relationships) = storage.load().await?;
 
         if let Some(inst) = instances.iter_mut().find(|s| s.id == session_id) {
             inst.title = title.to_string();
@@ -1813,7 +1886,7 @@ impl App {
             inst.label_color = label_color;
         }
 
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
         Ok(())
     }
 
@@ -1825,7 +1898,7 @@ impl App {
         }
 
         let storage = self.storage.lock().await;
-        let (mut instances, mut tree) = storage.load().await?;
+        let (mut instances, mut tree, relationships) = storage.load().await?;
 
         let old_slash = format!("{}/", old_path);
         for inst in instances.iter_mut() {
@@ -1836,7 +1909,7 @@ impl App {
         }
 
         tree.rename_prefix(old_path, new_path);
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
         Ok(())
     }
 
@@ -1857,7 +1930,7 @@ impl App {
         };
 
         let storage = self.storage.lock().await;
-        let (mut instances, mut tree) = storage.load().await?;
+        let (mut instances, mut tree, relationships) = storage.load().await?;
 
         let mut instance = Instance::new(title.clone(), project_path.clone());
         let group_path = d.group_path.text().trim();
@@ -1870,7 +1943,7 @@ impl App {
         instance.tool = crate::tmux::Tool::Shell;
 
         instances.push(instance);
-        storage.save(&instances, &tree).await?;
+        storage.save(&instances, &tree, &relationships).await?;
 
         Ok(())
     }
@@ -1885,11 +1958,11 @@ impl App {
         }
 
         let storage = self.storage.lock().await;
-        let (mut instances, tree) = storage.load().await?;
+        let (mut instances, tree, relationships) = storage.load().await?;
         let before = instances.len();
         instances.retain(|s| s.id != session_id);
         if instances.len() != before {
-            storage.save(&instances, &tree).await?;
+            storage.save(&instances, &tree, &relationships).await?;
         }
 
         Ok(())
@@ -2024,7 +2097,7 @@ impl App {
         self.groups.set_expanded(&path, next);
 
         let storage = self.storage.lock().await;
-        storage.save(&self.sessions, &self.groups).await?;
+        storage.save(&self.sessions, &self.groups, &self.relationships).await?;
         drop(storage);
 
         self.rebuild_tree();
@@ -2109,7 +2182,7 @@ impl App {
             }
 
             let storage = self.storage.lock().await;
-            storage.save(&self.sessions, &self.groups).await?;
+            storage.save(&self.sessions, &self.groups, &self.relationships).await?;
             drop(storage);
         }
 
@@ -2333,11 +2406,12 @@ impl App {
     /// Refresh sessions data
     async fn refresh_sessions(&mut self) -> Result<()> {
         let storage = self.storage.lock().await;
-        let (sessions, groups) = storage.load().await?;
+        let (sessions, groups, relationships) = storage.load().await?;
         drop(storage);
 
         self.sessions = sessions;
         self.groups = groups;
+        self.relationships = relationships;
 
         self.ensure_groups_exist();
         self.rebuild_sessions_index();
@@ -2559,6 +2633,20 @@ impl App {
         }
     }
 
+    pub fn share_dialog(&self) -> Option<&ShareDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::Share(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn create_relationship_dialog(&self) -> Option<&CreateRelationshipDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::CreateRelationship(d)) => Some(d),
+            _ => None,
+        }
+    }
+
     pub fn width(&self) -> u16 {
         self.width
     }
@@ -2587,5 +2675,13 @@ impl App {
 
     pub fn system_ptmx_max(&self) -> u32 {
         self.cached_ptmx_max
+    }
+
+    pub fn auth_token(&self) -> Option<&crate::auth::AuthToken> {
+        self.auth_token.as_ref()
+    }
+
+    pub fn relationships(&self) -> &[Relationship] {
+        &self.relationships
     }
 }

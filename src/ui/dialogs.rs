@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use crate::error::Result;
 
+use crate::session::RelationType;
+
 use super::input::TextInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,6 +250,107 @@ pub enum Dialog {
     RenameGroup(RenameGroupDialog),
     RenameSession(RenameSessionDialog),
     TagPicker(TagPickerDialog),
+    Share(ShareDialog),
+    CreateRelationship(CreateRelationshipDialog),
+    Annotate(AnnotateDialog),
+    NewFromContext(NewFromContextDialog),
+}
+
+/// Dialog for sharing a session remotely (Premium)
+#[derive(Debug, Clone)]
+pub struct ShareDialog {
+    pub session_id: String,
+    pub session_title: String,
+    pub permission: crate::sharing::SharePermission,
+    pub expire_minutes: TextInput,
+    pub ssh_url: Option<String>,
+    pub web_url: Option<String>,
+    pub already_sharing: bool,
+}
+
+/// Dialog for creating a relationship between two sessions (Premium)
+#[derive(Debug, Clone)]
+pub struct CreateRelationshipDialog {
+    pub relation_type: RelationType,
+    pub session_a_id: String,
+    pub session_a_title: String,
+    pub search_input: TextInput,
+    pub all_sessions: Vec<(String, String)>, // (id, title)
+    pub matches: Vec<(String, String)>,
+    pub selected: usize,
+    pub label: TextInput,
+}
+
+impl CreateRelationshipDialog {
+    fn fuzzy_match(query: &str, text: &str) -> bool {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return true;
+        }
+        let t = text.to_lowercase();
+        let mut pos = 0usize;
+        for ch in q.chars() {
+            if let Some(found) = t[pos..].find(ch) {
+                pos += found + ch.len_utf8();
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn update_matches(&mut self) {
+        let q = self.search_input.text().trim();
+        self.matches = self
+            .all_sessions
+            .iter()
+            .filter(|(id, title)| {
+                *id != self.session_a_id && Self::fuzzy_match(q, title)
+            })
+            .cloned()
+            .collect();
+        if self.selected >= self.matches.len() {
+            self.selected = 0;
+        }
+    }
+
+    pub fn selected_session(&self) -> Option<&(String, String)> {
+        self.matches.get(self.selected)
+    }
+
+    pub fn cycle_relation_type(&mut self) {
+        self.relation_type = match self.relation_type {
+            RelationType::Peer => RelationType::Dependency,
+            RelationType::Dependency => RelationType::Collaboration,
+            RelationType::Collaboration => RelationType::ParentChild,
+            RelationType::ParentChild => RelationType::Custom,
+            RelationType::Custom => RelationType::Peer,
+        };
+    }
+}
+
+/// Dialog for adding an annotation to a relationship (Premium)
+#[derive(Debug, Clone)]
+pub struct AnnotateDialog {
+    pub relationship_id: String,
+    pub note: TextInput,
+}
+
+/// Injection method for new-from-context
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextInjectionMethod {
+    InitialPrompt,
+    ClaudeMd,
+    EnvironmentVariable,
+}
+
+/// Dialog for creating a new session from relationship context (Premium)
+#[derive(Debug, Clone)]
+pub struct NewFromContextDialog {
+    pub relationship_id: String,
+    pub context_preview: String,
+    pub title: TextInput,
+    pub injection_method: ContextInjectionMethod,
 }
 
 impl NewSessionDialog {

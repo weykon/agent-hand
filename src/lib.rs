@@ -5,6 +5,7 @@ pub mod cli;
 pub mod config;
 pub mod error;
 pub mod session;
+pub mod sharing;
 pub mod tmux;
 pub mod ui;
 pub mod update;

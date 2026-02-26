@@ -40,7 +40,7 @@ enum SwitcherItem {
 
 pub async fn run_switcher(profile: &str) -> Result<()> {
     let storage = Storage::new(profile).await?;
-    let (instances, groups) = storage.load().await?;
+    let (instances, groups, _) = storage.load().await?;
 
     let manager = Arc::new(TmuxManager::new());
     let mut analytics = crate::analytics::ActivityTracker::new(profile).await;

@@ -26,6 +26,16 @@ pub enum EventType {
     Exit,
     /// User used the switcher popup
     Switch,
+    /// User started sharing a session (Premium)
+    ShareStart,
+    /// User stopped sharing a session (Premium)
+    ShareStop,
+    /// User created a relationship between sessions (Premium)
+    RelationshipCreate,
+    /// User deleted a relationship (Premium)
+    RelationshipDelete,
+    /// User captured context from a relationship (Premium)
+    ContextCapture,
 }
 
 /// A single activity event
@@ -232,6 +242,12 @@ impl ActivitySummary {
                     }
                 }
                 EventType::Switch => summary.total_switches += 1,
+                // Premium events don't affect basic summary counters
+                EventType::ShareStart
+                | EventType::ShareStop
+                | EventType::RelationshipCreate
+                | EventType::RelationshipDelete
+                | EventType::ContextCapture => {}
             }
         }
 
