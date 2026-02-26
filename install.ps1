@@ -52,9 +52,18 @@ try {
 
   Warn "Note: agent-hand requires tmux. Recommended: run agent-hand inside WSL (and install tmux there). If you're using WSL, prefer install.sh inside WSL instead of this PowerShell installer."
   Info "Installed $BIN_NAME.exe to $dest"
+
+  # Add to user PATH if not already present
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  if ($userPath -notlike "*$Prefix*") {
+    [Environment]::SetEnvironmentVariable("Path", "$Prefix;$userPath", "User")
+    Info "Added '$Prefix' to your user PATH."
+    Warn "Open a new terminal for the PATH change to take effect."
+  }
+
   Write-Host ""
   Write-Host "Next steps:"
-  Write-Host "  1. Ensure '$Prefix' is in your PATH"
+  Write-Host "  1. Open a new terminal (PATH was updated)"
   Write-Host "  2. Run: $BIN_NAME"
 } finally {
   Remove-Item -Recurse -Force $tmpdir -ErrorAction SilentlyContinue

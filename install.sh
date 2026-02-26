@@ -200,6 +200,55 @@ else
 fi
 
 info "Installed ${out_bin} to ${PREFIX}/${out_bin}"
+
+# Ensure ~/.local/bin is in PATH if that's where we installed
+if [[ "$PREFIX" == "${HOME}/.local/bin" ]]; then
+  if ! echo "$PATH" | tr ':' '\n' | grep -qx "${HOME}/.local/bin"; then
+    # Detect shell config file
+    shell_rc=""
+    case "$(basename "${SHELL:-/bin/bash}")" in
+      zsh)  shell_rc="$HOME/.zshrc" ;;
+      bash)
+        if [[ -f "$HOME/.bash_profile" ]]; then
+          shell_rc="$HOME/.bash_profile"
+        else
+          shell_rc="$HOME/.bashrc"
+        fi
+        ;;
+      fish) shell_rc="$HOME/.config/fish/config.fish" ;;
+      *)    shell_rc="$HOME/.profile" ;;
+    esac
+
+    path_line='export PATH="$HOME/.local/bin:$PATH"'
+    fish_line='set -gx PATH $HOME/.local/bin $PATH'
+
+    if [[ -n "$shell_rc" ]]; then
+      if [[ "$(basename "$SHELL")" == "fish" ]]; then
+        if ! grep -qF '.local/bin' "$shell_rc" 2>/dev/null; then
+          echo "" >> "$shell_rc"
+          echo "# Added by agent-hand installer" >> "$shell_rc"
+          echo "$fish_line" >> "$shell_rc"
+          info "Added ~/.local/bin to PATH in $shell_rc"
+        fi
+      else
+        if ! grep -qF '.local/bin' "$shell_rc" 2>/dev/null; then
+          echo "" >> "$shell_rc"
+          echo "# Added by agent-hand installer" >> "$shell_rc"
+          echo "$path_line" >> "$shell_rc"
+          info "Added ~/.local/bin to PATH in $shell_rc"
+        fi
+      fi
+    fi
+
+    warn "~/.local/bin is not in your current PATH."
+    echo ""
+    echo "To use agent-hand right now, either:"
+    echo "  1. Open a new terminal, or"
+    echo "  2. Run:  source ${shell_rc}"
+    echo ""
+  fi
+fi
+
 echo ""
 echo "Next steps:"
 echo "  1. Run: ${BIN_NAME}"
