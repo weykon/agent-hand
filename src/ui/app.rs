@@ -44,6 +44,7 @@ pub struct App {
     groups: GroupTree,
     relationships: Vec<Relationship>,
     selected_relationship_index: usize,
+    relationship_snapshot_counts: HashMap<String, usize>,
     tree: Vec<TreeItem>,
     selected_index: usize,
 
@@ -166,6 +167,7 @@ impl App {
             groups,
             relationships,
             selected_relationship_index: 0,
+            relationship_snapshot_counts: HashMap::new(),
             tree: Vec::new(),
             selected_index: 0,
             help_visible: false,
@@ -334,7 +336,7 @@ impl App {
                 }
             }
             if !expired_ids.is_empty() {
-                let mut mgr = crate::sharing::tmate::TmateManager::new();
+                let mut mgr = crate::sharing::tmate::TmateManager::from_config().await;
                 for id in &expired_ids {
                     let _ = mgr.stop_sharing(id).await;
                     if let Some(inst) = self.sessions.iter_mut().find(|s| &s.id == id) {
@@ -806,6 +808,7 @@ impl App {
         // Note: Ctrl+R is already used for refresh. Use Ctrl+E instead.
         if key == KeyCode::Char('e') && modifiers == KeyModifiers::CONTROL {
             if crate::auth::AuthToken::require_feature("relationships").is_ok() {
+                self.refresh_snapshot_counts_async().await;
                 self.state = AppState::Relationships;
             }
             return Ok(());
@@ -817,11 +820,25 @@ impl App {
                 if crate::auth::AuthToken::require_feature("sharing").is_ok() {
                     let already_sharing = inst.sharing.is_some()
                         && inst.sharing.as_ref().is_some_and(|s| s.active);
+                    let sharing_cfg = crate::config::ConfigFile::load()
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|c| c.sharing().clone())
+                        .unwrap_or_default();
+                    let default_perm = match sharing_cfg.default_permission.as_str() {
+                        "rw" => crate::sharing::SharePermission::ReadWrite,
+                        _ => crate::sharing::SharePermission::ReadOnly,
+                    };
+                    let mut expire_input = TextInput::new();
+                    if let Some(mins) = sharing_cfg.auto_expire_minutes {
+                        expire_input.set_text(&mins.to_string());
+                    }
                     let dialog = ShareDialog {
                         session_id: inst.id.clone(),
                         session_title: inst.title.clone(),
-                        permission: crate::sharing::SharePermission::ReadOnly,
-                        expire_minutes: TextInput::new(),
+                        permission: default_perm,
+                        expire_minutes: expire_input,
                         ssh_url: None,
                         web_url: None,
                         already_sharing,
@@ -891,6 +908,12 @@ impl App {
                     storage
                         .save(&self.sessions, &self.groups, &self.relationships)
                         .await?;
+                    drop(storage);
+                    let _ = self.analytics.record_premium_event(
+                        crate::analytics::EventType::RelationshipDelete,
+                        &rel_id,
+                        "",
+                    ).await;
                 }
             }
             // c: capture context for selected relationship
@@ -976,6 +999,21 @@ impl App {
         }
     }
 
+    async fn refresh_snapshot_counts_async(&mut self) {
+        let profile = {
+            let storage = self.storage.lock().await;
+            storage.profile().to_string()
+        };
+        let collector = crate::session::context::ContextCollector::new(&profile);
+        self.relationship_snapshot_counts.clear();
+        for rel in &self.relationships {
+            let count = collector.count_relationship_snapshots(&rel.id);
+            if count > 0 {
+                self.relationship_snapshot_counts.insert(rel.id.clone(), count);
+            }
+        }
+    }
+
     async fn capture_relationship_context(&mut self, relationship_id: String) -> Result<()> {
         let rel = self
             .relationships
@@ -1017,6 +1055,12 @@ impl App {
                 let _ = collector.save_snapshot(&snap).await;
             }
         }
+
+        let _ = self.analytics.record_premium_event(
+            crate::analytics::EventType::ContextCapture,
+            &relationship_id,
+            "",
+        ).await;
 
         Ok(())
     }
@@ -1857,6 +1901,11 @@ impl App {
                             .save(&self.sessions, &self.groups, &self.relationships)
                             .await?;
                         drop(storage);
+                        let _ = self.analytics.record_premium_event(
+                            crate::analytics::EventType::RelationshipCreate,
+                            &d.session_a_id,
+                            "",
+                        ).await;
                         self.dialog = None;
                         self.state = AppState::Relationships;
                     }
@@ -1900,7 +1949,7 @@ impl App {
                 KeyCode::Enter => {
                     if d.already_sharing {
                         // Stop sharing
-                        let mut mgr = crate::sharing::tmate::TmateManager::new();
+                        let mut mgr = crate::sharing::tmate::TmateManager::from_config().await;
                         let _ = mgr.stop_sharing(&d.session_id).await;
                         d.already_sharing = false;
                         d.ssh_url = None;
@@ -1914,10 +1963,15 @@ impl App {
                         storage
                             .save(&self.sessions, &self.groups, &self.relationships)
                             .await?;
+                        drop(storage);
+                        let _ = self.analytics.record_premium_event(
+                            crate::analytics::EventType::ShareStop,
+                            &d.session_id,
+                            &d.session_title,
+                        ).await;
                     } else {
-                        // Start sharing
                         if crate::sharing::tmate::TmateManager::is_available().await {
-                            let mut mgr = crate::sharing::tmate::TmateManager::new();
+                            let mut mgr = crate::sharing::tmate::TmateManager::from_config().await;
                             let tmux_name =
                                 format!("{}_{}", SESSION_PREFIX, d.session_id);
                             let expire: Option<u64> = d
@@ -1967,6 +2021,11 @@ impl App {
                                             &self.relationships,
                                         )
                                         .await?;
+                                    let _ = self.analytics.record_premium_event(
+                                        crate::analytics::EventType::ShareStart,
+                                        &d.session_id,
+                                        &d.session_title,
+                                    ).await;
                                 }
                                 Err(_e) => {}
                             }
@@ -2036,10 +2095,128 @@ impl App {
                     d.injection_method = d.injection_method.cycle();
                 }
                 KeyCode::Enter => {
-                    // Create new session from context - for now just close
-                    // Full implementation requires creating a tmux session with injected context
-                    self.dialog = None;
-                    self.state = AppState::Relationships;
+                    let title = d.title.text().trim().to_string();
+                    if title.is_empty() {
+                        // Don't create if title is empty
+                    } else {
+                        let relationship_id = d.relationship_id.clone();
+                        let context = d.context_preview.clone();
+                        let injection_method = d.injection_method;
+
+                        // Find the relationship to get session IDs
+                        let rel = self
+                            .relationships
+                            .iter()
+                            .find(|r| r.id == relationship_id)
+                            .cloned();
+
+                        if let Some(rel) = rel {
+                            // Get project path from session_a
+                            let project_path = self
+                                .session_by_id(&rel.session_a_id)
+                                .map(|s| s.project_path.clone());
+
+                            if let Some(project_path) = project_path {
+                                let group_path = self
+                                    .session_by_id(&rel.session_a_id)
+                                    .map(|s| s.group_path.clone())
+                                    .unwrap_or_default();
+
+                                // Create the new Instance
+                                let mut inst = Instance::new(title, project_path.clone());
+                                inst.group_path = group_path;
+                                inst.tool = crate::tmux::Tool::Shell;
+                                let new_id = inst.id.clone();
+                                let tmux_name = inst.tmux_name();
+
+                                // Save the instance to storage
+                                {
+                                    let storage = self.storage.lock().await;
+                                    let (mut instances, tree, relationships) =
+                                        storage.load().await?;
+                                    instances.push(inst);
+                                    storage.save(&instances, &tree, &relationships).await?;
+                                }
+
+                                // Create the tmux session
+                                let working_dir =
+                                    project_path.to_str().unwrap_or("/tmp").to_string();
+                                self.tmux
+                                    .create_session(&tmux_name, &working_dir, None)
+                                    .await?;
+
+                                // Inject context based on method
+                                match injection_method {
+                                    crate::ui::ContextInjectionMethod::InitialPrompt => {
+                                        // Send context as the first message via send-keys
+                                        let escaped = context.replace('\'', "'\\''");
+                                        let cmd = format!("echo '{}'", escaped);
+                                        let _ =
+                                            self.tmux.send_keys(&tmux_name, &cmd).await;
+                                    }
+                                    crate::ui::ContextInjectionMethod::ClaudeMd => {
+                                        // Write context to {project_path}/CLAUDE.md
+                                        let claude_md = project_path.join("CLAUDE.md");
+                                        let _ =
+                                            tokio::fs::write(&claude_md, &context).await;
+                                    }
+                                    crate::ui::ContextInjectionMethod::EnvironmentVariable => {
+                                        // Export AGENT_HAND_CONTEXT in the tmux session
+                                        let escaped = context.replace('\'', "'\\''");
+                                        let cmd = format!(
+                                            "export AGENT_HAND_CONTEXT='{}'",
+                                            escaped
+                                        );
+                                        let _ =
+                                            self.tmux.send_keys(&tmux_name, &cmd).await;
+                                    }
+                                }
+
+                                // Add relationships linking new session to both source sessions
+                                let rel_a = crate::session::Relationship::new(
+                                    crate::session::RelationType::Peer,
+                                    rel.session_a_id.clone(),
+                                    new_id.clone(),
+                                );
+                                crate::session::relationships::add_relationship(
+                                    &mut self.relationships,
+                                    rel_a,
+                                );
+
+                                let rel_b = crate::session::Relationship::new(
+                                    crate::session::RelationType::Peer,
+                                    rel.session_b_id.clone(),
+                                    new_id.clone(),
+                                );
+                                crate::session::relationships::add_relationship(
+                                    &mut self.relationships,
+                                    rel_b,
+                                );
+
+                                // Save relationships
+                                {
+                                    let storage = self.storage.lock().await;
+                                    storage
+                                        .save(
+                                            &self.sessions,
+                                            &self.groups,
+                                            &self.relationships,
+                                        )
+                                        .await?;
+                                }
+
+                                self.dialog = None;
+                                self.state = AppState::Relationships;
+                                self.refresh_sessions().await?;
+                            } else {
+                                self.dialog = None;
+                                self.state = AppState::Relationships;
+                            }
+                        } else {
+                            self.dialog = None;
+                            self.state = AppState::Relationships;
+                        }
+                    }
                 }
                 KeyCode::Backspace => {
                     d.title.backspace();
@@ -3183,5 +3360,9 @@ impl App {
 
     pub fn selected_relationship_index(&self) -> usize {
         self.selected_relationship_index
+    }
+
+    pub fn snapshot_count(&self, relationship_id: &str) -> usize {
+        self.relationship_snapshot_counts.get(relationship_id).copied().unwrap_or(0)
     }
 }

@@ -12,6 +12,10 @@ use super::{ShareLink, SharePermission, SharingState};
 pub struct TmateManager {
     /// Active tmate processes keyed by session ID
     processes: HashMap<String, TmateProcess>,
+    /// tmate relay server host (default: tmate.io)
+    server_host: String,
+    /// tmate relay server SSH port (default: 22)
+    server_port: u16,
 }
 
 struct TmateProcess {
@@ -24,7 +28,30 @@ impl TmateManager {
     pub fn new() -> Self {
         Self {
             processes: HashMap::new(),
+            server_host: "tmate.io".to_string(),
+            server_port: 22,
         }
+    }
+
+    /// Create a TmateManager with custom server configuration.
+    pub fn with_config(server_host: String, server_port: u16) -> Self {
+        Self {
+            processes: HashMap::new(),
+            server_host,
+            server_port,
+        }
+    }
+
+    /// Create a TmateManager using values from the user's config file.
+    /// Falls back to defaults if the config cannot be loaded.
+    pub async fn from_config() -> Self {
+        let cfg = crate::config::ConfigFile::load()
+            .await
+            .ok()
+            .flatten()
+            .map(|c| c.sharing().clone())
+            .unwrap_or_default();
+        Self::with_config(cfg.tmate_server_host, cfg.tmate_server_port)
     }
 
     /// Check if tmate binary is available on the system
@@ -63,8 +90,14 @@ impl TmateManager {
             "tmux -L agentdeck_rs attach -t {} -r",
             tmux_session_name
         );
-        let child = TokioCommand::new("tmate")
-            .args(["-S", &socket, "new-session", "-d", &cmd])
+        let mut tmate_cmd = TokioCommand::new("tmate");
+        tmate_cmd.args(["-S", &socket, "new-session", "-d", &cmd]);
+
+        // Pass custom server config via environment variables
+        tmate_cmd.env("TMATE_SERVER_HOST", &self.server_host);
+        tmate_cmd.env("TMATE_SERVER_PORT", self.server_port.to_string());
+
+        let child = tmate_cmd
             .spawn()
             .map_err(|e| crate::Error::Other(format!("Failed to start tmate: {}", e)))?;
 

@@ -158,6 +158,28 @@ impl ActivityTracker {
         self.append_event(event).await
     }
 
+    /// Record a premium feature event (sharing, relationships, context)
+    pub async fn record_premium_event(
+        &self,
+        event_type: EventType,
+        session_id: &str,
+        session_name: &str,
+    ) -> Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        let event = ActivityEvent {
+            timestamp: Utc::now(),
+            event_type,
+            session_id: session_id.to_string(),
+            session_name: session_name.to_string(),
+            duration_secs: None,
+        };
+
+        self.append_event(event).await
+    }
+
     /// Append an event to today's log file (JSONL format - one event per line)
     async fn append_event(&self, event: ActivityEvent) -> Result<()> {
         let path = self.log_path()?;

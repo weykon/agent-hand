@@ -1321,6 +1321,21 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
     ));
     spans.push(Span::raw("  |  "));
 
+    if app.state() == crate::ui::AppState::Relationships {
+        spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw(":new  "));
+        spans.push(Span::styled("d", Style::default().fg(Color::Red)));
+        spans.push(Span::raw(":del  "));
+        spans.push(Span::styled("c", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw(":capture  "));
+        spans.push(Span::styled("a", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw(":annotate  "));
+        spans.push(Span::styled("^N", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw(":from-ctx  "));
+        spans.push(Span::styled("Esc", Style::default().fg(Color::Yellow)));
+        spans.push(Span::raw(":back"));
+    } else {
+
     match app.selected_item() {
         Some(TreeItem::Group { .. }) => {
             spans.push(Span::styled("Enter", Style::default().fg(Color::Cyan)));
@@ -1357,6 +1372,8 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
             spans.push(Span::raw(":group+  "));
         }
     }
+
+    } // end else (not Relationships)
 
     spans.push(Span::styled("/", Style::default().fg(Color::Cyan)));
     spans.push(Span::raw(":search  "));
@@ -1543,6 +1560,13 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
             String::new()
         };
 
+        let snap_count = app.snapshot_count(&rel.id);
+        let snap_info = if snap_count > 0 {
+            format!("\nSnapshots: {}\n", snap_count)
+        } else {
+            "\nNo snapshots captured yet.\n".to_string()
+        };
+
         format!(
             "=== {} ===\n\
              Type: {}\n\
@@ -1551,7 +1575,7 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
              Status: {}\n\n\
              Session B: \"{}\"\n\
              Status: {}\n\
-             {}\n\
+             {}{}\n\
              [c] Capture  [a] Annotate  [Ctrl+N] New from ctx\n\
              [d] Delete   [Esc] Back",
             rel.direction_indicator(),
@@ -1562,6 +1586,7 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
             b_title,
             b_status,
             dep_info,
+            snap_info,
         )
     } else {
         "No relationship selected.".to_string()

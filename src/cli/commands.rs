@@ -1073,7 +1073,7 @@ async fn handle_share(
 
     println!("Sharing \"{}\" ({})...", title, perm_display);
 
-    let mut tmate = TmateManager::new();
+    let mut tmate = TmateManager::from_config().await;
     let state = tmate
         .start_sharing(&inst.id.clone(), &tmux_name, perm, expire)
         .await?;
@@ -1120,7 +1120,7 @@ async fn handle_unshare(profile: &str, id: &str) -> Result<()> {
     let session_id = inst.id.clone();
 
     // Stop the tmate process
-    let mut tmate = TmateManager::new();
+    let mut tmate = TmateManager::from_config().await;
     tmate.stop_sharing(&session_id).await?;
 
     // Also kill any lingering tmate socket for this session

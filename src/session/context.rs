@@ -210,4 +210,18 @@ impl ContextCollector {
         }
         Ok(())
     }
+
+    /// Count snapshots for a relationship without loading content
+    pub fn count_relationship_snapshots(&self, relationship_id: &str) -> usize {
+        let Ok(dir) = self.context_dir() else {
+            return 0;
+        };
+        let path = dir.join(format!("{}.jsonl", relationship_id));
+        if !path.exists() {
+            return 0;
+        }
+        std::fs::read_to_string(&path)
+            .map(|content| content.lines().filter(|l| !l.trim().is_empty()).count())
+            .unwrap_or(0)
+    }
 }
