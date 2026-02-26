@@ -255,12 +255,35 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
 
                         // Sharing badge (Premium)
                         if let Some(ref sharing) = session.sharing {
-                            if sharing.active {
-                                spans.push(Span::raw("  "));
-                                let perm = &sharing.default_permission;
+                            spans.push(Span::raw("  "));
+                            if sharing.active && sharing.should_auto_expire() {
                                 spans.push(Span::styled(
-                                    format!("[share: {}]", perm),
-                                    Style::default().fg(Color::Magenta),
+                                    format!("[share: {} expiring]", sharing.default_permission),
+                                    Style::default().fg(Color::Yellow),
+                                ));
+                            } else if sharing.active {
+                                spans.push(Span::styled(
+                                    format!("[share: {}]", sharing.default_permission),
+                                    Style::default().fg(Color::Green),
+                                ));
+                            } else {
+                                spans.push(Span::styled(
+                                    "[share: stopped]",
+                                    Style::default().fg(Color::DarkGray),
+                                ));
+                            }
+                        }
+
+                        // Relationship indicator
+                        {
+                            let rel_count = app.relationships().iter().filter(|r| {
+                                r.session_a_id == session.id || r.session_b_id == session.id
+                            }).count();
+                            if rel_count > 0 {
+                                spans.push(Span::raw("  "));
+                                spans.push(Span::styled(
+                                    format!("[{}rel]", rel_count),
+                                    Style::default().fg(Color::Blue),
                                 ));
                             }
                         }
@@ -1181,6 +1204,14 @@ fn render_help(f: &mut Frame, area: Rect) {
             Span::raw("   Refresh"),
         ]),
         Line::from(vec![
+            Span::styled("  Ctrl+e", Style::default().fg(Color::Cyan)),
+            Span::raw("   Relationships view"),
+        ]),
+        Line::from(vec![
+            Span::styled("  S", Style::default().fg(Color::Cyan)),
+            Span::raw("        Share session (Premium)"),
+        ]),
+        Line::from(vec![
             Span::styled("  ?", Style::default().fg(Color::Magenta)),
             Span::raw("        Toggle help"),
         ]),
@@ -1329,6 +1360,8 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
 
     spans.push(Span::styled("/", Style::default().fg(Color::Cyan)));
     spans.push(Span::raw(":search  "));
+    spans.push(Span::styled("^E", Style::default().fg(Color::Cyan)));
+    spans.push(Span::raw(":rels  "));
     spans.push(Span::styled("p", Style::default().fg(Color::Cyan)));
     spans.push(Span::raw(":preview  "));
     spans.push(Span::styled("?", Style::default().fg(Color::Magenta)));
@@ -1429,6 +1462,19 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
                         Style::default().fg(Color::DarkGray),
                     ),
                     Span::styled(label, Style::default().fg(Color::Yellow)),
+                    // Dependency satisfaction indicator
+                    if rel.relation_type == crate::session::RelationType::Dependency {
+                        let source_idle = app
+                            .session_by_id(&rel.session_a_id)
+                            .is_some_and(|s| matches!(s.status, crate::session::Status::Idle));
+                        if source_idle {
+                            Span::styled(" ✓ ready", Style::default().fg(Color::Green))
+                        } else {
+                            Span::styled(" ⏳", Style::default().fg(Color::Yellow))
+                        }
+                    } else {
+                        Span::raw("")
+                    },
                 ]);
                 ListItem::new(line).style(if is_selected {
                     Style::default().bg(Color::DarkGray)
@@ -1483,6 +1529,20 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
             .map(|l| format!("Label: \"{}\"\n", l))
             .unwrap_or_default();
 
+        // Dependency satisfaction info
+        let dep_info = if rel.relation_type == crate::session::RelationType::Dependency {
+            let source_idle = app
+                .session_by_id(&rel.session_a_id)
+                .is_some_and(|s| matches!(s.status, crate::session::Status::Idle));
+            if source_idle {
+                "\n✓ Dependency satisfied — source session is idle.\n  Output may be ready for consumption.\n".to_string()
+            } else {
+                "\n⏳ Dependency pending — source session still active.\n".to_string()
+            }
+        } else {
+            String::new()
+        };
+
         format!(
             "=== {} ===\n\
              Type: {}\n\
@@ -1490,8 +1550,9 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
              Session A: \"{}\"\n\
              Status: {}\n\n\
              Session B: \"{}\"\n\
-             Status: {}\n\n\
-             [c] Capture  [a] Annotate\n\
+             Status: {}\n\
+             {}\n\
+             [c] Capture  [a] Annotate  [Ctrl+N] New from ctx\n\
              [d] Delete   [Esc] Back",
             rel.direction_indicator(),
             rel.relation_type,
@@ -1500,6 +1561,7 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
             a_status,
             b_title,
             b_status,
+            dep_info,
         )
     } else {
         "No relationship selected.".to_string()

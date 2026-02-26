@@ -1032,6 +1032,8 @@ async fn handle_share(
     permission: &str,
     expire: Option<u64>,
 ) -> Result<()> {
+    use crate::sharing::{SharePermission, tmate::TmateManager};
+
     // Gate behind premium feature
     let feature = match permission {
         "rw" => "sharing_rw",
@@ -1040,7 +1042,7 @@ async fn handle_share(
     crate::auth::AuthToken::require_feature(feature)?;
 
     // Verify tmate is available
-    if !crate::sharing::tmate::TmateManager::is_available().await {
+    if !TmateManager::is_available().await {
         eprintln!("Error: tmate is not installed or not in PATH.");
         eprintln!();
         eprintln!("Install tmate:");
@@ -1052,12 +1054,16 @@ async fn handle_share(
     }
 
     let storage = Storage::new(profile).await?;
-    let (instances, _, _) = storage.load().await?;
+    let (mut instances, tree, relationships) = storage.load().await?;
 
-    let inst = instances
-        .iter()
-        .find(|i| i.id == id || i.id.starts_with(id) || i.title == id)
-        .ok_or_else(|| crate::Error::SessionNotFound(id.to_string()))?;
+    let inst = find_session(&mut instances, id)?;
+    let title = inst.title.clone();
+    let tmux_name = inst.tmux_name();
+
+    let perm = match permission {
+        "rw" => SharePermission::ReadWrite,
+        _ => SharePermission::ReadOnly,
+    };
 
     let perm_display = if permission == "rw" {
         "read-write"
@@ -1065,28 +1071,68 @@ async fn handle_share(
         "read-only"
     };
 
-    println!("[premium] Sharing \"{}\" ({})...", inst.title, perm_display);
+    println!("Sharing \"{}\" ({})...", title, perm_display);
+
+    let mut tmate = TmateManager::new();
+    let state = tmate
+        .start_sharing(&inst.id.clone(), &tmux_name, perm, expire)
+        .await?;
+
+    // Print URLs
+    for link in &state.links {
+        let mode = match link.permission {
+            SharePermission::ReadOnly => "Read-only",
+            SharePermission::ReadWrite => "Read-write",
+        };
+        println!();
+        println!("  {} SSH:  {}", mode, link.ssh_url);
+        if let Some(ref web) = link.web_url {
+            println!("  {} Web:  {}", mode, web);
+        }
+    }
+
     if let Some(mins) = expire {
+        println!();
         println!("  Auto-expires in {} minutes", mins);
     }
+
+    // Persist sharing state on the instance
+    let inst = find_session(&mut instances, id)?;
+    inst.sharing = Some(state);
+    storage.save(&instances, &tree, &relationships).await?;
+
     println!();
-    println!("  (tmate integration will be fully wired in Phase 4)");
+    println!("Session \"{}\" is now shared.", title);
 
     Ok(())
 }
 
 async fn handle_unshare(profile: &str, id: &str) -> Result<()> {
+    use crate::sharing::tmate::TmateManager;
+
     crate::auth::AuthToken::require_feature("sharing")?;
 
     let storage = Storage::new(profile).await?;
-    let (instances, _, _) = storage.load().await?;
+    let (mut instances, tree, relationships) = storage.load().await?;
 
-    let inst = instances
-        .iter()
-        .find(|i| i.id == id || i.id.starts_with(id) || i.title == id)
-        .ok_or_else(|| crate::Error::SessionNotFound(id.to_string()))?;
+    let inst = find_session(&mut instances, id)?;
+    let title = inst.title.clone();
+    let session_id = inst.id.clone();
 
-    println!("Stopped sharing \"{}\".", inst.title);
+    // Stop the tmate process
+    let mut tmate = TmateManager::new();
+    tmate.stop_sharing(&session_id).await?;
+
+    // Also kill any lingering tmate socket for this session
+    let socket = format!("/tmp/tmate-{}.sock", session_id);
+    let _ = tokio::fs::remove_file(&socket).await;
+
+    // Clear sharing state and persist
+    let inst = find_session(&mut instances, id)?;
+    inst.sharing = None;
+    storage.save(&instances, &tree, &relationships).await?;
+
+    println!("Stopped sharing \"{}\".", title);
 
     Ok(())
 }

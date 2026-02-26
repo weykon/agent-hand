@@ -74,6 +74,7 @@ pub struct App {
     last_cache_refresh: Instant,
 
     // Status/probing
+    previous_statuses: HashMap<String, Status>,
     last_tmux_activity: HashMap<String, i64>,
     last_tmux_activity_change: HashMap<String, Instant>,
     last_status_probe: HashMap<String, Instant>,
@@ -181,6 +182,7 @@ impl App {
             pending_preview_id: None,
             last_status_refresh: Instant::now(),
             last_cache_refresh: Instant::now(),
+            previous_statuses: HashMap::new(),
             last_tmux_activity: HashMap::new(),
             last_tmux_activity_change: HashMap::new(),
             last_status_probe: HashMap::new(),
@@ -415,6 +417,9 @@ impl App {
         let now = Instant::now();
         let selected_id = self.selected_session().map(|s| s.id.clone());
 
+        // Collect session IDs that transition from Running to Idle/Waiting for auto-capture
+        let mut running_to_done: Vec<String> = Vec::new();
+
         for session in &mut self.sessions {
             let tmux_session = TmuxManager::session_name(&session.id);
             if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
@@ -496,10 +501,68 @@ impl App {
                 session.last_waiting_at = Some(chrono::Utc::now());
             }
 
+            // Detect Running -> Idle/Waiting transition using previous_statuses
+            let tracked_prev = self.previous_statuses.get(&session.id).copied();
+            if tracked_prev == Some(Status::Running)
+                && (new_status == Status::Idle || new_status == Status::Waiting)
+            {
+                running_to_done.push(session.id.clone());
+            }
+
+            // Update previous_statuses tracking
+            self.previous_statuses.insert(session.id.clone(), new_status);
+
             session.status = new_status;
             self.last_status_probe.insert(session.id.clone(), now);
             if force_probe {
                 self.force_probe_tmux = None;
+            }
+        }
+
+        // Auto-capture context for sessions that transitioned from Running to Idle/Waiting
+        if !running_to_done.is_empty()
+            && crate::auth::AuthToken::require_feature("auto_context").is_ok()
+        {
+            let profile = {
+                let storage = self.storage.lock().await;
+                storage.profile().to_string()
+            };
+            let collector = crate::session::context::ContextCollector::new(&profile);
+
+            for session_id in &running_to_done {
+                let rels = crate::session::relationships::find_relationships_for_session(
+                    &self.relationships,
+                    session_id,
+                );
+                if rels.is_empty() {
+                    continue;
+                }
+
+                // Capture pane output once for this session
+                let tmux_name = TmuxManager::session_name(session_id);
+                let pane_content = self
+                    .tmux
+                    .capture_pane(&tmux_name, 200)
+                    .await
+                    .unwrap_or_default();
+                if pane_content.is_empty() {
+                    continue;
+                }
+
+                // Save a snapshot for each relationship this session is part of
+                for rel in rels {
+                    let snapshot =
+                        crate::session::context::ContextSnapshot::pane_capture(
+                            session_id,
+                            pane_content.clone(),
+                        )
+                        .with_relationship(&rel.id)
+                        .with_tags(vec![
+                            "auto_capture".to_string(),
+                            "status_transition".to_string(),
+                        ]);
+                    let _ = collector.save_snapshot(&snapshot).await;
+                }
             }
         }
 
