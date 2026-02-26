@@ -268,6 +268,12 @@ pub struct ShareDialog {
     pub already_sharing: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateRelationshipField {
+    Search,
+    Label,
+}
+
 /// Dialog for creating a relationship between two sessions (Premium)
 #[derive(Debug, Clone)]
 pub struct CreateRelationshipDialog {
@@ -279,6 +285,7 @@ pub struct CreateRelationshipDialog {
     pub matches: Vec<(String, String)>,
     pub selected: usize,
     pub label: TextInput,
+    pub field: CreateRelationshipField,
 }
 
 impl CreateRelationshipDialog {
@@ -342,6 +349,26 @@ pub enum ContextInjectionMethod {
     InitialPrompt,
     ClaudeMd,
     EnvironmentVariable,
+}
+
+impl ContextInjectionMethod {
+    pub fn cycle(&self) -> Self {
+        match self {
+            Self::InitialPrompt => Self::ClaudeMd,
+            Self::ClaudeMd => Self::EnvironmentVariable,
+            Self::EnvironmentVariable => Self::InitialPrompt,
+        }
+    }
+}
+
+impl std::fmt::Display for ContextInjectionMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InitialPrompt => write!(f, "Initial Prompt"),
+            Self::ClaudeMd => write!(f, "CLAUDE.md"),
+            Self::EnvironmentVariable => write!(f, "Environment Variable"),
+        }
+    }
 }
 
 /// Dialog for creating a new session from relationship context (Premium)

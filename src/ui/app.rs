@@ -22,10 +22,10 @@ use crate::tmux::{
 };
 
 use super::{
-    AppState, CreateGroupDialog, CreateRelationshipDialog, DeleteConfirmDialog, DeleteGroupChoice,
-    DeleteGroupDialog, Dialog, ForkDialog, ForkField, MoveGroupDialog, NewSessionDialog,
-    NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, ShareDialog,
-    TagPickerDialog, TagSpec, TextInput, TreeItem,
+    AppState, CreateGroupDialog, CreateRelationshipDialog, CreateRelationshipField,
+    DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog, ForkDialog, ForkField,
+    MoveGroupDialog, NewSessionDialog, NewSessionField, RenameGroupDialog, RenameSessionDialog,
+    SessionEditField, ShareDialog, TagPickerDialog, TagSpec, TextInput, TreeItem,
 };
 
 /// Main TUI application
@@ -43,6 +43,7 @@ pub struct App {
     sessions_by_id: HashMap<String, usize>,
     groups: GroupTree,
     relationships: Vec<Relationship>,
+    selected_relationship_index: usize,
     tree: Vec<TreeItem>,
     selected_index: usize,
 
@@ -163,6 +164,7 @@ impl App {
             sessions_by_id: HashMap::new(),
             groups,
             relationships,
+            selected_relationship_index: 0,
             tree: Vec::new(),
             selected_index: 0,
             help_visible: false,
@@ -316,6 +318,31 @@ impl App {
                     d.path_dirty = false;
                     d.update_path_suggestions();
                 }
+            }
+        }
+
+        // Auto-expire sharing sessions (check every ~10 ticks = ~2.5s)
+        if self.tick_count % 10 == 0 {
+            let mut expired_ids = Vec::new();
+            for inst in &self.sessions {
+                if let Some(ref sharing) = inst.sharing {
+                    if sharing.active && sharing.should_auto_expire() {
+                        expired_ids.push(inst.id.clone());
+                    }
+                }
+            }
+            if !expired_ids.is_empty() {
+                let mut mgr = crate::sharing::tmate::TmateManager::new();
+                for id in &expired_ids {
+                    let _ = mgr.stop_sharing(id).await;
+                    if let Some(inst) = self.sessions.iter_mut().find(|s| &s.id == id) {
+                        inst.sharing = None;
+                    }
+                }
+                let storage = self.storage.lock().await;
+                storage
+                    .save(&self.sessions, &self.groups, &self.relationships)
+                    .await?;
             }
         }
 
@@ -764,8 +791,170 @@ impl App {
             KeyCode::Char('q') => {
                 self.should_quit = true;
             }
+            // Navigation
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.selected_relationship_index > 0 {
+                    self.selected_relationship_index -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if !self.relationships.is_empty()
+                    && self.selected_relationship_index < self.relationships.len() - 1
+                {
+                    self.selected_relationship_index += 1;
+                }
+            }
+            // n: new relationship
+            KeyCode::Char('n') if modifiers == KeyModifiers::NONE => {
+                if crate::auth::AuthToken::require_feature("relationships").is_ok() {
+                    self.open_create_relationship_dialog();
+                }
+            }
+            // d: delete selected relationship
+            KeyCode::Char('d') if modifiers == KeyModifiers::NONE => {
+                if let Some(rel) = self.relationships.get(self.selected_relationship_index) {
+                    let rel_id = rel.id.clone();
+                    crate::session::relationships::remove_relationship(
+                        &mut self.relationships,
+                        &rel_id,
+                    );
+                    if self.selected_relationship_index >= self.relationships.len()
+                        && self.selected_relationship_index > 0
+                    {
+                        self.selected_relationship_index -= 1;
+                    }
+                    // Save
+                    let storage = self.storage.lock().await;
+                    storage
+                        .save(&self.sessions, &self.groups, &self.relationships)
+                        .await?;
+                }
+            }
+            // c: capture context for selected relationship
+            KeyCode::Char('c') if modifiers == KeyModifiers::NONE => {
+                if let Some(rel) = self.relationships.get(self.selected_relationship_index) {
+                    if crate::auth::AuthToken::require_feature("context_collection").is_ok() {
+                        let rel_id = rel.id.clone();
+                        self.capture_relationship_context(rel_id).await?;
+                    }
+                }
+            }
+            // a: annotate selected relationship
+            KeyCode::Char('a') if modifiers == KeyModifiers::NONE => {
+                if let Some(rel) = self.relationships.get(self.selected_relationship_index) {
+                    if crate::auth::AuthToken::require_feature("context_collection").is_ok() {
+                        let dialog = crate::ui::AnnotateDialog {
+                            relationship_id: rel.id.clone(),
+                            note: TextInput::new(),
+                        };
+                        self.dialog = Some(Dialog::Annotate(dialog));
+                        self.state = AppState::Dialog;
+                    }
+                }
+            }
+            // Ctrl+N: new session from context
+            KeyCode::Char('n') if modifiers == KeyModifiers::CONTROL => {
+                if let Some(rel) = self.relationships.get(self.selected_relationship_index) {
+                    if crate::auth::AuthToken::require_feature("context_injection").is_ok() {
+                        let profile = self.storage.lock().await.profile().to_string();
+                        let collector = crate::session::context::ContextCollector::new(&profile);
+                        let a_title = self.session_by_id(&rel.session_a_id)
+                            .map(|s| s.title.clone())
+                            .unwrap_or_default();
+                        let b_title = self.session_by_id(&rel.session_b_id)
+                            .map(|s| s.title.clone())
+                            .unwrap_or_default();
+                        let context = collector.build_relationship_context(
+                            &rel.id,
+                            rel.label.as_deref(),
+                            &a_title,
+                            &b_title,
+                        ).await.unwrap_or_default();
+                        let dialog = crate::ui::NewFromContextDialog {
+                            relationship_id: rel.id.clone(),
+                            context_preview: context,
+                            title: TextInput::new(),
+                            injection_method: crate::ui::ContextInjectionMethod::InitialPrompt,
+                        };
+                        self.dialog = Some(Dialog::NewFromContext(dialog));
+                        self.state = AppState::Dialog;
+                    }
+                }
+            }
             _ => {}
         }
+        Ok(())
+    }
+
+    fn open_create_relationship_dialog(&mut self) {
+        if let Some(inst) = self.selected_session() {
+            let session_a_id = inst.id.clone();
+            let session_a_title = inst.title.clone();
+            let all_sessions: Vec<(String, String)> = self
+                .sessions
+                .iter()
+                .map(|s| (s.id.clone(), s.title.clone()))
+                .collect();
+
+            let mut dialog = CreateRelationshipDialog {
+                relation_type: crate::session::RelationType::Peer,
+                session_a_id,
+                session_a_title,
+                search_input: TextInput::new(),
+                all_sessions,
+                matches: Vec::new(),
+                selected: 0,
+                label: TextInput::new(),
+                field: CreateRelationshipField::Search,
+            };
+            dialog.update_matches();
+            self.dialog = Some(Dialog::CreateRelationship(dialog));
+            self.state = AppState::Dialog;
+        }
+    }
+
+    async fn capture_relationship_context(&mut self, relationship_id: String) -> Result<()> {
+        let rel = self
+            .relationships
+            .iter()
+            .find(|r| r.id == relationship_id);
+        let rel = match rel {
+            Some(r) => r.clone(),
+            None => return Ok(()),
+        };
+
+        let profile = {
+            let storage = self.storage.lock().await;
+            storage.profile().to_string()
+        };
+        let collector = crate::session::context::ContextCollector::new(&profile);
+
+        // Capture pane output for session A
+        if let Some(tmux) = self.session_by_id(&rel.session_a_id).and_then(|s| s.tmux()) {
+            if let Ok(output) = tmux.capture_pane().await {
+                let snap = crate::session::context::ContextSnapshot::pane_capture(
+                    &rel.session_a_id,
+                    output,
+                )
+                .with_relationship(&relationship_id)
+                .with_tags(vec!["session_a".to_string()]);
+                let _ = collector.save_snapshot(&snap).await;
+            }
+        }
+
+        // Capture pane output for session B
+        if let Some(tmux) = self.session_by_id(&rel.session_b_id).and_then(|s| s.tmux()) {
+            if let Ok(output) = tmux.capture_pane().await {
+                let snap = crate::session::context::ContextSnapshot::pane_capture(
+                    &rel.session_b_id,
+                    output,
+                )
+                .with_relationship(&relationship_id)
+                .with_tags(vec!["session_b".to_string()]);
+                let _ = collector.save_snapshot(&snap).await;
+            }
+        }
+
         Ok(())
     }
 
@@ -1557,16 +1746,246 @@ impl App {
                 _ => {}
             },
 
-            // Premium dialogs: Esc to close for now (full interaction in later phases)
-            Dialog::Share(_)
-            | Dialog::CreateRelationship(_)
-            | Dialog::Annotate(_)
-            | Dialog::NewFromContext(_) => {
-                if key == KeyCode::Esc {
+            Dialog::CreateRelationship(d) => match key {
+                KeyCode::Esc => {
                     self.dialog = None;
                     self.state = AppState::Normal;
                 }
-            }
+                KeyCode::Tab => {
+                    d.cycle_relation_type();
+                }
+                KeyCode::BackTab => {
+                    d.field = match d.field {
+                        CreateRelationshipField::Search => CreateRelationshipField::Label,
+                        CreateRelationshipField::Label => CreateRelationshipField::Search,
+                    };
+                }
+                KeyCode::Up => {
+                    if d.selected > 0 {
+                        d.selected -= 1;
+                    }
+                }
+                KeyCode::Down => {
+                    if !d.matches.is_empty() && d.selected < d.matches.len() - 1 {
+                        d.selected += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    if let Some((b_id, _b_title)) = d.selected_session().cloned() {
+                        let label = if d.label.text().trim().is_empty() {
+                            None
+                        } else {
+                            Some(d.label.text().trim().to_string())
+                        };
+                        let mut rel = crate::session::Relationship::new(
+                            d.relation_type,
+                            d.session_a_id.clone(),
+                            b_id,
+                        );
+                        if let Some(l) = label {
+                            rel = rel.with_label(l);
+                        }
+                        crate::session::relationships::add_relationship(
+                            &mut self.relationships,
+                            rel,
+                        );
+                        let storage = self.storage.lock().await;
+                        storage
+                            .save(&self.sessions, &self.groups, &self.relationships)
+                            .await?;
+                        drop(storage);
+                        self.dialog = None;
+                        self.state = AppState::Relationships;
+                    }
+                }
+                KeyCode::Backspace => match d.field {
+                    CreateRelationshipField::Search => {
+                        d.search_input.backspace();
+                        d.update_matches();
+                    }
+                    CreateRelationshipField::Label => {
+                        d.label.backspace();
+                    }
+                },
+                KeyCode::Char(c) => match d.field {
+                    CreateRelationshipField::Search => {
+                        d.search_input.insert(c);
+                        d.update_matches();
+                    }
+                    CreateRelationshipField::Label => {
+                        d.label.insert(c);
+                    }
+                },
+                _ => {}
+            },
+
+            Dialog::Share(d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Tab => {
+                    d.permission = match d.permission {
+                        crate::sharing::SharePermission::ReadOnly => {
+                            crate::sharing::SharePermission::ReadWrite
+                        }
+                        crate::sharing::SharePermission::ReadWrite => {
+                            crate::sharing::SharePermission::ReadOnly
+                        }
+                    };
+                }
+                KeyCode::Enter => {
+                    if d.already_sharing {
+                        // Stop sharing
+                        let mut mgr = crate::sharing::tmate::TmateManager::new();
+                        let _ = mgr.stop_sharing(&d.session_id).await;
+                        d.already_sharing = false;
+                        d.ssh_url = None;
+                        d.web_url = None;
+                        if let Some(inst) =
+                            self.sessions.iter_mut().find(|s| s.id == d.session_id)
+                        {
+                            inst.sharing = None;
+                        }
+                        let storage = self.storage.lock().await;
+                        storage
+                            .save(&self.sessions, &self.groups, &self.relationships)
+                            .await?;
+                    } else {
+                        // Start sharing
+                        if crate::sharing::tmate::TmateManager::is_available().await {
+                            let mut mgr = crate::sharing::tmate::TmateManager::new();
+                            let tmux_name =
+                                format!("{}_{}", SESSION_PREFIX, d.session_id);
+                            let expire: Option<u64> = d
+                                .expire_minutes
+                                .text()
+                                .parse::<u64>()
+                                .ok()
+                                .filter(|&v| v > 0);
+                            match mgr
+                                .start_sharing(
+                                    &d.session_id,
+                                    &tmux_name,
+                                    d.permission,
+                                    expire,
+                                )
+                                .await
+                            {
+                                Ok(state) => {
+                                    let ssh = state
+                                        .links
+                                        .iter()
+                                        .find(|l| l.permission == d.permission)
+                                        .or_else(|| state.links.first())
+                                        .map(|l| l.ssh_url.clone())
+                                        .unwrap_or_default();
+                                    let web = state
+                                        .links
+                                        .iter()
+                                        .find(|l| l.permission == d.permission)
+                                        .or_else(|| state.links.first())
+                                        .and_then(|l| l.web_url.clone());
+                                    d.ssh_url = Some(ssh);
+                                    d.web_url = web;
+                                    d.already_sharing = true;
+                                    if let Some(inst) = self
+                                        .sessions
+                                        .iter_mut()
+                                        .find(|s| s.id == d.session_id)
+                                    {
+                                        inst.sharing = Some(state);
+                                    }
+                                    let storage = self.storage.lock().await;
+                                    storage
+                                        .save(
+                                            &self.sessions,
+                                            &self.groups,
+                                            &self.relationships,
+                                        )
+                                        .await?;
+                                }
+                                Err(_e) => {}
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char('c') => {
+                    if let Some(ref url) = d.ssh_url {
+                        let _ = std::process::Command::new("pbcopy")
+                            .stdin(std::process::Stdio::piped())
+                            .spawn()
+                            .and_then(|mut child| {
+                                use std::io::Write;
+                                if let Some(ref mut stdin) = child.stdin {
+                                    stdin.write_all(url.as_bytes())?;
+                                }
+                                child.wait()
+                            });
+                    }
+                }
+                KeyCode::Backspace => {
+                    d.expire_minutes.backspace();
+                }
+                KeyCode::Char(ch) if ch.is_ascii_digit() => {
+                    d.expire_minutes.insert(ch);
+                }
+                _ => {}
+            },
+
+            Dialog::Annotate(d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Relationships;
+                }
+                KeyCode::Enter => {
+                    let note_text = d.note.text().trim().to_string();
+                    if !note_text.is_empty() {
+                        let rel_id = d.relationship_id.clone();
+                        // Find the relationship to get session IDs
+                        if let Some(rel) = self.relationships.iter().find(|r| r.id == rel_id) {
+                            let snapshot = crate::session::context::ContextSnapshot::annotation(
+                                &rel.session_a_id,
+                                note_text,
+                            ).with_relationship(&rel_id);
+                            let profile = self.storage.lock().await.profile().to_string();
+                            let collector = crate::session::context::ContextCollector::new(&profile);
+                            let _ = collector.save_snapshot(&snapshot).await;
+                        }
+                    }
+                    self.dialog = None;
+                    self.state = AppState::Relationships;
+                }
+                KeyCode::Backspace => {
+                    d.note.backspace();
+                }
+                KeyCode::Char(c) => {
+                    d.note.insert(c);
+                }
+                _ => {}
+            },
+            Dialog::NewFromContext(d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Relationships;
+                }
+                KeyCode::Tab => {
+                    d.injection_method = d.injection_method.cycle();
+                }
+                KeyCode::Enter => {
+                    // Create new session from context - for now just close
+                    // Full implementation requires creating a tmux session with injected context
+                    self.dialog = None;
+                    self.state = AppState::Relationships;
+                }
+                KeyCode::Backspace => {
+                    d.title.backspace();
+                }
+                KeyCode::Char(c) => {
+                    d.title.insert(c);
+                }
+                _ => {}
+            },
         }
 
         Ok(())
@@ -2647,6 +3066,20 @@ impl App {
         }
     }
 
+    pub fn annotate_dialog(&self) -> Option<&crate::ui::AnnotateDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::Annotate(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn new_from_context_dialog(&self) -> Option<&crate::ui::NewFromContextDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::NewFromContext(d)) => Some(d),
+            _ => None,
+        }
+    }
+
     pub fn width(&self) -> u16 {
         self.width
     }
@@ -2683,5 +3116,9 @@ impl App {
 
     pub fn relationships(&self) -> &[Relationship] {
         &self.relationships
+    }
+
+    pub fn selected_relationship_index(&self) -> usize {
+        self.selected_relationship_index
     }
 }

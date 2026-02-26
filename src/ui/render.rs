@@ -345,31 +345,23 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
         render_rename_group_dialog(f, area, d);
     }
 
-    // Premium dialogs (stub rendering for now)
-    if let Some(_d) = app.share_dialog() {
-        let popup_area = centered_rect(60, 40, area);
-        f.render_widget(Clear, popup_area);
-        let text = Paragraph::new("Share Dialog\n\n(Coming in Phase 4)")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Share Session"),
-            )
-            .alignment(Alignment::Center);
-        f.render_widget(text, popup_area);
+    if let Some(d) = app.share_dialog() {
+        render_share_dialog(f, area, d);
+        return;
     }
 
-    if let Some(_d) = app.create_relationship_dialog() {
-        let popup_area = centered_rect(60, 50, area);
-        f.render_widget(Clear, popup_area);
-        let text = Paragraph::new("Create Relationship Dialog\n\n(Coming in Phase 2)")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("New Relationship"),
-            )
-            .alignment(Alignment::Center);
-        f.render_widget(text, popup_area);
+    if let Some(d) = app.create_relationship_dialog() {
+        render_create_relationship_dialog(f, area, d);
+        return;
+    }
+
+    if let Some(d) = app.annotate_dialog() {
+        render_annotate_dialog(f, area, d);
+        return;
+    }
+
+    if let Some(d) = app.new_from_context_dialog() {
+        render_new_from_context_dialog(f, area, d);
     }
 }
 
@@ -1390,8 +1382,9 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
         .split(area);
 
     let relationships = app.relationships();
+    let selected = app.selected_relationship_index();
 
-    // Left panel: relationship list
+    // Left panel: relationship list with selection
     let items: Vec<ListItem> = if relationships.is_empty() {
         vec![ListItem::new(Line::from(vec![Span::styled(
             "  No relationships yet. Press 'n' to create one.",
@@ -1400,7 +1393,8 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
     } else {
         relationships
             .iter()
-            .map(|rel| {
+            .enumerate()
+            .map(|(i, rel)| {
                 let a_title = app
                     .session_by_id(&rel.session_a_id)
                     .map(|s| s.title.as_str())
@@ -1416,8 +1410,16 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
                     .map(|l| format!(" \"{}\"", l))
                     .unwrap_or_default();
 
+                let is_selected = i == selected;
+                let marker = if is_selected { "▸ " } else { "  " };
+                let style = if is_selected {
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+
                 let line = Line::from(vec![
-                    Span::raw("  "),
+                    Span::styled(marker.to_string(), style),
                     Span::styled(a_title.to_string(), Style::default().fg(Color::Cyan)),
                     Span::raw(format!(" {} ", indicator)),
                     Span::styled(b_title.to_string(), Style::default().fg(Color::Cyan)),
@@ -1428,19 +1430,28 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
                     ),
                     Span::styled(label, Style::default().fg(Color::Yellow)),
                 ]);
-                ListItem::new(line)
+                ListItem::new(line).style(if is_selected {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                })
             })
             .collect()
     };
+
+    let mut list_state = ListState::default();
+    if !relationships.is_empty() {
+        list_state.select(Some(selected));
+    }
 
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
             .title(format!("Relationships ({})", relationships.len())),
     );
-    f.render_widget(list, chunks[0]);
+    f.render_stateful_widget(list, chunks[0], &mut list_state);
 
-    // Right panel: context preview placeholder
+    // Right panel: context preview
     let preview_text = if relationships.is_empty() {
         "Select a relationship to see context.\n\n\
          Ctrl+E: back to sessions\n\
@@ -1449,10 +1460,49 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
          c: capture context\n\
          a: annotate"
             .to_string()
+    } else if let Some(rel) = relationships.get(selected) {
+        let a_title = app
+            .session_by_id(&rel.session_a_id)
+            .map(|s| s.title.as_str())
+            .unwrap_or("?");
+        let b_title = app
+            .session_by_id(&rel.session_b_id)
+            .map(|s| s.title.as_str())
+            .unwrap_or("?");
+        let a_status = app
+            .session_by_id(&rel.session_a_id)
+            .map(|s| format!("{:?}", s.status))
+            .unwrap_or_else(|| "Unknown".to_string());
+        let b_status = app
+            .session_by_id(&rel.session_b_id)
+            .map(|s| format!("{:?}", s.status))
+            .unwrap_or_else(|| "Unknown".to_string());
+        let label_line = rel
+            .label
+            .as_deref()
+            .map(|l| format!("Label: \"{}\"\n", l))
+            .unwrap_or_default();
+
+        format!(
+            "=== {} ===\n\
+             Type: {}\n\
+             {}\n\
+             Session A: \"{}\"\n\
+             Status: {}\n\n\
+             Session B: \"{}\"\n\
+             Status: {}\n\n\
+             [c] Capture  [a] Annotate\n\
+             [d] Delete   [Esc] Back",
+            rel.direction_indicator(),
+            rel.relation_type,
+            label_line,
+            a_title,
+            a_status,
+            b_title,
+            b_status,
+        )
     } else {
-        "Context Preview\n\n\
-         (Select a relationship and press 'c' to capture context)"
-            .to_string()
+        "No relationship selected.".to_string()
     };
 
     let preview = Paragraph::new(preview_text)
@@ -1463,4 +1513,306 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
         )
         .wrap(Wrap { trim: false });
     f.render_widget(preview, chunks[1]);
+}
+
+fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
+    let popup_area = centered_rect(65, 50, area);
+    f.render_widget(Clear, popup_area);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .title(format!("Share: {}", d.session_title));
+
+    let inner_area = outer.inner(popup_area);
+    f.render_widget(outer, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // Permission
+            Constraint::Length(2), // Status
+            Constraint::Length(2), // SSH URL
+            Constraint::Length(2), // Web URL
+            Constraint::Length(2), // Expire
+            Constraint::Min(1),   // Actions
+        ])
+        .split(inner_area);
+
+    // Permission line
+    let perm_text = format!("Permission: {} (Tab to toggle)", d.permission);
+    f.render_widget(
+        Paragraph::new(perm_text).style(Style::default().fg(Color::White)),
+        chunks[0],
+    );
+
+    // Status
+    let status = if d.already_sharing {
+        Span::styled(
+            "● Sharing active",
+            Style::default().fg(Color::Green),
+        )
+    } else {
+        Span::styled(
+            "○ Not sharing",
+            Style::default().fg(Color::DarkGray),
+        )
+    };
+    f.render_widget(Paragraph::new(Line::from(status)), chunks[1]);
+
+    // SSH URL
+    let ssh_line = if let Some(ref url) = d.ssh_url {
+        format!("SSH: {} (press 'c' to copy)", url)
+    } else {
+        "SSH: -".to_string()
+    };
+    f.render_widget(
+        Paragraph::new(ssh_line).style(Style::default().fg(Color::Cyan)),
+        chunks[2],
+    );
+
+    // Web URL
+    let web_line = if let Some(ref url) = d.web_url {
+        format!("Web: {}", url)
+    } else {
+        "Web: -".to_string()
+    };
+    f.render_widget(
+        Paragraph::new(web_line).style(Style::default().fg(Color::Cyan)),
+        chunks[3],
+    );
+
+    // Expire minutes input
+    let mut expire_spans = vec![Span::raw("Expire (min): ")];
+    expire_spans.extend(render_text_input(&d.expire_minutes, true, Style::default()));
+    f.render_widget(Paragraph::new(Line::from(expire_spans)), chunks[4]);
+
+    // Actions hint
+    let action = if d.already_sharing {
+        "Enter: Stop sharing  |  c: Copy URL  |  Esc: Close"
+    } else {
+        "Enter: Start sharing  |  Esc: Close"
+    };
+    f.render_widget(
+        Paragraph::new(action)
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center),
+        chunks[5],
+    );
+}
+
+fn render_create_relationship_dialog(
+    f: &mut Frame,
+    area: Rect,
+    d: &crate::ui::CreateRelationshipDialog,
+) {
+    let popup_area = centered_rect(65, 55, area);
+    f.render_widget(Clear, popup_area);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .title("New Relationship");
+    let inner_area = outer.inner(popup_area);
+    f.render_widget(outer, popup_area);
+
+    let is_search = d.field == crate::ui::CreateRelationshipField::Search;
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // From session
+            Constraint::Length(2), // Type
+            Constraint::Length(3), // Search
+            Constraint::Min(3),   // Matches
+            Constraint::Length(3), // Label
+            Constraint::Length(2), // Actions
+        ])
+        .split(inner_area);
+
+    // From session
+    f.render_widget(
+        Paragraph::new(format!("From: {}", d.session_a_title))
+            .style(Style::default().fg(Color::Cyan)),
+        chunks[0],
+    );
+
+    // Relation type
+    f.render_widget(
+        Paragraph::new(format!("Type: {} (Tab to cycle)", d.relation_type))
+            .style(Style::default().fg(Color::Yellow)),
+        chunks[1],
+    );
+
+    // Search input
+    let mut search_spans = vec![Span::raw("Search: ")];
+    search_spans.extend(render_text_input(
+        &d.search_input,
+        is_search,
+        Style::default(),
+    ));
+    f.render_widget(
+        Paragraph::new(Line::from(search_spans))
+            .block(Block::default().borders(Borders::ALL).title(if is_search {
+                "Search (active)"
+            } else {
+                "Search"
+            })),
+        chunks[2],
+    );
+
+    // Session matches
+    let items: Vec<ListItem> = if d.matches.is_empty() {
+        vec![ListItem::new(Span::styled(
+            "  No matching sessions",
+            Style::default().fg(Color::DarkGray),
+        ))]
+    } else {
+        d.matches
+            .iter()
+            .enumerate()
+            .map(|(i, (_id, title))| {
+                let marker = if i == d.selected { "▸ " } else { "  " };
+                let style = if i == d.selected {
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                        .bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Span::styled(format!("{}{}", marker, title), style))
+            })
+            .collect()
+    };
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Select Target Session"),
+    );
+    f.render_widget(list, chunks[3]);
+
+    // Label input
+    let mut label_spans = vec![Span::raw("Label: ")];
+    label_spans.extend(render_text_input(
+        &d.label,
+        !is_search,
+        Style::default(),
+    ));
+    f.render_widget(
+        Paragraph::new(Line::from(label_spans)).block(
+            Block::default().borders(Borders::ALL).title(if !is_search {
+                "Label (active)"
+            } else {
+                "Label (optional)"
+            }),
+        ),
+        chunks[4],
+    );
+
+    // Actions
+    f.render_widget(
+        Paragraph::new("Enter: Create  |  Tab: Cycle type  |  Shift+Tab: Switch field  |  Esc: Cancel")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center),
+        chunks[5],
+    );
+}
+
+fn render_annotate_dialog(f: &mut Frame, area: Rect, d: &crate::ui::AnnotateDialog) {
+    let popup_area = centered_rect(60, 30, area);
+    f.render_widget(Clear, popup_area);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .title("Annotate Relationship");
+    let inner_area = outer.inner(popup_area);
+    f.render_widget(outer, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(3),
+            Constraint::Min(1),
+        ])
+        .split(inner_area);
+
+    f.render_widget(
+        Paragraph::new("Add a note to this relationship:")
+            .style(Style::default().fg(Color::White)),
+        chunks[0],
+    );
+
+    let note_spans = render_text_input(&d.note, true, Style::default());
+    f.render_widget(
+        Paragraph::new(Line::from(note_spans))
+            .block(Block::default().borders(Borders::ALL).title("Note")),
+        chunks[1],
+    );
+
+    f.render_widget(
+        Paragraph::new("Enter: Save  |  Esc: Cancel")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center),
+        chunks[2],
+    );
+}
+
+fn render_new_from_context_dialog(
+    f: &mut Frame,
+    area: Rect,
+    d: &crate::ui::NewFromContextDialog,
+) {
+    let popup_area = centered_rect(70, 60, area);
+    f.render_widget(Clear, popup_area);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .title("New Session from Context");
+    let inner_area = outer.inner(popup_area);
+    f.render_widget(outer, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Title
+            Constraint::Length(2), // Injection method
+            Constraint::Min(3),   // Context preview
+            Constraint::Length(2), // Actions
+        ])
+        .split(inner_area);
+
+    // Title input
+    let title_spans = render_text_input(&d.title, true, Style::default());
+    f.render_widget(
+        Paragraph::new(Line::from(title_spans))
+            .block(Block::default().borders(Borders::ALL).title("Session Title")),
+        chunks[0],
+    );
+
+    // Injection method
+    f.render_widget(
+        Paragraph::new(format!("Injection: {} (Tab to cycle)", d.injection_method))
+            .style(Style::default().fg(Color::Yellow)),
+        chunks[1],
+    );
+
+    // Context preview
+    f.render_widget(
+        Paragraph::new(d.context_preview.clone())
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Context Preview"),
+            )
+            .wrap(Wrap { trim: false }),
+        chunks[2],
+    );
+
+    // Actions
+    f.render_widget(
+        Paragraph::new("Enter: Create  |  Tab: Cycle method  |  Esc: Cancel")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center),
+        chunks[3],
+    );
 }

@@ -8,9 +8,10 @@ mod switcher;
 pub use app::App;
 pub use dialogs::{
     AnnotateDialog, ContextInjectionMethod, CreateGroupDialog, CreateRelationshipDialog,
-    DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog, ForkDialog, ForkField,
-    MoveGroupDialog, NewFromContextDialog, NewSessionDialog, NewSessionField, RenameGroupDialog,
-    RenameSessionDialog, SessionEditField, ShareDialog, TagPickerDialog, TagSpec,
+    CreateRelationshipField, DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
+    ForkDialog, ForkField, MoveGroupDialog, NewFromContextDialog, NewSessionDialog,
+    NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField, ShareDialog,
+    TagPickerDialog, TagSpec,
 };
 pub use input::TextInput;
 pub use switcher::run_switcher;

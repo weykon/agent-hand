@@ -152,4 +152,9 @@ impl TmuxSession {
     pub async fn get_content(&self, lines: usize) -> Result<String> {
         self.manager.capture_pane(&self.name, lines).await
     }
+
+    /// Capture full pane output (convenience wrapper for context collection)
+    pub async fn capture_pane(&self) -> Result<String> {
+        self.get_content(200).await
+    }
 }
