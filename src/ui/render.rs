@@ -118,8 +118,89 @@ fn render_main(f: &mut Frame, area: Rect, app: &App) {
     render_preview(f, cols[1], app);
 }
 
-/// Render session list
+/// Render session list (splits off active panel at top when premium + active sessions exist)
 fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
+    let is_pro = app.auth_token().map_or(false, |t| t.is_pro());
+    let active = app.active_sessions();
+
+    if is_pro && !active.is_empty() {
+        // 2 border rows + 1 row per session, capped at 8 total rows
+        let panel_h = (active.len() as u16 + 2).min(8);
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(panel_h), Constraint::Min(0)])
+            .split(area);
+        render_active_panel(f, rows[0], app, &active);
+        render_session_tree(f, rows[1], app);
+    } else {
+        render_session_tree(f, area, app);
+    }
+}
+
+/// Render the active sessions panel (premium feature pinned above the session tree)
+fn render_active_panel(f: &mut Frame, area: Rect, app: &App, active: &[&crate::session::Instance]) {
+    let focused = app.active_panel_focused();
+    let selected = app.active_panel_selected();
+
+    let items: Vec<ListItem> = active
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let is_selected = focused && i == selected;
+            let base = if is_selected {
+                Style::default().fg(Color::Black).bg(Color::Yellow)
+            } else {
+                Style::default()
+            };
+
+            let status_icon = match s.status {
+                Status::Waiting => waiting_anim(app.tick_count()),
+                Status::Running => running_anim(app.tick_count()),
+                Status::Error => "✕",
+                Status::Starting => "⋯",
+                Status::Idle => "○",
+            };
+            let status_color = match s.status {
+                Status::Waiting => Color::Blue,
+                Status::Running => Color::Yellow,
+                Status::Error => Color::Red,
+                Status::Starting => Color::Cyan,
+                Status::Idle => Color::DarkGray,
+            };
+
+            let line = Line::from(vec![
+                Span::styled(status_icon, Style::default().fg(status_color)),
+                Span::raw(" "),
+                Span::styled(s.title.clone(), base.add_modifier(Modifier::BOLD)),
+            ]);
+            ListItem::new(line)
+        })
+        .collect();
+
+    let border_style = if focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let title = format!("⚡ Active ({})", active.len());
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(border_style),
+    );
+
+    let mut state = if focused {
+        ListState::default().with_selected(Some(selected))
+    } else {
+        ListState::default()
+    };
+    f.render_stateful_widget(list, area, &mut state);
+}
+
+/// Render the full session tree (groups + sessions)
+fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
     let tree = app.tree();
 
     if tree.is_empty() {
@@ -1396,6 +1477,17 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         ));
         spans.push(Span::raw(app.search_query().to_string()));
         spans.push(Span::raw(format!(" ({})", app.search_matches())));
+    }
+
+    // Tab hint for active panel (premium, only when there are active sessions)
+    {
+        let is_pro = app.auth_token().map_or(false, |t| t.is_pro());
+        let has_active = !app.active_sessions().is_empty();
+        if is_pro && has_active {
+            spans.push(Span::raw("  |  "));
+            spans.push(Span::styled("Tab", Style::default().fg(Color::Yellow)));
+            spans.push(Span::raw(":active-panel"));
+        }
     }
 
     // User account badge

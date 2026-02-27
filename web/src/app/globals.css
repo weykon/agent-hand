@@ -17,10 +17,12 @@ body {
   color: var(--text-primary);
 }
 
-a {
-  color: var(--accent);
-  text-decoration: none;
-}
-a:hover {
-  color: var(--accent-hover);
+@layer base {
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  a:hover {
+    color: var(--accent-hover);
+  }
 }

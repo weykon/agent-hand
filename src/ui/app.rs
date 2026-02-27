@@ -48,6 +48,10 @@ pub struct App {
     tree: Vec<TreeItem>,
     selected_index: usize,
 
+    // Active sessions panel (premium)
+    active_panel_focused: bool,
+    active_panel_selected: usize,
+
     // UI state
     help_visible: bool,
     preview: String,
@@ -171,6 +175,8 @@ impl App {
             relationship_snapshot_counts: HashMap::new(),
             tree: Vec::new(),
             selected_index: 0,
+            active_panel_focused: false,
+            active_panel_selected: 0,
             help_visible: false,
             preview: String::new(),
             preview_cache: HashMap::new(),
@@ -632,6 +638,60 @@ impl App {
         if self.keybindings.matches("quit", &key, modifiers) {
             self.should_quit = true;
             return Ok(());
+        }
+
+        // Tab: toggle active panel focus (premium gate)
+        if key == KeyCode::Tab && modifiers == KeyModifiers::NONE {
+            let is_pro = self.auth_token.as_ref().map_or(false, |t| t.is_pro());
+            let active_count = self.sessions.iter().filter(|s| !matches!(s.status, Status::Idle)).count();
+            if is_pro && active_count > 0 {
+                self.active_panel_focused = !self.active_panel_focused;
+                if self.active_panel_selected >= active_count {
+                    self.active_panel_selected = active_count.saturating_sub(1);
+                }
+                return Ok(());
+            }
+        }
+
+        // When active panel is focused, intercept navigation keys
+        if self.active_panel_focused {
+            let active: Vec<String> = self.sessions
+                .iter()
+                .filter(|s| !matches!(s.status, Status::Idle))
+                .map(|s| s.id.clone())
+                .collect();
+
+            // If no active sessions remain, defocus the panel
+            if active.is_empty() {
+                self.active_panel_focused = false;
+            } else {
+                match key {
+                    KeyCode::Up | KeyCode::Char('k') if modifiers == KeyModifiers::NONE => {
+                        self.active_panel_selected = self.active_panel_selected.saturating_sub(1);
+                        return Ok(());
+                    }
+                    KeyCode::Down | KeyCode::Char('j') if modifiers == KeyModifiers::NONE => {
+                        let max = active.len().saturating_sub(1);
+                        self.active_panel_selected = (self.active_panel_selected + 1).min(max);
+                        return Ok(());
+                    }
+                    KeyCode::Enter if modifiers == KeyModifiers::NONE => {
+                        if let Some(id) = active.get(self.active_panel_selected) {
+                            let id = id.clone();
+                            self.active_panel_focused = false;
+                            self.queue_attach_by_id(&id).await?;
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Esc | KeyCode::Tab if modifiers == KeyModifiers::NONE => {
+                        self.active_panel_focused = false;
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                // Swallow all other keys while panel is focused
+                return Ok(());
+            }
         }
 
         // Navigation
@@ -3394,6 +3454,22 @@ impl App {
 
     pub fn auth_token(&self) -> Option<&crate::auth::AuthToken> {
         self.auth_token.as_ref()
+    }
+
+    pub fn active_panel_focused(&self) -> bool {
+        self.active_panel_focused
+    }
+
+    pub fn active_panel_selected(&self) -> usize {
+        self.active_panel_selected
+    }
+
+    /// Sessions that are actively working (not Idle). Used by the active panel.
+    pub fn active_sessions(&self) -> Vec<&Instance> {
+        self.sessions
+            .iter()
+            .filter(|s| !matches!(s.status, Status::Idle))
+            .collect()
     }
 
     pub fn relationships(&self) -> &[Relationship] {

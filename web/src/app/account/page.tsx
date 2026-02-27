@@ -134,7 +134,7 @@ export default function AccountPage() {
 
           {!isPro && (
             <a
-              href="https://www.creem.io/payment/prod_44F1yThRt3QEV6QnkeWNjO"
+              href={`https://www.creem.io/payment/prod_44F1yThRt3QEV6QnkeWNjO?customer_email=${encodeURIComponent(status?.email ?? getEmail() ?? "")}`}
               target="_blank"
               rel="noopener noreferrer"
               className="block rounded-lg bg-[#6366f1] py-3 text-center font-semibold text-white hover:bg-[#818cf8]"
