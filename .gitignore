@@ -1,2 +1,7 @@
 /target
 .cargo/
+.serena/
+.playwright-mcp/
+web/node_modules/
+web/.next/
+web/out/

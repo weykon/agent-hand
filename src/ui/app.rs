@@ -18,7 +18,7 @@ use crate::error::Result;
 use crate::session::{GroupTree, Instance, Relationship, Status, Storage};
 use crate::tmux::{
     ptmx::{spawn_ptmx_monitor, SharedPtmxState},
-    TmuxManager, SESSION_PREFIX,
+    TmuxManager,
 };
 
 use super::{
@@ -127,8 +127,9 @@ impl App {
         // This prevents PTY leaks from sessions that were deleted but whose tmux
         // process was not properly killed.
         {
-            let known_ids: Vec<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
-            let killed = tmux.cleanup_orphaned_sessions(&known_ids).await;
+            let known_names: Vec<String> = sessions.iter().map(|s| s.tmux_name()).collect();
+            let known_refs: Vec<&str> = known_names.iter().map(|s| s.as_str()).collect();
+            let killed = tmux.cleanup_orphaned_sessions(&known_refs).await;
             if killed > 0 {
                 tracing::info!("Cleaned up {} orphaned tmux session(s)", killed);
             }
@@ -398,7 +399,7 @@ impl App {
         {
             let state = self.ptmx_state.read().await;
             for session in &mut self.sessions {
-                session.ptmx_count = state.per_session.get(&session.id).copied().unwrap_or(0);
+                session.ptmx_count = state.per_session.get(&session.tmux_name()).copied().unwrap_or(0);
             }
             // Update cached values for synchronous getters
             self.cached_ptmx_total = state.system_total;
@@ -423,7 +424,7 @@ impl App {
         let mut running_to_done: Vec<String> = Vec::new();
 
         for session in &mut self.sessions {
-            let tmux_session = TmuxManager::session_name(&session.id);
+            let tmux_session = session.tmux_name();
             if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
                 session.status = Status::Idle;
                 self.last_tmux_activity.remove(&session.id);
@@ -541,7 +542,7 @@ impl App {
                 }
 
                 // Capture pane output once for this session
-                let tmux_name = TmuxManager::session_name(session_id);
+                let tmux_name = self.tmux_name_for_id(session_id);
                 let pane_content = self
                     .tmux
                     .capture_pane(&tmux_name, 200)
@@ -577,14 +578,19 @@ impl App {
     }
 
     async fn cache_preview_by_tmux_name(&mut self, tmux_name: &str) -> Result<()> {
-        let Some(id) = tmux_name.strip_prefix(SESSION_PREFIX) else {
+        let id = self
+            .sessions
+            .iter()
+            .find(|s| s.tmux_name() == tmux_name)
+            .map(|s| s.id.clone());
+        let Some(id) = id else {
             return Ok(());
         };
-        self.cache_preview_for_id(id).await
+        self.cache_preview_for_id(&id).await
     }
 
     async fn cache_preview_for_id(&mut self, id: &str) -> Result<()> {
-        let tmux_session = TmuxManager::session_name(id);
+        let tmux_session = self.tmux_name_for_id(id);
         if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
             self.preview_cache.remove(id);
             return Ok(());
@@ -1972,19 +1978,24 @@ impl App {
                     } else {
                         if crate::sharing::tmate::TmateManager::is_available().await {
                             let mut mgr = crate::sharing::tmate::TmateManager::from_config().await;
-                            let tmux_name =
-                                format!("{}_{}", SESSION_PREFIX, d.session_id);
+                            let sid = d.session_id.clone();
+                            let perm = d.permission;
                             let expire: Option<u64> = d
                                 .expire_minutes
                                 .text()
                                 .parse::<u64>()
                                 .ok()
                                 .filter(|&v| v > 0);
+                            let tmux_name = self.sessions_by_id
+                                .get(&sid)
+                                .and_then(|&idx| self.sessions.get(idx))
+                                .map(|s| s.tmux_name())
+                                .unwrap_or_else(|| TmuxManager::session_name_legacy(&sid));
                             match mgr
                                 .start_sharing(
-                                    &d.session_id,
+                                    &sid,
                                     &tmux_name,
-                                    d.permission,
+                                    perm,
                                     expire,
                                 )
                                 .await
@@ -2123,6 +2134,7 @@ impl App {
                                     .unwrap_or_default();
 
                                 // Create the new Instance
+                                let session_title = title.clone();
                                 let mut inst = Instance::new(title, project_path.clone());
                                 inst.group_path = group_path;
                                 inst.tool = crate::tmux::Tool::Shell;
@@ -2142,7 +2154,7 @@ impl App {
                                 let working_dir =
                                     project_path.to_str().unwrap_or("/tmp").to_string();
                                 self.tmux
-                                    .create_session(&tmux_name, &working_dir, None)
+                                    .create_session(&tmux_name, &working_dir, None, Some(&session_title))
                                     .await?;
 
                                 // Inject context based on method
@@ -2485,7 +2497,7 @@ impl App {
         // Kill tmux sessions (best-effort) before removing from storage.
         for inst in instances.iter() {
             if inst.group_path == group_path || inst.group_path.starts_with(&prefix) {
-                let tmux_name = TmuxManager::session_name(&inst.id);
+                let tmux_name = inst.tmux_name();
                 if self.tmux.session_exists(&tmux_name).unwrap_or(false) {
                     let _ = self.tmux.kill_session(&tmux_name).await;
                 }
@@ -2540,9 +2552,22 @@ impl App {
         let (mut instances, tree, relationships) = storage.load().await?;
 
         if let Some(inst) = instances.iter_mut().find(|s| s.id == session_id) {
+            let old_tmux_name = inst.tmux_name();
             inst.title = title.to_string();
             inst.label = label.to_string();
             inst.label_color = label_color;
+
+            // Update tmux session name if title changed
+            if title != old_title {
+                let new_tmux_name = TmuxManager::build_session_name(title, &inst.id);
+                inst.tmux_session_name = Some(new_tmux_name.clone());
+
+                // Rename the live tmux session if it exists
+                if self.tmux.session_exists(&old_tmux_name).unwrap_or(false) {
+                    let _ = self.tmux.rename_session(&old_tmux_name, &new_tmux_name).await;
+                    let _ = self.tmux.set_session_title(&new_tmux_name, title).await;
+                }
+            }
         }
 
         storage.save(&instances, &tree, &relationships).await?;
@@ -2608,7 +2633,7 @@ impl App {
     }
 
     async fn delete_session(&mut self, session_id: &str, kill_tmux: bool) -> Result<()> {
-        let tmux_name = TmuxManager::session_name(session_id);
+        let tmux_name = self.tmux_name_for_id(session_id);
 
         if kill_tmux && self.tmux.session_exists(&tmux_name).unwrap_or(false) {
             if let Err(e) = self.tmux.kill_session(&tmux_name).await {
@@ -2901,6 +2926,16 @@ impl App {
         self.sessions.get(idx)
     }
 
+    /// Get the tmux session name for a session ID.
+    /// Looks up the instance to use its stored tmux name, falling back to legacy format.
+    fn tmux_name_for_id(&self, id: &str) -> String {
+        self.sessions_by_id
+            .get(id)
+            .and_then(|&idx| self.sessions.get(idx))
+            .map(|s| s.tmux_name())
+            .unwrap_or_else(|| TmuxManager::session_name_legacy(id))
+    }
+
     fn priority_session_id(&self) -> Option<String> {
         // Priority: Waiting (!) newest first, else Ready (✓) newest first.
         if let Some(s) = self
@@ -2935,7 +2970,7 @@ impl App {
         };
         let session = self.sessions[idx].clone();
 
-        let tmux_session = TmuxManager::session_name(&session.id);
+        let tmux_session = session.tmux_name();
         if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
             let _ = self
                 .tmux
@@ -2947,33 +2982,39 @@ impl App {
                     } else {
                         Some(session.command.as_str())
                     },
+                    Some(&session.title),
                 )
                 .await;
         }
 
         if self.tmux.session_exists(&tmux_session).unwrap_or(false) {
+            // Ensure the friendly title is stamped (covers pre-existing sessions too).
+            let _ = self.tmux.set_session_title(&tmux_session, &session.title).await;
             self.pending_attach = Some(tmux_session);
         }
         Ok(())
     }
 
-    /// Find session by tmux session name (e.g. "agentdeck_rs_abc123")
+    /// Find session by tmux session name (matches against each session's tmux_name())
     fn find_session_by_tmux_name(&self, tmux_name: &str) -> Option<Instance> {
-        let id = tmux_name.strip_prefix(SESSION_PREFIX)?;
-        let &idx = self.sessions_by_id.get(id)?;
-        self.sessions.get(idx).cloned()
+        self.sessions
+            .iter()
+            .find(|s| s.tmux_name() == tmux_name)
+            .cloned()
     }
 
     /// Queue attach to selected session (performed in event loop)
     async fn queue_attach_selected(&mut self) -> Result<()> {
         if let Some(session) = self.selected_session() {
-            let tmux_session = TmuxManager::session_name(&session.id);
+            let tmux_session = session.tmux_name();
+            let title = session.title.clone();
 
             if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
                 self.start_selected().await?;
             }
 
             if self.tmux.session_exists(&tmux_session).unwrap_or(false) {
+                let _ = self.tmux.set_session_title(&tmux_session, &title).await;
                 self.pending_attach = Some(tmux_session);
             }
         }
@@ -3009,7 +3050,7 @@ impl App {
     /// Start selected session
     async fn start_selected(&mut self) -> Result<()> {
         if let Some(session) = self.selected_session() {
-            let tmux_session = TmuxManager::session_name(&session.id);
+            let tmux_session = session.tmux_name();
 
             if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
                 if let Err(e) = self
@@ -3022,6 +3063,7 @@ impl App {
                         } else {
                             Some(session.command.as_str())
                         },
+                        Some(&session.title),
                     )
                     .await
                 {
@@ -3044,7 +3086,7 @@ impl App {
     /// Stop selected session
     async fn stop_selected(&mut self) -> Result<()> {
         if let Some(session) = self.selected_session() {
-            let tmux_session = TmuxManager::session_name(&session.id);
+            let tmux_session = session.tmux_name();
 
             if self.tmux.session_exists(&tmux_session).unwrap_or(false) {
                 self.tmux.kill_session(&tmux_session).await?;
@@ -3106,7 +3148,7 @@ impl App {
 
     async fn update_preview(&mut self) -> Result<()> {
         if let Some(session) = self.selected_session() {
-            let tmux_session = TmuxManager::session_name(&session.id);
+            let tmux_session = session.tmux_name();
 
             if self.tmux.session_exists(&tmux_session).unwrap_or(false) {
                 if let Some(cached) = self.preview_cache.get(&session.id) {

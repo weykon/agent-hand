@@ -93,6 +93,11 @@ pub struct Instance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sharing: Option<SharingState>,
 
+    /// Persisted tmux session name. Computed from title + ID on creation.
+    /// Legacy sessions (pre-migration) have None and fall back to "agentdeck_rs_{id}".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tmux_session_name: Option<String>,
+
     // Non-serialized fields
     #[serde(skip)]
     tmux_session: Option<Arc<TmuxSession>>,
@@ -107,6 +112,7 @@ impl Instance {
     pub fn new(title: String, project_path: PathBuf) -> Self {
         let id = generate_id();
         let group_path = extract_group_path(&project_path);
+        let tmux_session_name = Some(TmuxManager::build_session_name(&title, &id));
 
         Self {
             id,
@@ -128,6 +134,7 @@ impl Instance {
             gemini_session_id: None,
             gemini_detected_at: None,
             sharing: None,
+            tmux_session_name,
             tmux_session: None,
             ptmx_count: 0,
         }
@@ -147,9 +154,12 @@ impl Instance {
         instance
     }
 
-    /// Get tmux session name
+    /// Get tmux session name.
+    /// Returns the stored name, or falls back to legacy format for old sessions.
     pub fn tmux_name(&self) -> String {
-        TmuxManager::session_name(&self.id)
+        self.tmux_session_name
+            .clone()
+            .unwrap_or_else(|| TmuxManager::session_name_legacy(&self.id))
     }
 
     /// Mark as accessed
@@ -206,6 +216,7 @@ impl Instance {
                 Some(self.command.as_str())
             };
             tmux.start(cmd).await?;
+            let _ = tmux.set_title(&self.title).await;
             self.status = Status::Idle;
         }
         Ok(())

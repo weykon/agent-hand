@@ -296,7 +296,7 @@ impl TmuxManager {
             .and_then(|p| p.to_str().map(|s| s.to_string()))
             .unwrap_or_else(|| "agent-hand".to_string());
         let status_bin_escaped = status_bin.replace('\'', "'\\''");
-        let status_left = format!("#('{}' statusline)", status_bin_escaped);
+        let status_left = format!("#{{?@agenthand_title,#{{@agenthand_title}},#S}}  #('{}' statusline)", status_bin_escaped);
         let _ = self
             .tmux_cmd()
             .args(["set-option", "-g", "status-interval", "5"])
@@ -375,17 +375,57 @@ impl TmuxManager {
         self.cache.register(name);
     }
 
-    /// Get tmux session name for a session ID
-    pub fn session_name(id: &str) -> String {
+    /// Legacy tmux session name format (for backward compat with old sessions).
+    pub fn session_name_legacy(id: &str) -> String {
         format!("{}{}", SESSION_PREFIX, id)
     }
 
-    /// Create a new tmux session
+    /// Build a human-readable tmux session name from title + ID.
+    /// Format: `{sanitized_title}_{first_8_of_id}`
+    pub fn build_session_name(title: &str, id: &str) -> String {
+        let sanitized = sanitize_for_tmux(title);
+        let short_id = &id[..id.len().min(8)];
+        if sanitized.is_empty() {
+            format!("session_{}", short_id)
+        } else {
+            format!("{}_{}", sanitized, short_id)
+        }
+    }
+
+    /// Rename a tmux session
+    pub async fn rename_session(&self, old_name: &str, new_name: &str) -> Result<()> {
+        let output = self
+            .tmux_cmd()
+            .args(&["rename-session", "-t", old_name, new_name])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::tmux(format!(
+                "Failed to rename session: {}",
+                stderr
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Get tmux session name for a session ID (legacy alias)
+    #[deprecated(note = "Use Instance::tmux_name() or build_session_name() instead")]
+    pub fn session_name(id: &str) -> String {
+        Self::session_name_legacy(id)
+    }
+
+    /// Create a new tmux session.
+    /// If `title` is provided, it is stored as `@agenthand_title` so the
+    /// status bar shows the user-friendly name instead of the internal session id.
     pub async fn create_session(
         &self,
         name: &str,
         working_dir: &str,
         command: Option<&str>,
+        title: Option<&str>,
     ) -> Result<()> {
         let mut cmd = self.tmux_cmd();
         cmd.args(&[
@@ -414,6 +454,9 @@ impl TmuxManager {
             if stderr.contains("duplicate session") {
                 self.ensure_server_bindings().await;
                 self.register_session(name.to_string());
+                if let Some(t) = title {
+                    let _ = self.set_session_title(name, t).await;
+                }
                 return Ok(());
             }
             return Err(crate::Error::tmux(format!(
@@ -427,6 +470,11 @@ impl TmuxManager {
 
         // Register in cache immediately
         self.register_session(name.to_string());
+
+        // Stamp the friendly title so status-left can display it.
+        if let Some(t) = title {
+            let _ = self.set_session_title(name, t).await;
+        }
 
         Ok(())
     }
@@ -508,6 +556,24 @@ impl TmuxManager {
         Ok(())
     }
 
+    /// Set the user-visible title on a tmux session (stored as `@agenthand_title`).
+    /// The status-left format reads this to display the friendly name.
+    pub async fn set_session_title(&self, session_name: &str, title: &str) -> Result<()> {
+        let output = self
+            .tmux_cmd()
+            .args(["set-option", "-t", session_name, "@agenthand_title", title])
+            .output()
+            .await?;
+        if !output.status.success() {
+            // Non-fatal: the session may have been killed between check and set.
+            eprintln!(
+                "set_session_title({session_name}): {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        Ok(())
+    }
+
     /// Set a global tmux environment variable on our dedicated server.
     pub async fn set_environment_global(&self, key: &str, value: &str) -> Result<()> {
         let output = self
@@ -567,23 +633,18 @@ impl TmuxManager {
         Ok(())
     }
 
-    /// Kill orphaned tmux sessions that exist in tmux but not in the known set of IDs.
+    /// Kill orphaned tmux sessions that exist in tmux but not in the known set of tmux names.
     /// Returns the number of sessions killed.
-    pub async fn cleanup_orphaned_sessions(&self, known_ids: &[&str]) -> usize {
+    pub async fn cleanup_orphaned_sessions(&self, known_tmux_names: &[&str]) -> usize {
         let tmux_sessions = match self.list_sessions().await {
             Ok(s) => s,
             Err(_) => return 0,
         };
 
-        let prefix_len = SESSION_PREFIX.len();
         let mut killed = 0;
 
         for tmux_name in &tmux_sessions {
-            if tmux_name.len() <= prefix_len {
-                continue;
-            }
-            let session_id = &tmux_name[prefix_len..];
-            if !known_ids.iter().any(|id| *id == session_id) {
+            if !known_tmux_names.iter().any(|name| *name == tmux_name.as_str()) {
                 if self.kill_session(tmux_name).await.is_ok() {
                     killed += 1;
                 }
@@ -593,7 +654,7 @@ impl TmuxManager {
         killed
     }
 
-    /// List all agent-deck sessions
+    /// List all sessions on our dedicated tmux server
     pub async fn list_sessions(&self) -> Result<Vec<String>> {
         let output = self
             .tmux_cmd()
@@ -606,9 +667,10 @@ impl TmuxManager {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
+        // All sessions on our dedicated server (agentdeck_rs) belong to us.
         let sessions: Vec<String> = stdout
             .lines()
-            .filter(|line| line.starts_with(SESSION_PREFIX))
+            .filter(|line| !line.is_empty())
             .map(|s| s.to_string())
             .collect();
 
@@ -622,18 +684,83 @@ impl Default for TmuxManager {
     }
 }
 
+/// Sanitize a title for use as a tmux session name component.
+/// Tmux forbids dots, colons, and certain special chars in session names.
+fn sanitize_for_tmux(title: &str) -> String {
+    let s: String = title
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | '0'..='9' | '-' | '_' => c,
+            'A'..='Z' => c.to_ascii_lowercase(),
+            _ => '-',
+        })
+        .collect();
+
+    // Collapse consecutive dashes
+    let mut result = String::new();
+    let mut last_was_dash = true; // treat start as dash to trim leading
+    for c in s.chars() {
+        if c == '-' {
+            if !last_was_dash {
+                result.push(c);
+            }
+            last_was_dash = true;
+        } else {
+            result.push(c);
+            last_was_dash = false;
+        }
+    }
+
+    let result = result.trim_end_matches('-');
+    if result.len() > 30 {
+        result[..30]
+            .trim_end_matches('-')
+            .to_string()
+    } else {
+        result.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[allow(deprecated)]
     #[test]
-    fn test_session_name() {
+    fn test_session_name_legacy() {
         assert_eq!(TmuxManager::session_name("abc123"), "agentdeck_rs_abc123");
+        assert_eq!(
+            TmuxManager::session_name_legacy("abc123"),
+            "agentdeck_rs_abc123"
+        );
+    }
+
+    #[test]
+    fn test_build_session_name() {
+        assert_eq!(
+            TmuxManager::build_session_name("My Project", "a1b2c3d4e5f6"),
+            "my-project_a1b2c3d4"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_special_chars() {
+        assert_eq!(
+            TmuxManager::build_session_name("hello.world:test!", "abcdef123456"),
+            "hello-world-test_abcdef12"
+        );
+    }
+
+    #[test]
+    fn test_empty_title() {
+        assert_eq!(
+            TmuxManager::build_session_name("", "abcdef123456"),
+            "session_abcdef12"
+        );
     }
 
     #[tokio::test]
     async fn test_tmux_available() {
-        // This will fail in CI without tmux, but useful for local testing
         let available = TmuxManager::is_available().await.unwrap_or(false);
         println!("Tmux available: {}", available);
     }

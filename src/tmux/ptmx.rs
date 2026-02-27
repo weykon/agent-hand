@@ -139,17 +139,14 @@ async fn get_tmux_pane_pids() -> Vec<(String, u32)> {
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
+    // All sessions on our dedicated server (agentdeck_rs) belong to us.
     stdout
         .lines()
         .filter_map(|line| {
             let mut parts = line.split_whitespace();
             let name = parts.next()?;
             let pid = parts.next()?.parse::<u32>().ok()?;
-            if name.starts_with(super::SESSION_PREFIX) {
-                Some((name.to_string(), pid))
-            } else {
-                None
-            }
+            Some((name.to_string(), pid))
         })
         .collect()
 }
@@ -173,12 +170,8 @@ pub async fn scan_ptmx_usage(system_max: u32) -> PtmxReport {
             .filter_map(|pid| fd_counts.get(pid))
             .sum();
         if count > 0 {
-            // Strip the session prefix to get the instance ID.
-            let id = session_name
-                .strip_prefix(super::SESSION_PREFIX)
-                .unwrap_or(session_name)
-                .to_string();
-            per_session.insert(id, count);
+            // Use the full tmux session name as key; caller maps to session ID.
+            per_session.insert(session_name.clone(), count);
         }
     }
 

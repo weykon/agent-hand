@@ -124,11 +124,16 @@ impl TmuxSession {
         self.set_status(SessionStatus::Starting);
 
         self.manager
-            .create_session(&self.name, self.working_dir.to_str().unwrap(), command)
+            .create_session(&self.name, self.working_dir.to_str().unwrap(), command, None)
             .await?;
 
         self.set_status(SessionStatus::Idle);
         Ok(())
+    }
+
+    /// Set the user-visible title on this tmux session's status bar.
+    pub async fn set_title(&self, title: &str) -> Result<()> {
+        self.manager.set_session_title(&self.name, title).await
     }
 
     /// Stop the session (kill in tmux)
