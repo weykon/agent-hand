@@ -643,7 +643,7 @@ impl App {
         // Tab: toggle active panel focus (premium gate)
         if key == KeyCode::Tab && modifiers == KeyModifiers::NONE {
             let is_pro = self.auth_token.as_ref().map_or(false, |t| t.is_pro());
-            let active_count = self.sessions.iter().filter(|s| !matches!(s.status, Status::Idle)).count();
+            let active_count = self.active_sessions().len();
             if is_pro && active_count > 0 {
                 self.active_panel_focused = !self.active_panel_focused;
                 if self.active_panel_selected >= active_count {
@@ -655,9 +655,8 @@ impl App {
 
         // When active panel is focused, intercept navigation keys
         if self.active_panel_focused {
-            let active: Vec<String> = self.sessions
+            let active: Vec<String> = self.active_sessions()
                 .iter()
-                .filter(|s| !matches!(s.status, Status::Idle))
                 .map(|s| s.id.clone())
                 .collect();
 
@@ -3464,11 +3463,11 @@ impl App {
         self.active_panel_selected
     }
 
-    /// Sessions that are actively working (not Idle). Used by the active panel.
+    /// Sessions that deserve attention: actively working OR recently finished (✓ ready).
     pub fn active_sessions(&self) -> Vec<&Instance> {
         self.sessions
             .iter()
-            .filter(|s| !matches!(s.status, Status::Idle))
+            .filter(|s| !matches!(s.status, Status::Idle) || self.is_attention_active(&s.id))
             .collect()
     }
 
