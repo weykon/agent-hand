@@ -109,10 +109,12 @@ impl Relationship {
 }
 
 /// CRUD operations for relationships within a Vec
+#[cfg(feature = "pro")]
 pub fn add_relationship(relationships: &mut Vec<Relationship>, rel: Relationship) {
     relationships.push(rel);
 }
 
+#[cfg(feature = "pro")]
 pub fn remove_relationship(relationships: &mut Vec<Relationship>, id: &str) -> Option<Relationship> {
     if let Some(pos) = relationships.iter().position(|r| r.id == id) {
         Some(relationships.remove(pos))

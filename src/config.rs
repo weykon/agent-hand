@@ -48,6 +48,10 @@ pub struct ConfigFile {
     /// Unit: minutes. Default: 40.
     #[serde(default)]
     ready_ttl_minutes: Option<u64>,
+
+    /// Lines to jump with Ctrl+D / Ctrl+U. Default: 10.
+    #[serde(default)]
+    jump_lines: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -203,6 +207,10 @@ impl ConfigFile {
 
     pub fn ready_ttl_minutes(&self) -> u64 {
         self.ready_ttl_minutes.unwrap_or(40)
+    }
+
+    pub fn jump_lines(&self) -> usize {
+        self.jump_lines.unwrap_or(10)
     }
 
     pub fn sharing(&self) -> &SharingConfig {
@@ -403,6 +411,20 @@ impl Default for KeyBindings {
             vec![KeySpec {
                 code: KeyCode::Char('R'),
                 modifiers: KeyModifiers::NONE,
+            }],
+        );
+        kb.bindings.insert(
+            "half_page_down",
+            vec![KeySpec {
+                code: KeyCode::Char('d'),
+                modifiers: KeyModifiers::CONTROL,
+            }],
+        );
+        kb.bindings.insert(
+            "half_page_up",
+            vec![KeySpec {
+                code: KeyCode::Char('u'),
+                modifiers: KeyModifiers::CONTROL,
             }],
         );
 

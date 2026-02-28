@@ -16,7 +16,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
 usage() {
   cat <<EOF
-Usage: install.sh [--prefix DIR] [--version vX.Y.Z] [--skip-tmux]
+Usage: install.sh [--prefix DIR] [--version vX.Y.Z] [--skip-tmux] [--pro]
 
 Installs ${BIN_NAME} from GitHub Releases.
 
@@ -24,6 +24,7 @@ Options:
   --prefix DIR   Install directory (default: /usr/local/bin if writable, else ~/.local/bin)
   --version TAG  Install a specific tag (default: latest)
   --skip-tmux    Skip tmux installation check
+  --pro          Install the Pro build (requires a valid Pro license)
 EOF
 }
 
@@ -103,6 +104,7 @@ check_tmux() {
 PREFIX=""
 VERSION="latest"
 SKIP_TMUX=false
+PRO_BUILD=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -112,6 +114,8 @@ while [[ $# -gt 0 ]]; do
       VERSION="$2"; shift 2 ;;
     --skip-tmux)
       SKIP_TMUX=true; shift ;;
+    --pro)
+      PRO_BUILD=true; shift ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -150,7 +154,11 @@ case "$arch" in
 esac
 
 target="${arch}-${os}"
-asset="${BIN_NAME}-${target}.tar.gz"
+if [[ "$PRO_BUILD" == "true" ]]; then
+  asset="${BIN_NAME}-pro-${target}.tar.gz"
+else
+  asset="${BIN_NAME}-${target}.tar.gz"
+fi
 
 # Windows release contains an .exe inside the tarball.
 out_bin="${BIN_NAME}"

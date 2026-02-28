@@ -1,6 +1,7 @@
 param(
   [string]$Version = "latest",
-  [switch]$SkipWslInstall
+  [switch]$SkipWslInstall,
+  [switch]$Pro
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,10 +74,11 @@ if ($wslExists) {
 Info "Installing $BIN_NAME inside WSL..."
 Write-Host ""
 
+$proFlag = if ($Pro) { " --pro" } else { "" }
 if ($Version -eq "latest") {
-  $installCmd = "curl -fsSL $INSTALL_URL | bash"
+  $installCmd = "curl -fsSL $INSTALL_URL | bash -s --${proFlag}"
 } else {
-  $installCmd = "curl -fsSL $INSTALL_URL | bash -s -- --version $Version"
+  $installCmd = "curl -fsSL $INSTALL_URL | bash -s -- --version $Version${proFlag}"
 }
 
 wsl bash -c $installCmd

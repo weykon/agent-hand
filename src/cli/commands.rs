@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::process::Command as TokioCommand;
@@ -57,7 +57,9 @@ pub async fn run_cli(args: Args) -> Result<()> {
 
         Some(Command::Profile { action }) => handle_profile(action).await,
 
-        Some(Command::Upgrade { prefix, version }) => handle_upgrade(prefix, version).await,
+        Some(Command::Upgrade { prefix, version }) => {
+            handle_upgrade(prefix, version).await
+        }
 
         Some(Command::Switch) => crate::ui::run_switcher(profile).await,
 
@@ -78,9 +80,27 @@ pub async fn run_cli(args: Args) -> Result<()> {
             id,
             permission,
             expire,
-        }) => handle_share(profile, &id, &permission, expire).await,
+        }) => {
+            #[cfg(feature = "pro")]
+            { crate::pro::commands::handle_share(profile, &id, &permission, expire).await }
+            #[cfg(not(feature = "pro"))]
+            {
+                let _ = (id, permission, expire);
+                eprintln!("Session sharing is a Pro feature. Visit https://weykon.github.io/agent-hand");
+                Ok(())
+            }
+        }
 
-        Some(Command::Unshare { id }) => handle_unshare(profile, &id).await,
+        Some(Command::Unshare { id }) => {
+            #[cfg(feature = "pro")]
+            { crate::pro::commands::handle_unshare(profile, &id).await }
+            #[cfg(not(feature = "pro"))]
+            {
+                let _ = id;
+                eprintln!("Session sharing is a Pro feature. Visit https://weykon.github.io/agent-hand");
+                Ok(())
+            }
+        }
 
         None => {
             // Check tmux availability before launching TUI
@@ -107,145 +127,6 @@ pub async fn run_cli(args: Args) -> Result<()> {
             app.run().await
         }
     }
-}
-
-async fn handle_upgrade(prefix: Option<String>, version: Option<String>) -> Result<()> {
-    // Auth gate: upgrade is a premium feature
-    match crate::auth::AuthToken::load() {
-        None => {
-            eprintln!("Upgrade requires a license. Purchase at: https://agent-hand.dev");
-            eprintln!("Run `agent-hand login` to authenticate.");
-            return Ok(());
-        }
-        Some(token) if !token.has_feature("upgrade") => {
-            eprintln!("Your license does not include the auto-upgrade feature.");
-            eprintln!("Visit https://agent-hand.dev to upgrade your plan.");
-            return Ok(());
-        }
-        Some(_) => {} // authorized
-    }
-
-    const REPO: &str = "weykon/agent-hand";
-    const BIN_NAME: &str = "agent-hand";
-
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
-
-    let os = match os {
-        "macos" => "apple-darwin",
-        "linux" => "unknown-linux-gnu",
-        _ => return Err(crate::Error::InvalidInput(format!("Unsupported OS: {os}"))),
-    };
-
-    let arch = match arch {
-        "x86_64" | "amd64" => "x86_64",
-        "aarch64" | "arm64" => "aarch64",
-        _ => {
-            return Err(crate::Error::InvalidInput(format!(
-                "Unsupported arch: {arch}"
-            )))
-        }
-    };
-
-    let target = format!("{arch}-{os}");
-    let asset = format!("{BIN_NAME}-{target}.tar.gz");
-
-    let version = version.unwrap_or_else(|| "latest".to_string());
-    let url_base = format!("https://github.com/{REPO}/releases");
-    let url = if version == "latest" {
-        format!("{url_base}/latest/download/{asset}")
-    } else {
-        format!("{url_base}/download/{version}/{asset}")
-    };
-
-    let prefix = if let Some(p) = prefix {
-        PathBuf::from(p)
-    } else if is_dir_writable(Path::new("/usr/local/bin")) {
-        PathBuf::from("/usr/local/bin")
-    } else {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".local/bin")
-    };
-
-    std::fs::create_dir_all(&prefix)?;
-
-    let tmpdir = std::env::temp_dir().join(format!("agent-hand-upgrade-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmpdir)?;
-
-    let tar_path = tmpdir.join(&asset);
-
-    eprintln!("Downloading {url}");
-    let status = TokioCommand::new("curl")
-        .args(["-fsSL", &url, "-o"])
-        .arg(&tar_path)
-        .status()
-        .await?;
-    if !status.success() {
-        return Err(crate::Error::InvalidInput(
-            "Failed to download release asset".to_string(),
-        ));
-    }
-
-    let status = TokioCommand::new("tar")
-        .args(["-xzf"])
-        .arg(&tar_path)
-        .args(["-C"])
-        .arg(&tmpdir)
-        .status()
-        .await?;
-    if !status.success() {
-        return Err(crate::Error::InvalidInput(
-            "Failed to extract release archive".to_string(),
-        ));
-    }
-
-    let tmp_bin = tmpdir.join(BIN_NAME);
-    if !tmp_bin.is_file() {
-        return Err(crate::Error::InvalidInput(format!(
-            "Malformed archive: {asset} (missing {BIN_NAME})"
-        )));
-    }
-
-    let dest = prefix.join(BIN_NAME);
-    let status = TokioCommand::new("install")
-        .args(["-m", "0755"])
-        .arg(&tmp_bin)
-        .arg(&dest)
-        .status()
-        .await;
-
-    if status.as_ref().ok().map(|s| s.success()).unwrap_or(false) {
-        eprintln!("Installed {BIN_NAME} to {}", dest.display());
-        let _ = std::fs::remove_dir_all(&tmpdir);
-        return Ok(());
-    }
-
-    // Fallback if `install` is unavailable.
-    std::fs::copy(&tmp_bin, &dest)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
-    }
-
-    eprintln!("Installed {BIN_NAME} to {}", dest.display());
-    let _ = std::fs::remove_dir_all(&tmpdir);
-    Ok(())
-}
-
-fn is_dir_writable(dir: &Path) -> bool {
-    if !dir.is_dir() {
-        return false;
-    }
-    let test = dir.join(format!(".agent-hand-write-test-{}", uuid::Uuid::new_v4()));
-    let ok = std::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&test)
-        .is_ok();
-    let _ = std::fs::remove_file(&test);
-    ok
 }
 
 async fn handle_add(
@@ -1020,119 +901,181 @@ async fn handle_account(refresh: bool) -> Result<()> {
     }
     if !token.is_pro() {
         println!();
-        println!("Upgrade at: https://agent-hand.dev");
+        println!("Upgrade at: https://weykon.github.io/agent-hand");
     }
 
     Ok(())
 }
 
-async fn handle_share(
-    profile: &str,
-    id: &str,
-    permission: &str,
-    expire: Option<u64>,
-) -> Result<()> {
-    use crate::sharing::{SharePermission, tmate::TmateManager};
-
-    // Gate behind premium feature
-    let feature = match permission {
-        "rw" => "sharing_rw",
-        _ => "sharing",
-    };
-    crate::auth::AuthToken::require_feature(feature)?;
-
-    // Verify tmate is available
-    if !TmateManager::is_available().await {
-        eprintln!("Error: tmate is not installed or not in PATH.");
-        eprintln!();
-        eprintln!("Install tmate:");
-        eprintln!("  macOS:        brew install tmate");
-        eprintln!("  Ubuntu/Debian: sudo apt install tmate");
-        eprintln!();
-        eprintln!("Or visit: https://tmate.io");
-        return Err(crate::Error::InvalidInput("tmate is not installed".to_string()));
+/// Check if a directory is writable
+fn is_dir_writable(path: &std::path::Path) -> bool {
+    use std::fs;
+    if !path.exists() {
+        return false;
     }
-
-    let storage = Storage::new(profile).await?;
-    let (mut instances, tree, relationships) = storage.load().await?;
-
-    let inst = find_session(&mut instances, id)?;
-    let title = inst.title.clone();
-    let tmux_name = inst.tmux_name();
-
-    let perm = match permission {
-        "rw" => SharePermission::ReadWrite,
-        _ => SharePermission::ReadOnly,
-    };
-
-    let perm_display = if permission == "rw" {
-        "read-write"
+    let test = path.join(".agent-hand-write-test");
+    if fs::write(&test, b"").is_ok() {
+        let _ = fs::remove_file(&test);
+        true
     } else {
-        "read-only"
-    };
+        false
+    }
+}
 
-    println!("Sharing \"{}\" ({})...", title, perm_display);
+async fn handle_upgrade(prefix: Option<String>, version: Option<String>) -> Result<()> {
+    // ── Status check ──
+    let is_pro_build = cfg!(feature = "pro");
+    let token = crate::auth::AuthToken::load();
 
-    let mut tmate = TmateManager::from_config().await;
-    let state = tmate
-        .start_sharing(&inst.id.clone(), &tmux_name, perm, expire)
-        .await?;
-
-    // Print URLs
-    for link in &state.links {
-        let mode = match link.permission {
-            SharePermission::ReadOnly => "Read-only",
-            SharePermission::ReadWrite => "Read-write",
-        };
-        println!();
-        println!("  {} SSH:  {}", mode, link.ssh_url);
-        if let Some(ref web) = link.web_url {
-            println!("  {} Web:  {}", mode, web);
+    match &token {
+        None => {
+            eprintln!("┌─────────────────────────────────────┐");
+            eprintln!("│  Status: Not logged in              │");
+            eprintln!("│  Build:  {}               │", if is_pro_build { "Pro " } else { "Free" });
+            eprintln!("├─────────────────────────────────────┤");
+            eprintln!("│  1. Purchase Pro at:                │");
+            eprintln!("│     https://weykon.github.io/agent-hand          │");
+            eprintln!("│  2. Then run: agent-hand login      │");
+            eprintln!("│  3. Then run: agent-hand upgrade    │");
+            eprintln!("└─────────────────────────────────────┘");
+            return Ok(());
+        }
+        Some(t) if t.is_pro() && is_pro_build => {
+            eprintln!("┌─────────────────────────────────────┐");
+            eprintln!("│  Status: {} (Pro)  │", t.email);
+            eprintln!("│  Build:  Pro ✓                      │");
+            eprintln!("├─────────────────────────────────────┤");
+            eprintln!("│  You are already on the Pro build.  │");
+            eprintln!("│  Re-running will update to latest.  │");
+            eprintln!("└─────────────────────────────────────┘");
+            // Allow re-run to update to latest version
+        }
+        Some(t) if t.is_pro() => {
+            eprintln!("┌─────────────────────────────────────┐");
+            eprintln!("│  Status: {} (Pro)  │", t.email);
+            eprintln!("│  Build:  Free → upgrading to Pro... │");
+            eprintln!("└─────────────────────────────────────┘");
+            // Proceed to download pro binary
+        }
+        Some(t) => {
+            eprintln!("┌─────────────────────────────────────┐");
+            eprintln!("│  Status: {} (Free) │", t.email);
+            eprintln!("│  Build:  {}               │", if is_pro_build { "Pro " } else { "Free" });
+            eprintln!("├─────────────────────────────────────┤");
+            eprintln!("│  Your plan does not include Pro.    │");
+            eprintln!("│  Upgrade at: https://weykon.github.io/agent-hand │");
+            eprintln!("└─────────────────────────────────────┘");
+            return Ok(());
         }
     }
 
-    if let Some(mins) = expire {
-        println!();
-        println!("  Auto-expires in {} minutes", mins);
+    const REPO: &str = "weykon/agent-hand";
+    const BIN_NAME: &str = "agent-hand";
+
+    let os_str = std::env::consts::OS;
+    let arch_str = std::env::consts::ARCH;
+
+    let os_target = match os_str {
+        "macos" => "apple-darwin",
+        "linux" => "unknown-linux-gnu",
+        _ => return Err(crate::Error::InvalidInput(format!("Unsupported OS: {os_str}"))),
+    };
+
+    let arch_target = match arch_str {
+        "x86_64" | "amd64" => "x86_64",
+        "aarch64" | "arm64" => "aarch64",
+        _ => {
+            return Err(crate::Error::InvalidInput(format!(
+                "Unsupported arch: {arch_str}"
+            )))
+        }
+    };
+
+    let target = format!("{arch_target}-{os_target}");
+    // Download the PRO binary — free users upgrading need the pro build
+    let asset = format!("{BIN_NAME}-pro-{target}.tar.gz");
+
+    let version = version.unwrap_or_else(|| "latest".to_string());
+    let url_base = format!("https://github.com/{REPO}/releases");
+    let url = if version == "latest" {
+        format!("{url_base}/latest/download/{asset}")
+    } else {
+        format!("{url_base}/download/{version}/{asset}")
+    };
+
+    let prefix = if let Some(p) = prefix {
+        PathBuf::from(p)
+    } else if is_dir_writable(std::path::Path::new("/usr/local/bin")) {
+        PathBuf::from("/usr/local/bin")
+    } else {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".local/bin")
+    };
+
+    std::fs::create_dir_all(&prefix)?;
+
+    let tmpdir = std::env::temp_dir().join(format!("agent-hand-upgrade-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmpdir)?;
+
+    let tar_path = tmpdir.join(&asset);
+
+    eprintln!("Downloading {url}");
+    let status = TokioCommand::new("curl")
+        .args(["-fsSL", &url, "-o"])
+        .arg(&tar_path)
+        .status()
+        .await?;
+    if !status.success() {
+        return Err(crate::Error::InvalidInput(
+            "Failed to download release asset".to_string(),
+        ));
     }
 
-    // Persist sharing state on the instance
-    let inst = find_session(&mut instances, id)?;
-    inst.sharing = Some(state);
-    storage.save(&instances, &tree, &relationships).await?;
+    let status = TokioCommand::new("tar")
+        .args(["-xzf"])
+        .arg(&tar_path)
+        .args(["-C"])
+        .arg(&tmpdir)
+        .status()
+        .await?;
+    if !status.success() {
+        return Err(crate::Error::InvalidInput(
+            "Failed to extract release archive".to_string(),
+        ));
+    }
 
-    println!();
-    println!("Session \"{}\" is now shared.", title);
+    let tmp_bin = tmpdir.join(BIN_NAME);
+    if !tmp_bin.is_file() {
+        return Err(crate::Error::InvalidInput(format!(
+            "Malformed archive: {asset} (missing {BIN_NAME})"
+        )));
+    }
 
+    let dest = prefix.join(BIN_NAME);
+    let status = TokioCommand::new("install")
+        .args(["-m", "0755"])
+        .arg(&tmp_bin)
+        .arg(&dest)
+        .status()
+        .await;
+
+    if status.as_ref().ok().map(|s| s.success()).unwrap_or(false) {
+        eprintln!("Installed {BIN_NAME} (Pro) to {}", dest.display());
+        let _ = std::fs::remove_dir_all(&tmpdir);
+        return Ok(());
+    }
+
+    // Fallback if `install` is unavailable.
+    std::fs::copy(&tmp_bin, &dest)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
+    }
+
+    eprintln!("Installed {BIN_NAME} (Pro) to {}", dest.display());
+    let _ = std::fs::remove_dir_all(&tmpdir);
     Ok(())
 }
 
-async fn handle_unshare(profile: &str, id: &str) -> Result<()> {
-    use crate::sharing::tmate::TmateManager;
-
-    crate::auth::AuthToken::require_feature("sharing")?;
-
-    let storage = Storage::new(profile).await?;
-    let (mut instances, tree, relationships) = storage.load().await?;
-
-    let inst = find_session(&mut instances, id)?;
-    let title = inst.title.clone();
-    let session_id = inst.id.clone();
-
-    // Stop the tmate process
-    let mut tmate = TmateManager::from_config().await;
-    tmate.stop_sharing(&session_id).await?;
-
-    // Also kill any lingering tmate socket for this session
-    let socket = format!("/tmp/tmate-{}.sock", session_id);
-    let _ = tokio::fs::remove_file(&socket).await;
-
-    // Clear sharing state and persist
-    let inst = find_session(&mut instances, id)?;
-    inst.sharing = None;
-    storage.save(&instances, &tree, &relationships).await?;
-
-    println!("Stopped sharing \"{}\".", title);
-
-    Ok(())
-}

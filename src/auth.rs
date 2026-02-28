@@ -36,7 +36,7 @@ impl AuthToken {
                 format!("Requires license for '{}'. Run `agent-hand login`.", feature),
             )),
             Some(t) if !t.has_feature(feature) => Err(crate::Error::InvalidInput(
-                format!("Feature '{}' requires a plan upgrade. Visit https://agent-hand.dev", feature),
+                format!("Feature '{}' requires a plan upgrade. Visit https://weykon.github.io/agent-hand", feature),
             )),
             Some(_) => Ok(()),
         }

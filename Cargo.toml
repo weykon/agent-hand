@@ -1,6 +1,6 @@
 [package]
 name = "agent-hand"
-version = "0.2.13"
+version = "0.3.0"
 edition = "2021"
 authors = ["Agent Hand Contributors"]
 description = "Terminal session manager for AI coding agents"
@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [features]
 default = []
+pro = []
 
 [dependencies]
 # Async runtime

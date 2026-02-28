@@ -22,11 +22,14 @@ use crate::tmux::{
 };
 
 use super::{
-    AppState, CreateGroupDialog, CreateRelationshipDialog, CreateRelationshipField,
+    AppState, CreateGroupDialog,
     DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog, ForkDialog, ForkField,
     MoveGroupDialog, NewSessionDialog, NewSessionField, RenameGroupDialog, RenameSessionDialog,
-    SessionEditField, ShareDialog, TagPickerDialog, TagSpec, TextInput, TreeItem,
+    SessionEditField, TagPickerDialog, TagSpec, TextInput, TreeItem,
 };
+
+#[cfg(feature = "pro")]
+use super::{CreateRelationshipDialog, CreateRelationshipField, ShareDialog};
 
 /// Main TUI application
 pub struct App {
@@ -103,6 +106,12 @@ pub struct App {
 
     // Auth
     auth_token: Option<crate::auth::AuthToken>,
+
+    // Vim-style navigation (pro only)
+    #[cfg(feature = "pro")]
+    list_state: ratatui::widgets::ListState,
+    #[cfg(feature = "pro")]
+    jump_lines: usize,
 }
 
 impl App {
@@ -207,6 +216,10 @@ impl App {
             cached_ptmx_total: 0,
             cached_ptmx_max: system_ptmx_max,
             auth_token: crate::auth::AuthToken::load(),
+            #[cfg(feature = "pro")]
+            list_state: ratatui::widgets::ListState::default(),
+            #[cfg(feature = "pro")]
+            jump_lines: cfg.as_ref().map(|c| c.jump_lines()).unwrap_or(10),
         };
 
         app.ensure_groups_exist();
@@ -296,6 +309,19 @@ impl App {
                 self.perform_attach(terminal, &name).await?;
                 let _ = self.cache_preview_by_tmux_name(&name).await;
                 self.refresh_sessions().await?;
+
+                // Pro: auto-focus active panel when returning from a detached session
+                #[cfg(feature = "pro")]
+                {
+                    let is_pro = self.auth_token.as_ref().map_or(false, |t| t.is_pro());
+                    let active_count = self.active_sessions().len();
+                    if is_pro && active_count > 0 {
+                        self.active_panel_focused = true;
+                        if self.active_panel_selected >= active_count {
+                            self.active_panel_selected = active_count.saturating_sub(1);
+                        }
+                    }
+                }
             }
 
             if self.should_quit {
@@ -333,6 +359,7 @@ impl App {
         }
 
         // Auto-expire sharing sessions (check every ~10 ticks = ~2.5s)
+        #[cfg(feature = "pro")]
         if self.tick_count % 10 == 0 {
             let mut expired_ids = Vec::new();
             for inst in &self.sessions {
@@ -343,7 +370,7 @@ impl App {
                 }
             }
             if !expired_ids.is_empty() {
-                let mut mgr = crate::sharing::tmate::TmateManager::from_config().await;
+                let mut mgr = crate::pro::tmate::TmateManager::from_config().await;
                 for id in &expired_ids {
                     let _ = mgr.stop_sharing(id).await;
                     if let Some(inst) = self.sessions.iter_mut().find(|s| &s.id == id) {
@@ -392,6 +419,7 @@ impl App {
                                     .await;
                             }
                         }
+
                     }
                 }
 
@@ -529,6 +557,7 @@ impl App {
         }
 
         // Auto-capture context for sessions that transitioned from Running to Idle/Waiting
+        #[cfg(feature = "pro")]
         if !running_to_done.is_empty()
             && crate::auth::AuthToken::require_feature("auto_context").is_ok()
         {
@@ -536,7 +565,7 @@ impl App {
                 let storage = self.storage.lock().await;
                 storage.profile().to_string()
             };
-            let collector = crate::session::context::ContextCollector::new(&profile);
+            let collector = crate::pro::context::ContextCollector::new(&profile);
 
             for session_id in &running_to_done {
                 let rels = crate::session::relationships::find_relationships_for_session(
@@ -629,6 +658,7 @@ impl App {
             AppState::Search => self.handle_search_key(key, modifiers).await,
             AppState::Dialog => self.handle_dialog_key(key, modifiers).await,
             AppState::Help => self.handle_help_key(key),
+            #[cfg(feature = "pro")]
             AppState::Relationships => self.handle_relationships_key(key, modifiers).await,
         }
     }
@@ -636,11 +666,13 @@ impl App {
     /// Handle keys in normal mode
     async fn handle_normal_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> Result<()> {
         if self.keybindings.matches("quit", &key, modifiers) {
-            self.should_quit = true;
+            self.dialog = Some(Dialog::QuitConfirm);
+            self.state = AppState::Dialog;
             return Ok(());
         }
 
         // Tab: toggle active panel focus (premium gate)
+        #[cfg(feature = "pro")]
         if key == KeyCode::Tab && modifiers == KeyModifiers::NONE {
             let is_pro = self.auth_token.as_ref().map_or(false, |t| t.is_pro());
             let active_count = self.active_sessions().len();
@@ -654,6 +686,7 @@ impl App {
         }
 
         // When active panel is focused, intercept navigation keys
+        #[cfg(feature = "pro")]
         if self.active_panel_focused {
             let active: Vec<String> = self.active_sessions()
                 .iter()
@@ -696,15 +729,37 @@ impl App {
         // Navigation
         if self.keybindings.matches("up", &key, modifiers) {
             self.move_selection_up();
+            #[cfg(feature = "pro")]
+            self.enforce_scrolloff();
             self.on_navigation();
             self.preview.clear();
             return Ok(());
         }
         if self.keybindings.matches("down", &key, modifiers) {
             self.move_selection_down();
+            #[cfg(feature = "pro")]
+            self.enforce_scrolloff();
             self.on_navigation();
             self.preview.clear();
             return Ok(());
+        }
+
+        #[cfg(feature = "pro")]
+        {
+            if self.keybindings.matches("half_page_down", &key, modifiers) {
+                self.move_half_page_down();
+                self.enforce_scrolloff();
+                self.on_navigation();
+                self.preview.clear();
+                return Ok(());
+            }
+            if self.keybindings.matches("half_page_up", &key, modifiers) {
+                self.move_half_page_up();
+                self.enforce_scrolloff();
+                self.on_navigation();
+                self.preview.clear();
+                return Ok(());
+            }
         }
 
         if self.keybindings.matches("jump_priority", &key, modifiers) {
@@ -869,8 +924,8 @@ impl App {
             return Ok(());
         }
 
-        // Ctrl+R: toggle Relationships view (Premium)
-        // Note: Ctrl+R is already used for refresh. Use Ctrl+E instead.
+        // Ctrl+E: toggle Relationships view (Premium)
+        #[cfg(feature = "pro")]
         if key == KeyCode::Char('e') && modifiers == KeyModifiers::CONTROL {
             if crate::auth::AuthToken::require_feature("relationships").is_ok() {
                 self.refresh_snapshot_counts_async().await;
@@ -880,6 +935,7 @@ impl App {
         }
 
         // S: Share selected session (Premium)
+        #[cfg(feature = "pro")]
         if key == KeyCode::Char('S') && modifiers == KeyModifiers::SHIFT {
             if let Some(inst) = self.selected_session() {
                 if crate::auth::AuthToken::require_feature("sharing").is_ok() {
@@ -919,6 +975,7 @@ impl App {
     }
 
     /// Handle keys in Relationships view
+    #[cfg(feature = "pro")]
     async fn handle_relationships_key(
         &mut self,
         key: KeyCode,
@@ -1008,7 +1065,7 @@ impl App {
                 if let Some(rel) = self.relationships.get(self.selected_relationship_index) {
                     if crate::auth::AuthToken::require_feature("context_injection").is_ok() {
                         let profile = self.storage.lock().await.profile().to_string();
-                        let collector = crate::session::context::ContextCollector::new(&profile);
+                        let collector = crate::pro::context::ContextCollector::new(&profile);
                         let a_title = self.session_by_id(&rel.session_a_id)
                             .map(|s| s.title.clone())
                             .unwrap_or_default();
@@ -1037,6 +1094,7 @@ impl App {
         Ok(())
     }
 
+    #[cfg(feature = "pro")]
     fn open_create_relationship_dialog(&mut self) {
         if let Some(inst) = self.selected_session() {
             let session_a_id = inst.id.clone();
@@ -1064,12 +1122,13 @@ impl App {
         }
     }
 
+    #[cfg(feature = "pro")]
     async fn refresh_snapshot_counts_async(&mut self) {
         let profile = {
             let storage = self.storage.lock().await;
             storage.profile().to_string()
         };
-        let collector = crate::session::context::ContextCollector::new(&profile);
+        let collector = crate::pro::context::ContextCollector::new(&profile);
         self.relationship_snapshot_counts.clear();
         for rel in &self.relationships {
             let count = collector.count_relationship_snapshots(&rel.id);
@@ -1079,6 +1138,7 @@ impl App {
         }
     }
 
+    #[cfg(feature = "pro")]
     async fn capture_relationship_context(&mut self, relationship_id: String) -> Result<()> {
         let rel = self
             .relationships
@@ -1093,7 +1153,7 @@ impl App {
             let storage = self.storage.lock().await;
             storage.profile().to_string()
         };
-        let collector = crate::session::context::ContextCollector::new(&profile);
+        let collector = crate::pro::context::ContextCollector::new(&profile);
 
         // Capture pane output for session A
         if let Some(tmux) = self.session_by_id(&rel.session_a_id).and_then(|s| s.tmux()) {
@@ -1380,6 +1440,17 @@ impl App {
                     }
                 }
                 _ => {}
+            },
+            Dialog::QuitConfirm => match key {
+                KeyCode::Char('q') | KeyCode::Char('Q') => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                    self.should_quit = true;
+                }
+                _ => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
             },
             Dialog::DeleteConfirm(d) => match key {
                 KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
@@ -1918,6 +1989,7 @@ impl App {
                 _ => {}
             },
 
+            #[cfg(feature = "pro")]
             Dialog::CreateRelationship(d) => match key {
                 KeyCode::Esc => {
                     self.dialog = None;
@@ -1996,6 +2068,7 @@ impl App {
                 _ => {}
             },
 
+            #[cfg(feature = "pro")]
             Dialog::Share(d) => match key {
                 KeyCode::Esc => {
                     self.dialog = None;
@@ -2014,7 +2087,7 @@ impl App {
                 KeyCode::Enter => {
                     if d.already_sharing {
                         // Stop sharing
-                        let mut mgr = crate::sharing::tmate::TmateManager::from_config().await;
+                        let mut mgr = crate::pro::tmate::TmateManager::from_config().await;
                         let _ = mgr.stop_sharing(&d.session_id).await;
                         d.already_sharing = false;
                         d.ssh_url = None;
@@ -2035,8 +2108,8 @@ impl App {
                             &d.session_title,
                         ).await;
                     } else {
-                        if crate::sharing::tmate::TmateManager::is_available().await {
-                            let mut mgr = crate::sharing::tmate::TmateManager::from_config().await;
+                        if crate::pro::tmate::TmateManager::is_available().await {
+                            let mut mgr = crate::pro::tmate::TmateManager::from_config().await;
                             let sid = d.session_id.clone();
                             let perm = d.permission;
                             let expire: Option<u64> = d
@@ -2125,6 +2198,7 @@ impl App {
                 _ => {}
             },
 
+            #[cfg(feature = "pro")]
             Dialog::Annotate(d) => match key {
                 KeyCode::Esc => {
                     self.dialog = None;
@@ -2141,7 +2215,7 @@ impl App {
                                 note_text,
                             ).with_relationship(&rel_id);
                             let profile = self.storage.lock().await.profile().to_string();
-                            let collector = crate::session::context::ContextCollector::new(&profile);
+                            let collector = crate::pro::context::ContextCollector::new(&profile);
                             let _ = collector.save_snapshot(&snapshot).await;
                         }
                     }
@@ -2156,6 +2230,7 @@ impl App {
                 }
                 _ => {}
             },
+            #[cfg(feature = "pro")]
             Dialog::NewFromContext(d) => match key {
                 KeyCode::Esc => {
                     self.dialog = None;
@@ -2972,6 +3047,54 @@ impl App {
         }
     }
 
+    /// Visible tree rows (total height minus header, status bar, borders)
+    #[cfg(feature = "pro")]
+    fn visible_tree_height(&self) -> usize {
+        self.height.saturating_sub(5) as usize
+    }
+
+    /// Jump cursor down (Ctrl+D)
+    #[cfg(feature = "pro")]
+    fn move_half_page_down(&mut self) {
+        let jump = self.jump_lines.max(1);
+        let max = self.tree.len().saturating_sub(1);
+        self.selected_index = (self.selected_index + jump).min(max);
+    }
+
+    /// Jump cursor up (Ctrl+U)
+    #[cfg(feature = "pro")]
+    fn move_half_page_up(&mut self) {
+        let jump = self.jump_lines.max(1);
+        self.selected_index = self.selected_index.saturating_sub(jump);
+    }
+
+    /// Keep cursor ~SCROLLOFF lines from viewport edges (like vim `set scrolloff=5`)
+    #[cfg(feature = "pro")]
+    fn enforce_scrolloff(&mut self) {
+        const SCROLLOFF: usize = 5;
+        let visible = self.visible_tree_height();
+        if visible == 0 || self.tree.is_empty() {
+            return;
+        }
+
+        let selected = self.selected_index;
+        let offset = self.list_state.offset();
+
+        // Cursor too close to top edge — scroll up
+        if selected < offset + SCROLLOFF {
+            let new_offset = selected.saturating_sub(SCROLLOFF);
+            *self.list_state.offset_mut() = new_offset;
+        }
+        // Cursor too close to bottom edge — scroll down
+        else if selected + SCROLLOFF >= offset + visible {
+            let new_offset = (selected + SCROLLOFF + 1).saturating_sub(visible);
+            let max_offset = self.tree.len().saturating_sub(visible);
+            *self.list_state.offset_mut() = new_offset.min(max_offset);
+        }
+
+        self.list_state.select(Some(selected));
+    }
+
     fn selected_tree_item(&self) -> Option<&TreeItem> {
         self.tree.get(self.selected_index)
     }
@@ -3289,6 +3412,11 @@ impl App {
         self.selected_index
     }
 
+    #[cfg(feature = "pro")]
+    pub fn list_state(&self) -> &ratatui::widgets::ListState {
+        &self.list_state
+    }
+
     pub fn session_by_id(&self, id: &str) -> Option<&Instance> {
         let &idx = self.sessions_by_id.get(id)?;
         self.sessions.get(idx)
@@ -3335,6 +3463,10 @@ impl App {
             Some(Dialog::NewSession(d)) => Some(d),
             _ => None,
         }
+    }
+
+    pub fn quit_confirm_dialog(&self) -> bool {
+        matches!(self.dialog.as_ref(), Some(Dialog::QuitConfirm))
     }
 
     pub fn delete_confirm_dialog(&self) -> Option<&DeleteConfirmDialog> {
@@ -3393,6 +3525,7 @@ impl App {
         }
     }
 
+    #[cfg(feature = "pro")]
     pub fn share_dialog(&self) -> Option<&ShareDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::Share(d)) => Some(d),
@@ -3400,6 +3533,7 @@ impl App {
         }
     }
 
+    #[cfg(feature = "pro")]
     pub fn create_relationship_dialog(&self) -> Option<&CreateRelationshipDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::CreateRelationship(d)) => Some(d),
@@ -3407,6 +3541,7 @@ impl App {
         }
     }
 
+    #[cfg(feature = "pro")]
     pub fn annotate_dialog(&self) -> Option<&crate::ui::AnnotateDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::Annotate(d)) => Some(d),
@@ -3414,6 +3549,7 @@ impl App {
         }
     }
 
+    #[cfg(feature = "pro")]
     pub fn new_from_context_dialog(&self) -> Option<&crate::ui::NewFromContextDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::NewFromContext(d)) => Some(d),

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use crate::error::Result;
 
+#[cfg(feature = "pro")]
 use crate::session::RelationType;
 
 use super::input::TextInput;
@@ -250,13 +251,19 @@ pub enum Dialog {
     RenameGroup(RenameGroupDialog),
     RenameSession(RenameSessionDialog),
     TagPicker(TagPickerDialog),
+    QuitConfirm,
+    #[cfg(feature = "pro")]
     Share(ShareDialog),
+    #[cfg(feature = "pro")]
     CreateRelationship(CreateRelationshipDialog),
+    #[cfg(feature = "pro")]
     Annotate(AnnotateDialog),
+    #[cfg(feature = "pro")]
     NewFromContext(NewFromContextDialog),
 }
 
 /// Dialog for sharing a session remotely (Premium)
+#[cfg(feature = "pro")]
 #[derive(Debug, Clone)]
 pub struct ShareDialog {
     pub session_id: String,
@@ -268,6 +275,7 @@ pub struct ShareDialog {
     pub already_sharing: bool,
 }
 
+#[cfg(feature = "pro")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreateRelationshipField {
     Search,
@@ -275,6 +283,7 @@ pub enum CreateRelationshipField {
 }
 
 /// Dialog for creating a relationship between two sessions (Premium)
+#[cfg(feature = "pro")]
 #[derive(Debug, Clone)]
 pub struct CreateRelationshipDialog {
     pub relation_type: RelationType,
@@ -288,6 +297,7 @@ pub struct CreateRelationshipDialog {
     pub field: CreateRelationshipField,
 }
 
+#[cfg(feature = "pro")]
 impl CreateRelationshipDialog {
     fn fuzzy_match(query: &str, text: &str) -> bool {
         let q = query.trim().to_lowercase();
@@ -337,6 +347,7 @@ impl CreateRelationshipDialog {
 }
 
 /// Dialog for adding an annotation to a relationship (Premium)
+#[cfg(feature = "pro")]
 #[derive(Debug, Clone)]
 pub struct AnnotateDialog {
     pub relationship_id: String,
@@ -344,6 +355,7 @@ pub struct AnnotateDialog {
 }
 
 /// Injection method for new-from-context
+#[cfg(feature = "pro")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextInjectionMethod {
     InitialPrompt,
@@ -351,6 +363,7 @@ pub enum ContextInjectionMethod {
     EnvironmentVariable,
 }
 
+#[cfg(feature = "pro")]
 impl ContextInjectionMethod {
     pub fn cycle(&self) -> Self {
         match self {
@@ -361,6 +374,7 @@ impl ContextInjectionMethod {
     }
 }
 
+#[cfg(feature = "pro")]
 impl std::fmt::Display for ContextInjectionMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -372,6 +386,7 @@ impl std::fmt::Display for ContextInjectionMethod {
 }
 
 /// Dialog for creating a new session from relationship context (Premium)
+#[cfg(feature = "pro")]
 #[derive(Debug, Clone)]
 pub struct NewFromContextDialog {
     pub relationship_id: String,

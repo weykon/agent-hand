@@ -76,9 +76,14 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Render content
     if app.help_visible() {
         render_help(f, chunks[1]);
-    } else if app.state() == crate::ui::AppState::Relationships {
-        render_relationships(f, chunks[1], app);
     } else {
+        #[cfg(feature = "pro")]
+        if app.state() == crate::ui::AppState::Relationships {
+            render_relationships(f, chunks[1], app);
+        } else {
+            render_main(f, chunks[1], app);
+        }
+        #[cfg(not(feature = "pro"))]
         render_main(f, chunks[1], app);
     }
 
@@ -120,24 +125,30 @@ fn render_main(f: &mut Frame, area: Rect, app: &App) {
 
 /// Render session list (splits off active panel at top when premium + active sessions exist)
 fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
-    let is_pro = app.auth_token().map_or(false, |t| t.is_pro());
-    let active = app.active_sessions();
+    #[cfg(feature = "pro")]
+    {
+        let is_pro = app.auth_token().map_or(false, |t| t.is_pro());
+        let active = app.active_sessions();
 
-    if is_pro && !active.is_empty() {
-        // 2 border rows + 1 row per session, capped at 8 total rows
-        let panel_h = (active.len() as u16 + 2).min(8);
-        let rows = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(panel_h), Constraint::Min(0)])
-            .split(area);
-        render_active_panel(f, rows[0], app, &active);
-        render_session_tree(f, rows[1], app);
-    } else {
-        render_session_tree(f, area, app);
+        if is_pro && !active.is_empty() {
+            // 2 border rows + 1 row per session, capped at 8 total rows
+            let panel_h = (active.len() as u16 + 2).min(8);
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(panel_h), Constraint::Min(0)])
+                .split(area);
+            render_active_panel(f, rows[0], app, &active);
+            render_session_tree(f, rows[1], app);
+        } else {
+            render_session_tree(f, area, app);
+        }
     }
+    #[cfg(not(feature = "pro"))]
+    render_session_tree(f, area, app);
 }
 
 /// Render the active sessions panel (premium feature pinned above the session tree)
+#[cfg(feature = "pro")]
 fn render_active_panel(f: &mut Frame, area: Rect, app: &App, active: &[&crate::session::Instance]) {
     let focused = app.active_panel_focused();
     let selected = app.active_panel_selected();
@@ -383,8 +394,16 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
         tree.len()
     )));
 
-    let mut state = ListState::default().with_selected(Some(app.selected_index()));
-    f.render_stateful_widget(list, area, &mut state);
+    #[cfg(feature = "pro")]
+    {
+        let mut state = app.list_state().clone();
+        f.render_stateful_widget(list, area, &mut state);
+    }
+    #[cfg(not(feature = "pro"))]
+    {
+        let mut state = ListState::default().with_selected(Some(app.selected_index()));
+        f.render_stateful_widget(list, area, &mut state);
+    }
 }
 
 fn render_preview(f: &mut Frame, area: Rect, app: &App) {
@@ -405,6 +424,11 @@ fn render_preview(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
+    if app.quit_confirm_dialog() {
+        render_quit_confirm_dialog(f, area);
+        return;
+    }
+
     if let Some(d) = app.new_session_dialog() {
         render_new_session_dialog(f, area, d);
         return;
@@ -449,21 +473,25 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
         render_rename_group_dialog(f, area, d);
     }
 
+    #[cfg(feature = "pro")]
     if let Some(d) = app.share_dialog() {
         render_share_dialog(f, area, d);
         return;
     }
 
+    #[cfg(feature = "pro")]
     if let Some(d) = app.create_relationship_dialog() {
         render_create_relationship_dialog(f, area, d);
         return;
     }
 
+    #[cfg(feature = "pro")]
     if let Some(d) = app.annotate_dialog() {
         render_annotate_dialog(f, area, d);
         return;
     }
 
+    #[cfg(feature = "pro")]
     if let Some(d) = app.new_from_context_dialog() {
         render_new_from_context_dialog(f, area, d);
     }
@@ -957,6 +985,27 @@ fn render_rename_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameGr
     f.render_widget(p, popup_area);
 }
 
+fn render_quit_confirm_dialog(f: &mut Frame, area: Rect) {
+    let popup_area = centered_rect(40, 20, area);
+    f.render_widget(Clear, popup_area);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            "Quit Agent Hand?",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("Press q again to quit."),
+        Line::from("Any other key to cancel."),
+    ];
+
+    let p = Paragraph::new(lines)
+        .alignment(ratatui::layout::Alignment::Center)
+        .block(Block::default().borders(Borders::ALL).title("Confirm Quit"));
+
+    f.render_widget(p, popup_area);
+}
+
 fn render_delete_confirm_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DeleteConfirmDialog) {
     let popup_area = centered_rect(60, 30, area);
     f.render_widget(Clear, popup_area);
@@ -1341,6 +1390,46 @@ fn render_help(f: &mut Frame, area: Rect) {
 }
 
 /// Render status bar
+/// Render keyboard hint spans for normal item selection (shared by free and pro builds)
+fn render_item_hints(spans: &mut Vec<Span<'static>>, app: &App) {
+    match app.selected_item() {
+        Some(TreeItem::Group { .. }) => {
+            spans.push(Span::styled("Enter", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":toggle  "));
+            spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
+            spans.push(Span::raw(":rename  "));
+            spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":del  "));
+            spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":group+  "));
+            spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":new  "));
+        }
+        Some(TreeItem::Session { .. }) => {
+            spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":new  "));
+            spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":group+  "));
+            spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
+            spans.push(Span::raw(":rename  "));
+            spans.push(Span::styled("R", Style::default().fg(Color::Yellow)));
+            spans.push(Span::raw(":restart  "));
+            spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":del  "));
+            spans.push(Span::styled("f", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":fork  "));
+            spans.push(Span::styled("m", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":move  "));
+        }
+        _ => {
+            spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":new  "));
+            spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":group+  "));
+        }
+    }
+}
+
 fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
     let sessions = app.sessions();
 
@@ -1402,6 +1491,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
     ));
     spans.push(Span::raw("  |  "));
 
+    #[cfg(feature = "pro")]
     if app.state() == crate::ui::AppState::Relationships {
         spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
         spans.push(Span::raw(":new  "));
@@ -1416,50 +1506,18 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         spans.push(Span::styled("Esc", Style::default().fg(Color::Yellow)));
         spans.push(Span::raw(":back"));
     } else {
-
-    match app.selected_item() {
-        Some(TreeItem::Group { .. }) => {
-            spans.push(Span::styled("Enter", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":toggle  "));
-            spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
-            spans.push(Span::raw(":rename  "));
-            spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":del  "));
-            spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":group+  "));
-            spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":new  "));
-        }
-        Some(TreeItem::Session { .. }) => {
-            spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":new  "));
-            spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":group+  "));
-            spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
-            spans.push(Span::raw(":rename  "));
-            spans.push(Span::styled("R", Style::default().fg(Color::Yellow)));
-            spans.push(Span::raw(":restart  "));
-            spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":del  "));
-            spans.push(Span::styled("f", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":fork  "));
-            spans.push(Span::styled("m", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":move  "));
-        }
-        _ => {
-            spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":new  "));
-            spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":group+  "));
-        }
+        render_item_hints(&mut spans, app);
     }
-
-    } // end else (not Relationships)
+    #[cfg(not(feature = "pro"))]
+    render_item_hints(&mut spans, app);
 
     spans.push(Span::styled("/", Style::default().fg(Color::Cyan)));
     spans.push(Span::raw(":search  "));
-    spans.push(Span::styled("^E", Style::default().fg(Color::Cyan)));
-    spans.push(Span::raw(":rels  "));
+    #[cfg(feature = "pro")]
+    {
+        spans.push(Span::styled("^E", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw(":rels  "));
+    }
     spans.push(Span::styled("p", Style::default().fg(Color::Cyan)));
     spans.push(Span::raw(":preview  "));
     spans.push(Span::styled("?", Style::default().fg(Color::Magenta)));
@@ -1480,6 +1538,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
     }
 
     // Tab hint for active panel (premium, only when there are active sessions)
+    #[cfg(feature = "pro")]
     {
         let is_pro = app.auth_token().map_or(false, |t| t.is_pro());
         let has_active = !app.active_sessions().is_empty();
@@ -1517,6 +1576,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
 }
 
 /// Render the Relationships view (Premium)
+#[cfg(feature = "pro")]
 fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -1694,6 +1754,7 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(preview, chunks[1]);
 }
 
+#[cfg(feature = "pro")]
 fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
     let popup_area = centered_rect(65, 50, area);
     f.render_widget(Clear, popup_area);
@@ -1779,6 +1840,7 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
     );
 }
 
+#[cfg(feature = "pro")]
 fn render_create_relationship_dialog(
     f: &mut Frame,
     area: Rect,
@@ -1896,6 +1958,7 @@ fn render_create_relationship_dialog(
     );
 }
 
+#[cfg(feature = "pro")]
 fn render_annotate_dialog(f: &mut Frame, area: Rect, d: &crate::ui::AnnotateDialog) {
     let popup_area = centered_rect(60, 30, area);
     f.render_widget(Clear, popup_area);
@@ -1936,6 +1999,7 @@ fn render_annotate_dialog(f: &mut Frame, area: Rect, d: &crate::ui::AnnotateDial
     );
 }
 
+#[cfg(feature = "pro")]
 fn render_new_from_context_dialog(
     f: &mut Frame,
     area: Rect,

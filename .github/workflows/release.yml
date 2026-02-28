@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-free:
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +35,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build
+      - name: Build (free)
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package
@@ -61,6 +61,74 @@ jobs:
               shasum -a 256 "${BIN}-${{ matrix.target }}.tar.gz" > "${BIN}-${{ matrix.target }}.tar.gz.sha256"
             else
               sha256sum "${BIN}-${{ matrix.target }}.tar.gz" > "${BIN}-${{ matrix.target }}.tar.gz.sha256"
+            fi
+          )
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+
+  build-pro:
+    if: github.repository == 'weykon/agent-hand'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-14
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone pro module
+        env:
+          PRO_REPO_TOKEN: ${{ secrets.PRO_REPO_TOKEN }}
+        run: git clone https://x-access-token:${PRO_REPO_TOKEN}@github.com/weykon/agent-hand-pro.git pro
+        shell: bash
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (pro)
+        run: cargo build --release --locked --features pro --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=agent-hand
+          OUTDIR=dist
+          mkdir -p "$OUTDIR"
+
+          BIN_PATH="target/${{ matrix.target }}/release/${BIN}"
+          OUT_BIN="$BIN"
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            BIN_PATH="${BIN_PATH}.exe"
+            OUT_BIN="${BIN}.exe"
+          fi
+
+          cp "$BIN_PATH" "$OUTDIR/$OUT_BIN"
+          tar -C "$OUTDIR" -czf "$OUTDIR/agent-hand-pro-${{ matrix.target }}.tar.gz" "$OUT_BIN"
+          (
+            cd "$OUTDIR"
+            if command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "agent-hand-pro-${{ matrix.target }}.tar.gz" > "agent-hand-pro-${{ matrix.target }}.tar.gz.sha256"
+            else
+              sha256sum "agent-hand-pro-${{ matrix.target }}.tar.gz" > "agent-hand-pro-${{ matrix.target }}.tar.gz.sha256"
             fi
           )
 

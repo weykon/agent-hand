@@ -10,6 +10,10 @@ pub mod tmux;
 pub mod ui;
 pub mod update;
 
+#[cfg(feature = "pro")]
+#[path = "../pro/src/mod.rs"]
+pub mod pro;
+
 pub use error::{Error, Result};
 
 /// Version of agent-hand
