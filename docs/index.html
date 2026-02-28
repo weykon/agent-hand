@@ -57,7 +57,7 @@
                     <a href="compare.html">Compare</a>
                     <a href="#pricing">Pricing</a>
                     <a href="#story">Story</a>
-                    <a href="account.html">Account</a>
+                    <a href="account.html" id="nav-account">Account</a>
                     <a
                         href="https://github.com/weykon/agent-hand"
                         class="github-btn"
@@ -384,9 +384,37 @@ cargo build --release</pre
         <script>
             const AUTH_BASE = "https://auth.asymptai.com";
 
-            // Pricing: creem.io checkout
+            // Auth helpers for landing page
+            function getStoredEmail() {
+                return localStorage.getItem("agent_hand_email");
+            }
+            function getStoredToken() {
+                return localStorage.getItem("agent_hand_token");
+            }
+
+            // Show login state in nav
+            (function initAuthUI() {
+                const email = getStoredEmail();
+                const accountLink = document.getElementById("nav-account");
+                if (email && accountLink) {
+                    // Show email initial as avatar
+                    const initial = email[0].toUpperCase();
+                    accountLink.innerHTML =
+                        '<span style="display:inline-flex;align-items:center;gap:6px;">' +
+                        '<span style="width:24px;height:24px;border-radius:50%;background:#6366f1;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">' + initial + '</span>' +
+                        email.split("@")[0] +
+                        '</span>';
+                }
+            })();
+
+            // Pricing: creem.io checkout — include customer email if logged in
             function buyLicense() {
-                window.open("https://www.creem.io/payment/prod_44F1yThRt3QEV6QnkeWNjO", "_blank");
+                let url = "https://www.creem.io/payment/prod_44F1yThRt3QEV6QnkeWNjO";
+                const email = getStoredEmail();
+                if (email) {
+                    url += "?customer_email=" + encodeURIComponent(email);
+                }
+                window.open(url, "_blank");
             }
 
             // Device activation flow — show overlay if ?code= is present
