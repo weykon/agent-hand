@@ -76,6 +76,9 @@ dirs = "5"
 # Cross-platform browser opener
 open = "5"
 
+# AI provider (shared crate)
+ai_api_provider = { path = "../ai_api_provider" }
+
 # File locking for multi-instance safety
 fs2 = "0.4"
 
