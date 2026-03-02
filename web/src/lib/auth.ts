@@ -31,6 +31,8 @@ export interface UserStatus {
   email: string;
   features: string[];
   purchased_at: string;
+  subscription_status: "active" | "canceled" | "expired" | null;
+  subscription_end_date: string | null;
 }
 
 export async function getStatus(): Promise<UserStatus | null> {
@@ -43,4 +45,18 @@ export async function getStatus(): Promise<UserStatus | null> {
 
   if (!res.ok) return null;
   return res.json();
+}
+
+export function isMax(status: UserStatus | null): boolean {
+  return status?.features?.includes("max") ?? false;
+}
+
+export function isPro(status: UserStatus | null): boolean {
+  return status?.features?.includes("upgrade") ?? false;
+}
+
+export function getPlanName(status: UserStatus | null): "Free" | "Pro" | "Max" {
+  if (isMax(status)) return "Max";
+  if (isPro(status)) return "Pro";
+  return "Free";
 }

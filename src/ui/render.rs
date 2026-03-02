@@ -1301,6 +1301,7 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
         key("f", "Fork"),
         key("d", "Delete"),
         key("b", "Boost active"),
+        #[cfg(feature = "max")]
         key("A", "AI summary (Max)"),
         Line::from(""),
         section("Group Actions"),
@@ -1395,8 +1396,11 @@ fn render_item_hints(spans: &mut Vec<Span<'static>>, app: &App) {
             spans.push(Span::raw(":move  "));
             spans.push(Span::styled("b", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":boost  "));
-            spans.push(Span::styled("A", Style::default().fg(Color::Magenta)));
-            spans.push(Span::raw(":AI  "));
+            #[cfg(feature = "max")]
+            {
+                spans.push(Span::styled("A", Style::default().fg(Color::Magenta)));
+                spans.push(Span::raw(":AI  "));
+            }
         }
         _ => {
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
@@ -1529,7 +1533,12 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
     // User account badge
     spans.push(Span::raw("  |  "));
     if let Some(token) = app.auth_token() {
-        if token.is_max() {
+        #[cfg(feature = "max")]
+        let is_max_badge = token.is_max();
+        #[cfg(not(feature = "max"))]
+        let is_max_badge = false;
+
+        if is_max_badge {
             spans.push(Span::styled(
                 "MAX",
                 Style::default()

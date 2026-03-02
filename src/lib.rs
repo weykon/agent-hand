@@ -1,3 +1,4 @@
+#[cfg(feature = "max")]
 pub mod ai;
 pub mod analytics;
 pub mod auth;

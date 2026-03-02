@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { PricingSection } from "./pricing";
 
 export const metadata: Metadata = {
   title: "Agent Hand - Terminal Session Manager for AI Agents",
@@ -172,48 +173,7 @@ export default function HomePage() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="bg-[#0f0f1a] px-6 py-20 text-center">
-        <h2 className="mb-2 text-3xl font-bold">Simple Pricing</h2>
-        <p className="mb-12 text-[#94a3b8]">Core features are free forever. Pay once for premium.</p>
-        <div className="mx-auto flex max-w-xl flex-wrap justify-center gap-6">
-          <div className="w-64 rounded-xl border border-[#333] bg-[#1a1a2e] p-6">
-            <h3 className="mb-1 text-lg font-semibold">Free</h3>
-            <p className="mb-4 text-3xl font-bold text-[#6366f1]">$0</p>
-            <ul className="mb-6 space-y-2 text-left text-sm text-[#94a3b8]">
-              <li>Session management TUI</li>
-              <li>tmux integration</li>
-              <li>Status monitoring</li>
-              <li>All open-source features</li>
-            </ul>
-            <a href="https://github.com/weykon/agent-hand" target="_blank" rel="noopener noreferrer"
-              className="block rounded-lg border border-[#444] py-2.5 text-center font-semibold hover:border-[#666]">
-              Get Started Free
-            </a>
-          </div>
-          <div className="relative w-64 rounded-xl border-2 border-[#6366f1] bg-[#1a1a2e] p-6">
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#6366f1] px-3 py-0.5 text-xs font-semibold text-white">
-              POPULAR
-            </span>
-            <h3 className="mb-1 text-lg font-semibold">Pro</h3>
-            <p className="mb-4 text-3xl font-bold text-[#6366f1]">
-              $19 <span className="text-base font-normal text-[#94a3b8]">one-time</span>
-            </p>
-            <ul className="mb-6 space-y-2 text-left text-sm text-[#94a3b8]">
-              <li>Everything in Free</li>
-              <li><strong className="text-[#e2e8f0]">Auto-upgrade</strong> command</li>
-              <li>Priority support</li>
-              <li>Future premium features</li>
-            </ul>
-            <Link href="/account"
-              className="block rounded-lg bg-[#6366f1] py-2.5 text-center font-semibold text-white hover:bg-[#818cf8]">
-              Buy License
-            </Link>
-          </div>
-        </div>
-        <p className="mt-8 text-sm text-[#64748b]">
-          After purchase, run <code className="rounded bg-[#1a1a2e] px-1.5 py-0.5">agent-hand login</code> to activate.
-        </p>
-      </section>
+      <PricingSection />
 
       {/* Story */}
       <section id="story" className="px-6 py-20">

@@ -13,6 +13,7 @@ path = "src/main.rs"
 [features]
 default = []
 pro = ["dep:tokio-tungstenite", "dep:futures-util", "dep:base64"]
+max = ["pro", "dep:ai_api_provider"]
 
 [dependencies]
 # Async runtime
@@ -77,7 +78,7 @@ dirs = "5"
 open = "5"
 
 # AI provider (shared crate)
-ai_api_provider = { path = "../ai_api_provider" }
+ai_api_provider = { path = "../ai_api_provider", optional = true }
 
 # File locking for multi-instance safety
 fs2 = "0.4"

@@ -121,8 +121,10 @@ pub struct App {
     #[cfg(feature = "pro")]
     relay_clients: HashMap<String, Arc<crate::pro::collab::client::RelayClient>>,
 
-    // AI summarizer (Max tier — runtime gated)
+    // AI summarizer (Max tier)
+    #[cfg(feature = "max")]
     summarizer: Option<crate::ai::Summarizer>,
+    #[cfg(feature = "max")]
     /// Summaries received from background AI tasks, displayed in preview.
     summary_results: HashMap<String, String>,
 }
@@ -254,7 +256,7 @@ impl App {
             viewer_state: None,
             #[cfg(feature = "pro")]
             relay_clients: HashMap::new(),
-            // AI summarizer: only initialize if Max tier and config present
+            #[cfg(feature = "max")]
             summarizer: {
                 let is_max = crate::auth::AuthToken::load().map_or(false, |t| t.is_max());
                 if is_max {
@@ -264,6 +266,7 @@ impl App {
                     None
                 }
             },
+            #[cfg(feature = "max")]
             summary_results: HashMap::new(),
         };
 
@@ -474,6 +477,7 @@ impl App {
         }
 
         // Poll AI summary results (non-blocking)
+        #[cfg(feature = "max")]
         if let Some(ref mut summarizer) = self.summarizer {
             for result in summarizer.poll_results() {
                 self.summary_results.insert(result.session_id.clone(), result.summary.clone());
@@ -904,6 +908,7 @@ impl App {
         }
 
         // AI Summarize (Max tier) — 'A' key
+        #[cfg(feature = "max")]
         if self.keybindings.matches("summarize", &key, modifiers) {
             if let Some(summarizer) = &self.summarizer {
                 if let Some(session) = self.selected_session() {

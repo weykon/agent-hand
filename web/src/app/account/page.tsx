@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getStatus, isLoggedIn, logout, getEmail } from "@/lib/auth";
+import { getStatus, isLoggedIn, logout, getEmail, isPro, isMax, getPlanName } from "@/lib/auth";
 import type { UserStatus } from "@/lib/auth";
 
 const AUTH_BASE = "https://auth.asymptai.com";
@@ -90,7 +90,17 @@ export default function AccountPage() {
     );
   }
 
-  const isPro = status?.features?.includes("upgrade");
+  const plan = getPlanName(status);
+  const userEmail = status?.email ?? getEmail() ?? "";
+
+  const planColors: Record<string, string> = {
+    Free: "text-[#94a3b8]",
+    Pro: "text-[#4ade80]",
+    Max: "text-[#a855f7]",
+  };
+
+  const CREEM_PRO_PRODUCT_ID = "prod_44F1yThRt3QEV6QnkeWNjO";
+  const CREEM_MAX_PRODUCT_ID = "PLACEHOLDER_MAX_PRODUCT_ID";
 
   return (
     <div className="mx-auto max-w-lg px-6 py-16">
@@ -100,49 +110,97 @@ export default function AccountPage() {
         <p className="text-[#94a3b8]">Loading...</p>
       ) : (
         <div className="space-y-6">
+          {/* Email */}
           <div className="rounded-xl border border-[#1e293b] bg-[#1a1a2e] p-6">
             <p className="mb-1 text-sm text-[#64748b]">Email</p>
-            <p className="font-medium">{status?.email ?? getEmail()}</p>
+            <p className="font-medium">{userEmail}</p>
           </div>
 
+          {/* Plan */}
           <div className="rounded-xl border border-[#1e293b] bg-[#1a1a2e] p-6">
             <p className="mb-1 text-sm text-[#64748b]">Plan</p>
             <p className="text-lg font-semibold">
-              {isPro ? (
-                <span className="text-[#4ade80]">Pro</span>
-              ) : (
-                <span className="text-[#94a3b8]">Free</span>
-              )}
+              <span className={planColors[plan]}>{plan}</span>
             </p>
-            {isPro && status?.purchased_at && (
+            {isPro(status) && status?.purchased_at && (
               <p className="mt-1 text-sm text-[#64748b]">
                 Purchased: {new Date(status.purchased_at).toLocaleDateString()}
               </p>
             )}
+            {isMax(status) && status?.subscription_status && (
+              <div className="mt-2 space-y-1">
+                <p className="text-sm text-[#64748b]">
+                  Subscription:{" "}
+                  <span className={status.subscription_status === "active" ? "text-green-400" : "text-yellow-400"}>
+                    {status.subscription_status}
+                  </span>
+                </p>
+                {status.subscription_end_date && (
+                  <p className="text-sm text-[#64748b]">
+                    {status.subscription_status === "active" ? "Next billing" : "Access until"}:{" "}
+                    {new Date(status.subscription_end_date).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
-          {isPro && (
-            <div className="rounded-xl border border-[#1e293b] bg-[#1a1a2e] p-6">
-              <p className="mb-2 text-sm text-[#64748b]">Features</p>
-              <ul className="space-y-1 text-sm text-[#94a3b8]">
-                <li>Auto-upgrade command</li>
-                <li>Priority support</li>
-                <li>Future premium features</li>
-              </ul>
+          {/* Features */}
+          <div className="rounded-xl border border-[#1e293b] bg-[#1a1a2e] p-6">
+            <p className="mb-2 text-sm text-[#64748b]">Included Features</p>
+            <ul className="space-y-1 text-sm text-[#94a3b8]">
+              <li>Session management TUI</li>
+              <li>tmux integration & status monitoring</li>
+              {isPro(status) && (
+                <>
+                  <li className="text-[#4ade80]">Auto-upgrade command</li>
+                  <li className="text-[#4ade80]">Priority support</li>
+                </>
+              )}
+              {isMax(status) && (
+                <>
+                  <li className="text-[#a855f7]">AI Session Summarizer</li>
+                  <li className="text-[#a855f7]">Remote Sharing & Collaboration</li>
+                  <li className="text-[#a855f7]">Session Relationships & Context</li>
+                </>
+              )}
+            </ul>
+          </div>
+
+          {/* Upgrade CTAs */}
+          {plan === "Free" && (
+            <div className="space-y-3">
+              <a
+                href={`https://www.creem.io/payment/${CREEM_PRO_PRODUCT_ID}?customer_email=${encodeURIComponent(userEmail)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block rounded-lg bg-[#6366f1] py-3 text-center font-semibold text-white hover:bg-[#818cf8]"
+              >
+                Upgrade to Pro — $19 one-time
+              </a>
+              <a
+                href={`https://www.creem.io/payment/${CREEM_MAX_PRODUCT_ID}?customer_email=${encodeURIComponent(userEmail)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block rounded-lg border-2 border-[#a855f7] py-3 text-center font-semibold text-[#a855f7] hover:bg-[#a855f7]/10"
+              >
+                Subscribe to Max — $9/mo
+              </a>
             </div>
           )}
 
-          {!isPro && (
+          {plan === "Pro" && (
             <a
-              href={`https://www.creem.io/payment/prod_44F1yThRt3QEV6QnkeWNjO?customer_email=${encodeURIComponent(status?.email ?? getEmail() ?? "")}`}
+              href={`https://www.creem.io/payment/${CREEM_MAX_PRODUCT_ID}?customer_email=${encodeURIComponent(userEmail)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="block rounded-lg bg-[#6366f1] py-3 text-center font-semibold text-white hover:bg-[#818cf8]"
+              className="block rounded-lg bg-[#a855f7] py-3 text-center font-semibold text-white hover:bg-[#c084fc]"
             >
-              Upgrade to Pro — $19
+              Upgrade to Max — $9/mo
             </a>
           )}
 
+          {/* Actions */}
           <div className="flex gap-3">
             <button
               onClick={handleRefresh}

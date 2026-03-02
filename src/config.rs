@@ -54,6 +54,7 @@ pub struct ConfigFile {
     jump_lines: Option<usize>,
 
     /// AI configuration (Max tier)
+    #[cfg(feature = "max")]
     #[serde(default)]
     ai: AiConfig,
 }
@@ -140,6 +141,7 @@ impl Default for SharingConfig {
 }
 
 /// AI provider configuration (Max tier)
+#[cfg(feature = "max")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct AiConfig {
     /// Provider name (e.g. "deepseek", "claude", "ollama"). Default: "deepseek"
@@ -159,14 +161,17 @@ pub struct AiConfig {
     pub summary_lines: usize,
 }
 
+#[cfg(feature = "max")]
 fn default_ai_provider() -> String {
     "deepseek".to_string()
 }
 
+#[cfg(feature = "max")]
 fn default_summary_lines() -> usize {
     200
 }
 
+#[cfg(feature = "max")]
 impl Default for AiConfig {
     fn default() -> Self {
         Self {
@@ -266,6 +271,7 @@ impl ConfigFile {
         &self.sharing
     }
 
+    #[cfg(feature = "max")]
     pub fn ai(&self) -> &AiConfig {
         &self.ai
     }
