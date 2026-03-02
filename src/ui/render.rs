@@ -73,26 +73,27 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Render title
     render_title(f, chunks[0]);
 
-    // Render content
-    if app.help_visible() {
-        render_help(f, chunks[1]);
-    } else {
-        #[cfg(feature = "pro")]
-        {
-            if app.state() == crate::ui::AppState::ViewerMode {
-                render_viewer_mode(f, chunks[1], app);
-            } else if app.state() == crate::ui::AppState::Relationships {
-                render_relationships(f, chunks[1], app);
-            } else {
-                render_main(f, chunks[1], app);
-            }
+    // Always render main content (dashboard stays visible behind modal)
+    #[cfg(feature = "pro")]
+    {
+        if app.state() == crate::ui::AppState::ViewerMode {
+            render_viewer_mode(f, chunks[1], app);
+        } else if app.state() == crate::ui::AppState::Relationships {
+            render_relationships(f, chunks[1], app);
+        } else {
+            render_main(f, chunks[1], app);
         }
-        #[cfg(not(feature = "pro"))]
-        render_main(f, chunks[1], app);
     }
+    #[cfg(not(feature = "pro"))]
+    render_main(f, chunks[1], app);
 
     // Render status bar
     render_status_bar(f, chunks[2], app);
+
+    // Help modal overlays on top when visible
+    if app.help_visible() {
+        render_help_modal(f, f.area());
+    }
 
     if app.state() == crate::ui::AppState::Dialog {
         render_dialog(f, f.area(), app);
@@ -421,7 +422,11 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
 
     #[cfg(feature = "pro")]
     {
-        let mut state = app.list_state().clone();
+        let mut state = if tree_focused {
+            app.list_state().clone()
+        } else {
+            ListState::default()
+        };
         f.render_stateful_widget(list, area, &mut state);
     }
     #[cfg(not(feature = "pro"))]
@@ -1244,174 +1249,112 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     popup_layout[1]
 }
 
-/// Render help screen
-fn render_help(f: &mut Frame, area: Rect) {
-    let help_text = vec![
+/// Render help as a centered modal overlay
+fn render_help_modal(f: &mut Frame, area: Rect) {
+    let modal_area = centered_rect(80, 85, area);
+    f.render_widget(Clear, modal_area);
+
+    let section = |label: &str| -> Line<'static> {
+        Line::from(vec![
+            Span::styled(
+                format!("── {label} "),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "─".repeat(40usize.saturating_sub(label.len() + 4)),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ])
+    };
+
+    let key = |k: &str, desc: &str| -> Line<'static> {
+        Line::from(vec![
+            Span::styled(
+                format!("  {:<12}", k),
+                Style::default().fg(Color::Yellow),
+            ),
+            Span::raw(desc.to_string()),
+        ])
+    };
+
+    let help_text: Vec<Line<'static>> = vec![
         Line::from(""),
-        Line::from(Span::styled(
-            "Keyboard Shortcuts",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
+        section("Navigation"),
+        key("↑/k", "Move up"),
+        key("↓/j", "Move down"),
+        key("←/→", "Toggle group"),
+        key("/", "Search"),
         Line::from(""),
-        Line::from(Span::styled(
-            "Navigation",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![
-            Span::styled("  ↑/k", Style::default().fg(Color::Yellow)),
-            Span::raw("      Move selection up"),
-        ]),
-        Line::from(vec![
-            Span::styled("  ↓/j", Style::default().fg(Color::Yellow)),
-            Span::raw("      Move selection down"),
-        ]),
-        Line::from(vec![
-            Span::styled("  ←/→/Space", Style::default().fg(Color::Yellow)),
-            Span::raw(" Toggle group expand/collapse"),
-        ]),
+        section("Session Actions"),
+        key("Enter", "Attach"),
+        key("s", "Start"),
+        key("x", "Stop"),
+        key("r", "Edit"),
+        key("R", "Restart"),
+        key("m", "Move to group"),
+        key("f", "Fork"),
+        key("d", "Delete"),
+        key("b", "Boost active"),
         Line::from(""),
-        Line::from(Span::styled(
-            "When a session is selected",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![
-            Span::styled("  Enter", Style::default().fg(Color::Green)),
-            Span::raw("    Attach to session"),
-        ]),
-        Line::from(vec![
-            Span::styled("  s", Style::default().fg(Color::Green)),
-            Span::raw("        Start session"),
-        ]),
-        Line::from(vec![
-            Span::styled("  x", Style::default().fg(Color::Red)),
-            Span::raw("        Stop session"),
-        ]),
-        Line::from(vec![
-            Span::styled("  r", Style::default().fg(Color::Yellow)),
-            Span::raw("        Edit session (title/label)"),
-        ]),
-        Line::from(vec![
-            Span::styled("  R", Style::default().fg(Color::Yellow)),
-            Span::raw("        Restart session"),
-        ]),
-        Line::from(vec![
-            Span::styled("  m", Style::default().fg(Color::Cyan)),
-            Span::raw("        Move session to group"),
-        ]),
-        Line::from(vec![
-            Span::styled("  f", Style::default().fg(Color::Cyan)),
-            Span::raw("        Fork session"),
-        ]),
-        Line::from(vec![
-            Span::styled("  d", Style::default().fg(Color::Cyan)),
-            Span::raw("        Delete session"),
-        ]),
+        section("Group Actions"),
+        key("Enter", "Toggle"),
+        key("r", "Rename"),
+        key("d", "Delete"),
         Line::from(""),
-        Line::from(Span::styled(
-            "When a group is selected",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
+        section("Global"),
+        key("n", "New session"),
+        key("g", "Create group"),
+        key("p", "Preview snapshot"),
+        key("Ctrl+r", "Refresh"),
+        key("Ctrl+e", "Relationships"),
+        key("S", "Share (Pro)"),
+        key("Tab", "Active panel (Pro)"),
+        key("?", "Help"),
+        key("q", "Quit"),
+        Line::from(""),
+        section("Status Indicators"),
         Line::from(vec![
-            Span::styled("  Enter", Style::default().fg(Color::Green)),
-            Span::raw("    Toggle group"),
+            Span::styled("  !  ", Style::default().fg(Color::Blue)),
+            Span::raw("WAITING"),
+            Span::raw("    "),
+            Span::styled("✓  ", Style::default().fg(Color::Cyan)),
+            Span::raw("READY"),
+            Span::raw("     "),
+            Span::styled("●  ", Style::default().fg(Color::Yellow)),
+            Span::raw("RUNNING"),
         ]),
         Line::from(vec![
-            Span::styled("  r", Style::default().fg(Color::Yellow)),
-            Span::raw("        Rename group"),
-        ]),
-        Line::from(vec![
-            Span::styled("  d", Style::default().fg(Color::Red)),
-            Span::raw("        Delete group"),
+            Span::styled("  ○  ", Style::default().fg(Color::DarkGray)),
+            Span::raw("IDLE"),
+            Span::raw("       "),
+            Span::styled("✕  ", Style::default().fg(Color::Red)),
+            Span::raw("ERROR"),
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Global",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            "          Press ? or Esc to close",
+            Style::default().fg(Color::DarkGray),
         )),
-        Line::from(vec![
-            Span::styled("  n", Style::default().fg(Color::Cyan)),
-            Span::raw("        New session"),
-        ]),
-        Line::from(vec![
-            Span::styled("  g", Style::default().fg(Color::Cyan)),
-            Span::raw("        Create group"),
-        ]),
-        Line::from(vec![
-            Span::styled("  /", Style::default().fg(Color::Cyan)),
-            Span::raw("        Search"),
-        ]),
-        Line::from(vec![
-            Span::styled("  p", Style::default().fg(Color::Cyan)),
-            Span::raw("        Capture preview snapshot"),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+r", Style::default().fg(Color::Cyan)),
-            Span::raw("   Refresh"),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+e", Style::default().fg(Color::Cyan)),
-            Span::raw("   Relationships view"),
-        ]),
-        Line::from(vec![
-            Span::styled("  S", Style::default().fg(Color::Cyan)),
-            Span::raw("        Share session (Premium)"),
-        ]),
-        Line::from(vec![
-            Span::styled("  ?", Style::default().fg(Color::Magenta)),
-            Span::raw("        Toggle help"),
-        ]),
-        Line::from(vec![
-            Span::styled("  q", Style::default().fg(Color::Red)),
-            Span::raw("        Quit"),
-        ]),
-        Line::from(""),
-        Line::from(""),
-        Line::from(Span::styled(
-            "Status Indicators",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  ! ", Style::default().fg(Color::Blue)),
-            Span::raw("  WAITING  - Needs your input (blocked prompt)"),
-        ]),
-        Line::from(vec![
-            Span::styled("  ✓ ", Style::default().fg(Color::Cyan)),
-            Span::raw("  READY    - Agent finished recently"),
-        ]),
-        Line::from(vec![
-            Span::styled("  ● ", Style::default().fg(Color::Yellow)),
-            Span::raw("  RUNNING  - Agent is busy"),
-        ]),
-        Line::from(vec![
-            Span::styled("  ○ ", Style::default().fg(Color::DarkGray)),
-            Span::raw("  IDLE     - Session not started"),
-        ]),
-        Line::from(vec![
-            Span::styled("  ✕ ", Style::default().fg(Color::Red)),
-            Span::raw("  ERROR    - Session error"),
-        ]),
-        Line::from(""),
     ];
 
     let help = Paragraph::new(help_text)
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Help"));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Span::styled(
+                    " ⌨ Commands & Shortcuts ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
 
-    f.render_widget(help, area);
+    f.render_widget(help, modal_area);
 }
 
 /// Render status bar
