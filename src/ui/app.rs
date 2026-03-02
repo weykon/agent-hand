@@ -1048,11 +1048,11 @@ impl App {
             return Ok(());
         }
 
-        // S: Share selected session (Premium)
+        // S: Share selected session (Max tier)
         #[cfg(feature = "pro")]
         if key == KeyCode::Char('S') && modifiers == KeyModifiers::SHIFT {
             if let Some(inst) = self.selected_session() {
-                if crate::auth::AuthToken::require_feature("sharing").is_ok() {
+                if crate::auth::AuthToken::require_max("sharing").is_ok() {
                     let already_sharing = inst.sharing.is_some()
                         && inst.sharing.as_ref().is_some_and(|s| s.active);
                     let sharing_cfg = crate::config::ConfigFile::load()

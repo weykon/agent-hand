@@ -86,7 +86,7 @@ pub async fn run_cli(args: Args) -> Result<()> {
             #[cfg(not(feature = "pro"))]
             {
                 let _ = (id, permission, expire);
-                eprintln!("Session sharing is a Pro feature. Visit https://weykon.github.io/agent-hand");
+                eprintln!("Session sharing requires Max subscription. Visit https://weykon.github.io/agent-hand");
                 Ok(())
             }
         }
@@ -97,7 +97,7 @@ pub async fn run_cli(args: Args) -> Result<()> {
             #[cfg(not(feature = "pro"))]
             {
                 let _ = id;
-                eprintln!("Session sharing is a Pro feature. Visit https://weykon.github.io/agent-hand");
+                eprintln!("Session sharing requires Max subscription. Visit https://weykon.github.io/agent-hand");
                 Ok(())
             }
         }
@@ -889,7 +889,13 @@ async fn handle_account(refresh: bool) -> Result<()> {
         }
     }
 
-    let plan = if token.is_pro() { "Pro" } else { "Free" };
+    let plan = if token.is_max() {
+        "Max"
+    } else if token.is_pro() {
+        "Pro"
+    } else {
+        "Free"
+    };
 
     println!("Account: {}", token.email);
     println!("Plan:    {}", plan);

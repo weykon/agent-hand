@@ -48,6 +48,20 @@ impl AuthToken {
         }
     }
 
+    /// Gate a Max-tier feature: returns Ok(()) if the user has Max subscription.
+    /// Usage: `AuthToken::require_max("sharing")?;`
+    pub fn require_max(label: &str) -> Result<()> {
+        match Self::load() {
+            None => Err(crate::Error::InvalidInput(
+                format!("'{}' requires Max subscription. Run `agent-hand login`.", label),
+            )),
+            Some(t) if !t.is_max() => Err(crate::Error::InvalidInput(
+                format!("'{}' requires Max subscription. Visit https://weykon.github.io/agent-hand", label),
+            )),
+            Some(_) => Ok(()),
+        }
+    }
+
     pub fn load() -> Option<Self> {
         let path = auth_file_path()?;
         let data = std::fs::read_to_string(path).ok()?;

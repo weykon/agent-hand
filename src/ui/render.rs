@@ -1314,7 +1314,7 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
         key("p", "Preview snapshot"),
         key("Ctrl+r", "Refresh"),
         key("Ctrl+e", "Relationships"),
-        key("S", "Share (Pro)"),
+        key("S", "Share (Max)"),
         key("Tab", "Active panel (Pro)"),
         key("?", "Help"),
         key("q", "Quit"),
@@ -1529,7 +1529,14 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
     // User account badge
     spans.push(Span::raw("  |  "));
     if let Some(token) = app.auth_token() {
-        if token.is_pro() {
+        if token.is_max() {
+            spans.push(Span::styled(
+                "MAX",
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        } else if token.is_pro() {
             spans.push(Span::styled(
                 "PRO",
                 Style::default()
