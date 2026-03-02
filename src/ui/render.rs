@@ -229,11 +229,18 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    let tree_focused = {
+        #[cfg(feature = "pro")]
+        { !app.active_panel_focused() }
+        #[cfg(not(feature = "pro"))]
+        { true }
+    };
+
     let items: Vec<ListItem> = tree
         .iter()
         .enumerate()
         .map(|(i, item)| {
-            let is_selected = i == app.selected_index();
+            let is_selected = tree_focused && i == app.selected_index();
             let base = if is_selected {
                 Style::default().fg(Color::Black).bg(Color::Cyan)
             } else {
@@ -393,13 +400,6 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
-    let tree_focused = {
-        #[cfg(feature = "pro")]
-        { !app.active_panel_focused() }
-        #[cfg(not(feature = "pro"))]
-        { true }
-    };
-
     let border_style = if tree_focused {
         Style::default().fg(Color::Yellow)
     } else {
@@ -415,7 +415,11 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
                     app.selected_index() + 1,
                     tree.len()
                 ),
-                Style::default().fg(Color::Cyan),
+                if tree_focused {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                },
             ))
             .border_style(border_style),
     );
