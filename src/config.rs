@@ -52,6 +52,10 @@ pub struct ConfigFile {
     /// Lines to jump with Ctrl+D / Ctrl+U. Default: 10.
     #[serde(default)]
     jump_lines: Option<usize>,
+
+    /// AI configuration (Max tier)
+    #[serde(default)]
+    ai: AiConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -131,6 +135,46 @@ impl Default for SharingConfig {
             default_permission: default_share_permission(),
             auto_expire_minutes: None,
             relay_server_url: None,
+        }
+    }
+}
+
+/// AI provider configuration (Max tier)
+#[derive(Debug, Clone, Deserialize)]
+pub struct AiConfig {
+    /// Provider name (e.g. "deepseek", "claude", "ollama"). Default: "deepseek"
+    #[serde(default = "default_ai_provider")]
+    pub provider: String,
+    /// Model override. If empty, uses provider's default.
+    #[serde(default)]
+    pub model: String,
+    /// API key override. If empty, reads from env var.
+    #[serde(default)]
+    pub api_key: String,
+    /// Custom base URL (for proxies or self-hosted).
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// Lines to capture for summarization. Default: 200.
+    #[serde(default = "default_summary_lines")]
+    pub summary_lines: usize,
+}
+
+fn default_ai_provider() -> String {
+    "deepseek".to_string()
+}
+
+fn default_summary_lines() -> usize {
+    200
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_ai_provider(),
+            model: String::new(),
+            api_key: String::new(),
+            base_url: None,
+            summary_lines: default_summary_lines(),
         }
     }
 }
@@ -220,6 +264,10 @@ impl ConfigFile {
 
     pub fn sharing(&self) -> &SharingConfig {
         &self.sharing
+    }
+
+    pub fn ai(&self) -> &AiConfig {
+        &self.ai
     }
 }
 
@@ -422,6 +470,13 @@ impl Default for KeyBindings {
             "boost",
             vec![KeySpec {
                 code: KeyCode::Char('b'),
+                modifiers: KeyModifiers::NONE,
+            }],
+        );
+        kb.bindings.insert(
+            "summarize",
+            vec![KeySpec {
+                code: KeyCode::Char('A'),
                 modifiers: KeyModifiers::NONE,
             }],
         );

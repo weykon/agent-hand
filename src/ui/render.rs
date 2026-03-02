@@ -1301,6 +1301,7 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
         key("f", "Fork"),
         key("d", "Delete"),
         key("b", "Boost active"),
+        key("A", "AI summary (Max)"),
         Line::from(""),
         section("Group Actions"),
         key("Enter", "Toggle"),
@@ -1394,6 +1395,8 @@ fn render_item_hints(spans: &mut Vec<Span<'static>>, app: &App) {
             spans.push(Span::raw(":move  "));
             spans.push(Span::styled("b", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":boost  "));
+            spans.push(Span::styled("A", Style::default().fg(Color::Magenta)));
+            spans.push(Span::raw(":AI  "));
         }
         _ => {
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));

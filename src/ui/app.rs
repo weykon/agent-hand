@@ -120,6 +120,11 @@ pub struct App {
     // Active relay clients keyed by session_id (pro only) — kept alive for streaming
     #[cfg(feature = "pro")]
     relay_clients: HashMap<String, Arc<crate::pro::collab::client::RelayClient>>,
+
+    // AI summarizer (Max tier — runtime gated)
+    summarizer: Option<crate::ai::Summarizer>,
+    /// Summaries received from background AI tasks, displayed in preview.
+    summary_results: HashMap<String, String>,
 }
 
 /// State for viewing a shared terminal session via relay.
@@ -249,6 +254,17 @@ impl App {
             viewer_state: None,
             #[cfg(feature = "pro")]
             relay_clients: HashMap::new(),
+            // AI summarizer: only initialize if Max tier and config present
+            summarizer: {
+                let is_max = crate::auth::AuthToken::load().map_or(false, |t| t.is_max());
+                if is_max {
+                    let ai_cfg = cfg.as_ref().map(|c| c.ai().clone()).unwrap_or_default();
+                    crate::ai::Summarizer::from_config(&ai_cfg)
+                } else {
+                    None
+                }
+            },
+            summary_results: HashMap::new(),
         };
 
         app.ensure_groups_exist();
@@ -454,6 +470,17 @@ impl App {
 
                 self.refresh_statuses().await?;
                 self.last_status_refresh = Instant::now();
+            }
+        }
+
+        // Poll AI summary results (non-blocking)
+        if let Some(ref mut summarizer) = self.summarizer {
+            for result in summarizer.poll_results() {
+                self.summary_results.insert(result.session_id.clone(), result.summary.clone());
+                // Update preview if the summarized session is currently selected
+                if self.selected_session().map(|s| s.id.as_str()) == Some(&result.session_id) {
+                    self.preview = format!("🤖 AI Summary:\n\n{}", result.summary);
+                }
             }
         }
 
@@ -872,6 +899,28 @@ impl App {
                     let storage = self.storage.lock().await;
                     let _ = storage.save(&self.sessions, &self.groups, &self.relationships).await;
                 }
+            }
+            return Ok(());
+        }
+
+        // AI Summarize (Max tier) — 'A' key
+        if self.keybindings.matches("summarize", &key, modifiers) {
+            if let Some(summarizer) = &self.summarizer {
+                if let Some(session) = self.selected_session() {
+                    let id = session.id.clone();
+                    let title = session.title.clone();
+                    let tmux_name = session.tmux_name();
+                    let lines = summarizer.capture_lines;
+                    if self.tmux.session_exists(&tmux_name).unwrap_or(false) {
+                        let content = self.tmux.capture_pane(&tmux_name, lines).await.unwrap_or_default();
+                        if !content.is_empty() {
+                            summarizer.summarize_session(id, title, content);
+                            self.preview = "⏳ AI summarizing...".to_string();
+                        }
+                    }
+                }
+            } else {
+                self.preview = "AI Summarize requires Max subscription.\nVisit https://weykon.github.io/agent-hand".to_string();
             }
             return Ok(());
         }

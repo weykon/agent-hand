@@ -28,6 +28,12 @@ impl AuthToken {
         self.has_feature("upgrade")
     }
 
+    /// Whether this token represents a max (subscription) user.
+    /// Max includes all Pro features plus AI-powered capabilities.
+    pub fn is_max(&self) -> bool {
+        self.has_feature("max")
+    }
+
     /// Gate a premium feature: returns Ok(()) if authorized, Err otherwise.
     /// Usage: `AuthToken::require_feature("sharing")?;`
     pub fn require_feature(feature: &str) -> Result<()> {
