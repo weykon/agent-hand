@@ -520,6 +520,113 @@ impl TmuxManager {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
+    /// Capture pane content with ANSI escape codes for full visual fidelity.
+    /// Used by the relay client to send terminal snapshots to viewers.
+    #[cfg(feature = "pro")]
+    pub async fn capture_pane_ansi(&self, name: &str) -> Result<Vec<u8>> {
+        let output = self
+            .tmux_cmd()
+            .args(&[
+                "capture-pane",
+                "-t",
+                name,
+                "-p",  // Print to stdout
+                "-e",  // Include escape sequences (ANSI colors, etc.)
+            ])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            return Ok(Vec::new());
+        }
+
+        Ok(output.stdout)
+    }
+
+    /// Start pipe-pane to stream PTY output to a named pipe / file.
+    /// Returns the pipe path. The caller reads from this pipe and
+    /// forwards bytes over WebSocket.
+    #[cfg(feature = "pro")]
+    pub async fn start_pipe_pane(&self, name: &str, pipe_path: &str) -> Result<()> {
+        // Ensure the pipe path's parent directory exists
+        if let Some(parent) = std::path::Path::new(pipe_path).parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+
+        let pipe_cmd = format!("cat >> {}", pipe_path);
+        let output = self
+            .tmux_cmd()
+            .args(&[
+                "pipe-pane",
+                "-t",
+                name,
+                "-O",  // Only output (not input)
+                &pipe_cmd,
+            ])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::tmux(format!(
+                "Failed to start pipe-pane: {}",
+                stderr
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Stop pipe-pane on a session (passing empty string disables it).
+    #[cfg(feature = "pro")]
+    pub async fn stop_pipe_pane(&self, name: &str) -> Result<()> {
+        let output = self
+            .tmux_cmd()
+            .args(&["pipe-pane", "-t", name])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::tmux(format!(
+                "Failed to stop pipe-pane: {}",
+                stderr
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Get the current terminal size of a pane.
+    #[cfg(feature = "pro")]
+    pub async fn pane_size(&self, name: &str) -> Result<(u16, u16)> {
+        let output = self
+            .tmux_cmd()
+            .args(&[
+                "display-message",
+                "-t",
+                name,
+                "-p",
+                "#{pane_width} #{pane_height}",
+            ])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            return Ok((80, 24)); // fallback
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = text.trim().split_whitespace().collect();
+        if parts.len() == 2 {
+            let cols = parts[0].parse().unwrap_or(80);
+            let rows = parts[1].parse().unwrap_or(24);
+            Ok((cols, rows))
+        } else {
+            Ok((80, 24))
+        }
+    }
+
     /// Send keys to a session
     pub async fn send_keys(&self, name: &str, keys: &str) -> Result<()> {
         let output = self
@@ -532,6 +639,27 @@ impl TmuxManager {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(crate::Error::tmux(format!(
                 "Failed to send keys: {}",
+                stderr
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Send literal text to a tmux pane without appending Enter.
+    /// Used for forwarding raw viewer input from relay collaboration.
+    #[cfg(feature = "pro")]
+    pub async fn send_keys_literal(&self, name: &str, text: &str) -> Result<()> {
+        let output = self
+            .tmux_cmd()
+            .args(&["send-keys", "-t", name, "-l", text])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::tmux(format!(
+                "Failed to send literal keys: {}",
                 stderr
             )));
         }

@@ -112,6 +112,31 @@ pub struct App {
     list_state: ratatui::widgets::ListState,
     #[cfg(feature = "pro")]
     jump_lines: usize,
+
+    // Viewer mode state (pro only) — for viewing shared terminal sessions
+    #[cfg(feature = "pro")]
+    viewer_state: Option<ViewerState>,
+
+    // Active relay clients keyed by session_id (pro only) — kept alive for streaming
+    #[cfg(feature = "pro")]
+    relay_clients: HashMap<String, Arc<crate::pro::collab::client::RelayClient>>,
+}
+
+/// State for viewing a shared terminal session via relay.
+#[cfg(feature = "pro")]
+pub struct ViewerState {
+    /// Name of the session being viewed.
+    pub session_name: String,
+    /// Current terminal content (raw bytes with ANSI escapes).
+    pub terminal_content: Arc<tokio::sync::Mutex<Vec<u8>>>,
+    /// Current terminal dimensions.
+    pub terminal_size: Arc<tokio::sync::Mutex<(u16, u16)>>,
+    /// Number of viewers (including self).
+    pub viewer_count: Arc<std::sync::atomic::AtomicUsize>,
+    /// Whether the connection is active.
+    pub connected: Arc<std::sync::atomic::AtomicBool>,
+    /// Handle to the viewer task.
+    pub task_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl App {
@@ -220,6 +245,10 @@ impl App {
             list_state: ratatui::widgets::ListState::default(),
             #[cfg(feature = "pro")]
             jump_lines: cfg.as_ref().map(|c| c.jump_lines()).unwrap_or(10),
+            #[cfg(feature = "pro")]
+            viewer_state: None,
+            #[cfg(feature = "pro")]
+            relay_clients: HashMap::new(),
         };
 
         app.ensure_groups_exist();
@@ -660,6 +689,8 @@ impl App {
             AppState::Help => self.handle_help_key(key),
             #[cfg(feature = "pro")]
             AppState::Relationships => self.handle_relationships_key(key, modifiers).await,
+            #[cfg(feature = "pro")]
+            AppState::ViewerMode => self.handle_viewer_key(key, modifiers).await,
         }
     }
 
@@ -704,7 +735,15 @@ impl App {
                     }
                     KeyCode::Down | KeyCode::Char('j') if modifiers == KeyModifiers::NONE => {
                         let max = active.len().saturating_sub(1);
-                        self.active_panel_selected = (self.active_panel_selected + 1).min(max);
+                        if self.active_panel_selected >= max {
+                            self.active_panel_focused = false;
+                            self.selected_index = 0;
+                            self.enforce_scrolloff();
+                            self.on_navigation();
+                            self.preview.clear();
+                        } else {
+                            self.active_panel_selected += 1;
+                        }
                         return Ok(());
                     }
                     KeyCode::Enter if modifiers == KeyModifiers::NONE => {
@@ -728,6 +767,18 @@ impl App {
 
         // Navigation
         if self.keybindings.matches("up", &key, modifiers) {
+            #[cfg(feature = "pro")]
+            {
+                if self.selected_index == 0 {
+                    let is_pro = self.auth_token.as_ref().map_or(false, |t| t.is_pro());
+                    let active_count = self.active_sessions().len();
+                    if is_pro && active_count > 0 {
+                        self.active_panel_focused = true;
+                        self.active_panel_selected = active_count.saturating_sub(1);
+                        return Ok(());
+                    }
+                }
+            }
             self.move_selection_up();
             #[cfg(feature = "pro")]
             self.enforce_scrolloff();
@@ -807,6 +858,20 @@ impl App {
                 self.open_rename_group_dialog();
             } else if self.selected_session().is_some() {
                 self.open_rename_session_dialog();
+            }
+            return Ok(());
+        }
+
+        // Boost: manually mark a session as "active" for attention_ttl duration
+        if self.keybindings.matches("boost", &key, modifiers) {
+            if let Some(session) = self.selected_session() {
+                let id = session.id.clone();
+                if let Some(&idx) = self.sessions_by_id.get(&id) {
+                    self.sessions[idx].last_running_at = Some(chrono::Utc::now());
+                    // Persist the change
+                    let storage = self.storage.lock().await;
+                    let _ = storage.save(&self.sessions, &self.groups, &self.relationships).await;
+                }
             }
             return Ok(());
         }
@@ -963,6 +1028,8 @@ impl App {
                         ssh_url: None,
                         web_url: None,
                         already_sharing,
+                        relay_share_url: None,
+                        relay_room_id: None,
                     };
                     self.dialog = Some(Dialog::Share(dialog));
                     self.state = AppState::Dialog;
@@ -2086,12 +2153,29 @@ impl App {
                 }
                 KeyCode::Enter => {
                     if d.already_sharing {
-                        // Stop sharing
-                        let mut mgr = crate::pro::tmate::TmateManager::from_config().await;
-                        let _ = mgr.stop_sharing(&d.session_id).await;
+                        // Stop sharing — try relay cleanup first, then tmate
+                        if d.relay_room_id.is_some() {
+                            // Relay sharing — stop client and pipe-pane
+                            let tmux_name = self.sessions_by_id
+                                .get(&d.session_id)
+                                .and_then(|&idx| self.sessions.get(idx))
+                                .map(|s| s.tmux_name())
+                                .unwrap_or_else(|| TmuxManager::session_name_legacy(&d.session_id));
+                            if let Some(client) = self.relay_clients.remove(&d.session_id) {
+                                client.stop(&tmux_name).await;
+                            } else {
+                                let _ = self.tmux.stop_pipe_pane(&tmux_name).await;
+                            }
+                        } else {
+                            // Tmate sharing
+                            let mut mgr = crate::pro::tmate::TmateManager::from_config().await;
+                            let _ = mgr.stop_sharing(&d.session_id).await;
+                        }
                         d.already_sharing = false;
                         d.ssh_url = None;
                         d.web_url = None;
+                        d.relay_share_url = None;
+                        d.relay_room_id = None;
                         if let Some(inst) =
                             self.sessions.iter_mut().find(|s| s.id == d.session_id)
                         {
@@ -2108,28 +2192,94 @@ impl App {
                             &d.session_title,
                         ).await;
                     } else {
-                        if crate::pro::tmate::TmateManager::is_available().await {
+                        // Start sharing — try relay first, fall back to tmate
+                        let sharing_cfg = crate::config::ConfigFile::load()
+                            .await
+                            .ok()
+                            .flatten()
+                            .map(|c| c.sharing().clone())
+                            .unwrap_or_default();
+                        let relay_url = sharing_cfg.relay_server_url.clone();
+
+                        let sid = d.session_id.clone();
+                        let perm = d.permission;
+                        let expire: Option<u64> = d
+                            .expire_minutes
+                            .text()
+                            .parse::<u64>()
+                            .ok()
+                            .filter(|&v| v > 0);
+                        let tmux_name = self.sessions_by_id
+                            .get(&sid)
+                            .and_then(|&idx| self.sessions.get(idx))
+                            .map(|s| s.tmux_name())
+                            .unwrap_or_else(|| TmuxManager::session_name_legacy(&sid));
+
+                        if let Some(ref relay) = relay_url {
+                            // Use relay server
+                            if let Some(auth) = &self.auth_token {
+                                let client = Arc::new(crate::pro::collab::client::RelayClient::new(
+                                    relay.clone(),
+                                    auth.access_token.clone(),
+                                ));
+                                let perm_str = perm.to_string();
+                                match client.create_room(&sid, &perm_str, expire).await {
+                                    Ok(room) => {
+                                        // Start streaming
+                                        if client.start_streaming(&tmux_name).await.is_ok() {
+                                            // Store client to keep background tasks alive
+                                            self.relay_clients.insert(sid.clone(), client);
+
+                                            d.relay_share_url = Some(room.share_url.clone());
+                                            d.relay_room_id = Some(room.room_id.clone());
+                                            d.web_url = Some(room.share_url.clone());
+                                            d.already_sharing = true;
+
+                                            let state = crate::sharing::SharingState {
+                                                active: true,
+                                                tmate_socket: String::new(),
+                                                links: vec![crate::sharing::ShareLink {
+                                                    permission: perm,
+                                                    ssh_url: String::new(),
+                                                    web_url: Some(room.share_url),
+                                                    created_at: chrono::Utc::now(),
+                                                    expires_at: None,
+                                                }],
+                                                default_permission: perm,
+                                                started_at: chrono::Utc::now(),
+                                                auto_expire_minutes: expire,
+                                            };
+
+                                            if let Some(inst) = self
+                                                .sessions
+                                                .iter_mut()
+                                                .find(|s| s.id == d.session_id)
+                                            {
+                                                inst.sharing = Some(state);
+                                            }
+                                            let storage = self.storage.lock().await;
+                                            storage
+                                                .save(
+                                                    &self.sessions,
+                                                    &self.groups,
+                                                    &self.relationships,
+                                                )
+                                                .await?;
+                                            let _ = self.analytics.record_premium_event(
+                                                crate::analytics::EventType::ShareStart,
+                                                &d.session_id,
+                                                &d.session_title,
+                                            ).await;
+                                        }
+                                    }
+                                    Err(_e) => {}
+                                }
+                            }
+                        } else if crate::pro::tmate::TmateManager::is_available().await {
+                            // Fall back to tmate
                             let mut mgr = crate::pro::tmate::TmateManager::from_config().await;
-                            let sid = d.session_id.clone();
-                            let perm = d.permission;
-                            let expire: Option<u64> = d
-                                .expire_minutes
-                                .text()
-                                .parse::<u64>()
-                                .ok()
-                                .filter(|&v| v > 0);
-                            let tmux_name = self.sessions_by_id
-                                .get(&sid)
-                                .and_then(|&idx| self.sessions.get(idx))
-                                .map(|s| s.tmux_name())
-                                .unwrap_or_else(|| TmuxManager::session_name_legacy(&sid));
                             match mgr
-                                .start_sharing(
-                                    &sid,
-                                    &tmux_name,
-                                    perm,
-                                    expire,
-                                )
+                                .start_sharing(&sid, &tmux_name, perm, expire)
                                 .await
                             {
                                 Ok(state) => {
@@ -2176,7 +2326,11 @@ impl App {
                     }
                 }
                 KeyCode::Char('c') => {
-                    if let Some(ref url) = d.ssh_url {
+                    // Copy the best available URL: relay > web > ssh
+                    let url = d.relay_share_url.as_ref()
+                        .or(d.web_url.as_ref())
+                        .or(d.ssh_url.as_ref());
+                    if let Some(url) = url {
                         let _ = std::process::Command::new("pbcopy")
                             .stdin(std::process::Stdio::piped())
                             .spawn()
@@ -3042,8 +3196,13 @@ impl App {
 
     /// Move selection down
     fn move_selection_down(&mut self) {
+        if self.tree.is_empty() {
+            return;
+        }
         if self.selected_index + 1 < self.tree.len() {
             self.selected_index += 1;
+        } else {
+            self.selected_index = 0;
         }
     }
 
@@ -3071,7 +3230,7 @@ impl App {
     /// Keep cursor ~SCROLLOFF lines from viewport edges (like vim `set scrolloff=5`)
     #[cfg(feature = "pro")]
     fn enforce_scrolloff(&mut self) {
-        const SCROLLOFF: usize = 5;
+        const SCROLLOFF: usize = 10;
         let visible = self.visible_tree_height();
         if visible == 0 || self.tree.is_empty() {
             return;
@@ -3617,5 +3776,158 @@ impl App {
 
     pub fn snapshot_count(&self, relationship_id: &str) -> usize {
         self.relationship_snapshot_counts.get(relationship_id).copied().unwrap_or(0)
+    }
+
+    /// Connect to a shared session as a viewer via relay WebSocket.
+    #[cfg(feature = "pro")]
+    pub async fn connect_viewer(&mut self, relay_url: &str, room_id: &str, viewer_token: &str) -> Result<()> {
+        use crate::pro::collab::protocol::ControlMessage;
+
+        let terminal_content = Arc::new(tokio::sync::Mutex::new(Vec::<u8>::new()));
+        let terminal_size = Arc::new(tokio::sync::Mutex::new((80u16, 24u16)));
+        let viewer_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let ws_url = format!("{}/ws/{}", relay_url, room_id)
+            .replace("https://", "wss://")
+            .replace("http://", "ws://");
+
+        // Clone Arcs for the spawned task
+        let content_clone = terminal_content.clone();
+        let size_clone = terminal_size.clone();
+        let count_clone = viewer_count.clone();
+        let connected_clone = connected.clone();
+        let token = viewer_token.to_string();
+
+        let task_handle = tokio::spawn(async move {
+            use futures_util::{SinkExt, StreamExt};
+            use base64::Engine;
+
+            let (ws_stream, _) = match tokio_tungstenite::connect_async(&ws_url).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("Viewer WS connect failed: {}", e);
+                    return;
+                }
+            };
+
+            let (mut ws_write, mut ws_read) = ws_stream.split();
+
+            // Send ViewerAuth
+            let auth_msg = ControlMessage::ViewerAuth {
+                token,
+                user_token: None,
+            };
+            let json = match serde_json::to_string(&auth_msg) {
+                Ok(j) => j,
+                Err(e) => {
+                    tracing::warn!("Failed to serialize viewer auth: {}", e);
+                    return;
+                }
+            };
+            if ws_write.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await.is_err() {
+                return;
+            }
+
+            // Wait for AuthResult
+            if let Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) = ws_read.next().await {
+                if let Ok(ControlMessage::AuthResult { success, .. }) = serde_json::from_str(&text) {
+                    if !success {
+                        tracing::warn!("Viewer auth failed");
+                        return;
+                    }
+                }
+            }
+
+            connected_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+
+            // Main receive loop
+            while let Some(Ok(msg)) = ws_read.next().await {
+                match msg {
+                    tokio_tungstenite::tungstenite::Message::Binary(data) => {
+                        // Append raw PTY output, cap at 2MB to prevent unbounded growth
+                        // (snapshots will reset the buffer periodically)
+                        let mut buf = content_clone.lock().await;
+                        buf.extend_from_slice(&data);
+                        const MAX_VIEWER_BUF: usize = 2 * 1024 * 1024;
+                        if buf.len() > MAX_VIEWER_BUF {
+                            // Keep only the last 1MB
+                            let drain_to = buf.len() - (MAX_VIEWER_BUF / 2);
+                            buf.drain(..drain_to);
+                        }
+                    }
+                    tokio_tungstenite::tungstenite::Message::Text(text) => {
+                        match serde_json::from_str::<ControlMessage>(&text) {
+                            Ok(ControlMessage::Snapshot { cols, rows, data }) => {
+                                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
+                                    // Replace content with snapshot (keyframe)
+                                    *content_clone.lock().await = decoded;
+                                    *size_clone.lock().await = (cols, rows);
+                                }
+                            }
+                            Ok(ControlMessage::Resize { cols, rows }) => {
+                                *size_clone.lock().await = (cols, rows);
+                            }
+                            Ok(ControlMessage::ViewerCount { count }) => {
+                                count_clone.store(count, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            Ok(ControlMessage::RoomClosed { .. }) => {
+                                connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    tokio_tungstenite::tungstenite::Message::Close(_) => {
+                        connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+        });
+
+        self.viewer_state = Some(ViewerState {
+            session_name: format!("Room {}", &room_id[..8.min(room_id.len())]),
+            terminal_content,
+            terminal_size,
+            viewer_count,
+            connected,
+            task_handle: Some(task_handle),
+        });
+
+        self.state = AppState::ViewerMode;
+        Ok(())
+    }
+
+    /// Disconnect from a viewed session and return to normal mode.
+    #[cfg(feature = "pro")]
+    pub fn disconnect_viewer(&mut self) {
+        if let Some(vs) = self.viewer_state.take() {
+            if let Some(handle) = vs.task_handle {
+                handle.abort();
+            }
+        }
+        self.state = AppState::Normal;
+    }
+
+    /// Handle key events in viewer mode.
+    #[cfg(feature = "pro")]
+    async fn handle_viewer_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> Result<()> {
+        match key {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.disconnect_viewer();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Get the current viewer state (for rendering).
+    #[cfg(feature = "pro")]
+    pub fn viewer_state(&self) -> Option<&ViewerState> {
+        self.viewer_state.as_ref()
     }
 }

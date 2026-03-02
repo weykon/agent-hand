@@ -78,10 +78,14 @@ pub fn draw(f: &mut Frame, app: &App) {
         render_help(f, chunks[1]);
     } else {
         #[cfg(feature = "pro")]
-        if app.state() == crate::ui::AppState::Relationships {
-            render_relationships(f, chunks[1], app);
-        } else {
-            render_main(f, chunks[1], app);
+        {
+            if app.state() == crate::ui::AppState::ViewerMode {
+                render_viewer_mode(f, chunks[1], app);
+            } else if app.state() == crate::ui::AppState::Relationships {
+                render_relationships(f, chunks[1], app);
+            } else {
+                render_main(f, chunks[1], app);
+            }
         }
         #[cfg(not(feature = "pro"))]
         render_main(f, chunks[1], app);
@@ -388,11 +392,32 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
-    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!(
-        "Tree ({}/{})",
-        app.selected_index() + 1,
-        tree.len()
-    )));
+    let tree_focused = {
+        #[cfg(feature = "pro")]
+        { !app.active_panel_focused() }
+        #[cfg(not(feature = "pro"))]
+        { true }
+    };
+
+    let border_style = if tree_focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(Span::styled(
+                format!(
+                    "Tree ({}/{})",
+                    app.selected_index() + 1,
+                    tree.len()
+                ),
+                Style::default().fg(Color::Cyan),
+            ))
+            .border_style(border_style),
+    );
 
     #[cfg(feature = "pro")]
     {
@@ -1420,6 +1445,8 @@ fn render_item_hints(spans: &mut Vec<Span<'static>>, app: &App) {
             spans.push(Span::raw(":fork  "));
             spans.push(Span::styled("m", Style::default().fg(Color::Cyan)));
             spans.push(Span::raw(":move  "));
+            spans.push(Span::styled("b", Style::default().fg(Color::Cyan)));
+            spans.push(Span::raw(":boost  "));
         }
         _ => {
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
@@ -1799,27 +1826,41 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
     };
     f.render_widget(Paragraph::new(Line::from(status)), chunks[1]);
 
-    // SSH URL
-    let ssh_line = if let Some(ref url) = d.ssh_url {
-        format!("SSH: {} (press 'c' to copy)", url)
+    // URL display — prefer relay URL over SSH/web
+    if let Some(ref relay_url) = d.relay_share_url {
+        // Relay mode
+        let relay_line = format!("Share URL: {} (press 'c' to copy)", relay_url);
+        f.render_widget(
+            Paragraph::new(relay_line).style(Style::default().fg(Color::Cyan)),
+            chunks[2],
+        );
+        f.render_widget(
+            Paragraph::new("Mode: WebSocket relay")
+                .style(Style::default().fg(Color::DarkGray)),
+            chunks[3],
+        );
     } else {
-        "SSH: -".to_string()
-    };
-    f.render_widget(
-        Paragraph::new(ssh_line).style(Style::default().fg(Color::Cyan)),
-        chunks[2],
-    );
+        // Tmate mode
+        let ssh_line = if let Some(ref url) = d.ssh_url {
+            format!("SSH: {} (press 'c' to copy)", url)
+        } else {
+            "SSH: -".to_string()
+        };
+        f.render_widget(
+            Paragraph::new(ssh_line).style(Style::default().fg(Color::Cyan)),
+            chunks[2],
+        );
 
-    // Web URL
-    let web_line = if let Some(ref url) = d.web_url {
-        format!("Web: {}", url)
-    } else {
-        "Web: -".to_string()
-    };
-    f.render_widget(
-        Paragraph::new(web_line).style(Style::default().fg(Color::Cyan)),
-        chunks[3],
-    );
+        let web_line = if let Some(ref url) = d.web_url {
+            format!("Web: {}", url)
+        } else {
+            "Web: -".to_string()
+        };
+        f.render_widget(
+            Paragraph::new(web_line).style(Style::default().fg(Color::Cyan)),
+            chunks[3],
+        );
+    }
 
     // Expire minutes input
     let mut expire_spans = vec![Span::raw("Expire (min): ")];
@@ -2058,4 +2099,107 @@ fn render_new_from_context_dialog(
             .alignment(Alignment::Center),
         chunks[3],
     );
+}
+
+/// Render the viewer mode — displays a shared terminal session received via relay.
+#[cfg(feature = "pro")]
+fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
+    let Some(vs) = app.viewer_state() else {
+        // No viewer state — show placeholder
+        let msg = Paragraph::new("Not connected to any shared session.")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center);
+        f.render_widget(msg, area);
+        return;
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(0),    // Terminal content
+            Constraint::Length(1), // Presence bar
+        ])
+        .split(area);
+
+    // Render terminal content
+    // We display the raw text content. The content includes ANSI escapes,
+    // but ratatui's Paragraph will render them as-is (plain text).
+    // For a full terminal emulator we'd need a vt100 parser, but plain text
+    // display is a good starting point that shows the content.
+    let content = vs.terminal_content.blocking_lock();
+    let text = String::from_utf8_lossy(&content);
+
+    // Take last N lines that fit in the area
+    let lines: Vec<&str> = text.lines().collect();
+    let visible_height = chunks[0].height as usize;
+    let start = lines.len().saturating_sub(visible_height);
+    let visible_lines: Vec<Line> = lines[start..]
+        .iter()
+        .map(|line| {
+            // Strip ANSI escape codes for clean display
+            let cleaned = strip_ansi_escapes(line);
+            Line::from(cleaned)
+        })
+        .collect();
+
+    let terminal_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(format!(" {} ", vs.session_name));
+
+    let terminal_paragraph = Paragraph::new(visible_lines)
+        .block(terminal_block)
+        .style(Style::default().fg(Color::White));
+
+    f.render_widget(terminal_paragraph, chunks[0]);
+
+    // Render presence bar
+    let connected = vs.connected.load(std::sync::atomic::Ordering::Relaxed);
+    let viewer_count = vs.viewer_count.load(std::sync::atomic::Ordering::Relaxed);
+
+    let status_text = if connected {
+        format!(
+            "  Viewing {}  |  {} viewer{}  |  Press Esc to disconnect",
+            vs.session_name,
+            viewer_count,
+            if viewer_count == 1 { "" } else { "s" }
+        )
+    } else {
+        format!("  Disconnected from {}  |  Press Esc to return", vs.session_name)
+    };
+
+    let status_color = if connected { Color::Green } else { Color::Red };
+    let presence_bar = Paragraph::new(status_text)
+        .style(Style::default().fg(Color::White).bg(status_color));
+
+    f.render_widget(presence_bar, chunks[1]);
+}
+
+/// Strip ANSI escape sequences from a string for clean display.
+#[cfg(feature = "pro")]
+fn strip_ansi_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Skip ESC sequence
+            if let Some(&'[') = chars.peek() {
+                chars.next(); // consume '['
+                // Read until we hit a letter (the terminating character)
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if c.is_ascii_alphabetic() || c == 'm' || c == 'H' || c == 'J' || c == 'K' {
+                        break;
+                    }
+                }
+            }
+        } else if ch.is_control() && ch != '\n' && ch != '\t' {
+            // Skip other control characters
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
 }

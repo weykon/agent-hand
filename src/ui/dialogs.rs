@@ -273,6 +273,10 @@ pub struct ShareDialog {
     pub ssh_url: Option<String>,
     pub web_url: Option<String>,
     pub already_sharing: bool,
+    /// Relay share URL (replaces tmate SSH/web URLs when using relay).
+    pub relay_share_url: Option<String>,
+    /// Room ID on the relay server.
+    pub relay_room_id: Option<String>,
 }
 
 #[cfg(feature = "pro")]

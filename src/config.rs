@@ -105,6 +105,10 @@ pub struct SharingConfig {
     /// Default auto-expire in minutes (None = no expiry)
     #[serde(default)]
     pub auto_expire_minutes: Option<u64>,
+    /// WebSocket relay server URL (e.g. "http://localhost:9090").
+    /// When set, the relay is used instead of tmate for session sharing.
+    #[serde(default)]
+    pub relay_server_url: Option<String>,
 }
 
 fn default_tmate_host() -> String {
@@ -126,6 +130,7 @@ impl Default for SharingConfig {
             tmate_server_port: default_tmate_port(),
             default_permission: default_share_permission(),
             auto_expire_minutes: None,
+            relay_server_url: None,
         }
     }
 }
@@ -410,6 +415,13 @@ impl Default for KeyBindings {
             "restart",
             vec![KeySpec {
                 code: KeyCode::Char('R'),
+                modifiers: KeyModifiers::NONE,
+            }],
+        );
+        kb.bindings.insert(
+            "boost",
+            vec![KeySpec {
+                code: KeyCode::Char('b'),
                 modifiers: KeyModifiers::NONE,
             }],
         );

@@ -42,6 +42,9 @@ pub enum AppState {
     Help,
     #[cfg(feature = "pro")]
     Relationships,
+    /// Viewing a shared terminal session via relay (Pro only).
+    #[cfg(feature = "pro")]
+    ViewerMode,
 }
 
 #[derive(Debug, Clone)]

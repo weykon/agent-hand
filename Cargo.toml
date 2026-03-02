@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-pro = []
+pro = ["dep:tokio-tungstenite", "dep:futures-util", "dep:base64"]
 
 [dependencies]
 # Async runtime
@@ -78,6 +78,11 @@ open = "5"
 
 # File locking for multi-instance safety
 fs2 = "0.4"
+
+# WebSocket client for relay sharing (Pro only)
+tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
+futures-util = { version = "0.3", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
