@@ -100,7 +100,8 @@ export default function AccountPage() {
   };
 
   const CREEM_PRO_PRODUCT_ID = "prod_44F1yThRt3QEV6QnkeWNjO";
-  const CREEM_MAX_PRODUCT_ID = "PLACEHOLDER_MAX_PRODUCT_ID";
+  const CREEM_MAX_MONTHLY_ID = "prod_15F20YtTPacpgeBuWLKu4H";
+  const CREEM_MAX_YEARLY_ID = "prod_6Ip9uykuzi8KqwBKczqYNx";
 
   return (
     <div className="mx-auto max-w-lg px-6 py-16">
@@ -179,7 +180,7 @@ export default function AccountPage() {
                 Upgrade to Pro — $19 one-time
               </a>
               <a
-                href={`https://www.creem.io/payment/${CREEM_MAX_PRODUCT_ID}?customer_email=${encodeURIComponent(userEmail)}`}
+                href={`https://www.creem.io/payment/${CREEM_MAX_MONTHLY_ID}?customer_email=${encodeURIComponent(userEmail)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block rounded-lg border-2 border-[#a855f7] py-3 text-center font-semibold text-[#a855f7] hover:bg-[#a855f7]/10"
@@ -191,7 +192,7 @@ export default function AccountPage() {
 
           {plan === "Pro" && (
             <a
-              href={`https://www.creem.io/payment/${CREEM_MAX_PRODUCT_ID}?customer_email=${encodeURIComponent(userEmail)}`}
+              href={`https://www.creem.io/payment/${CREEM_MAX_MONTHLY_ID}?customer_email=${encodeURIComponent(userEmail)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="block rounded-lg bg-[#a855f7] py-3 text-center font-semibold text-white hover:bg-[#c084fc]"

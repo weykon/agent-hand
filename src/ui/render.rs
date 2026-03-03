@@ -505,6 +505,12 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
 
     if let Some(d) = app.rename_group_dialog() {
         render_rename_group_dialog(f, area, d);
+        return;
+    }
+
+    if let Some(d) = app.settings_dialog() {
+        render_settings_dialog(f, area, d);
+        return;
     }
 
     #[cfg(feature = "pro")]
@@ -1229,6 +1235,295 @@ fn render_search_popup(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(p, popup_area);
 }
 
+fn render_settings_dialog(
+    f: &mut Frame,
+    area: Rect,
+    d: &crate::ui::SettingsDialog,
+) {
+    use crate::ui::{SettingsField, SettingsTab};
+
+    let popup_area = centered_rect(70, 65, area);
+    f.render_widget(Clear, popup_area);
+
+    let base_style = Style::default();
+    let active_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let dim_style = Style::default().fg(Color::DarkGray);
+
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    // Title
+    lines.push(Line::from(Span::styled(
+        " Settings",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+
+    // Tab bar
+    let tabs = SettingsTab::available_tabs();
+    let mut tab_spans: Vec<Span<'static>> = Vec::new();
+    tab_spans.push(Span::raw(" "));
+    for (i, tab) in tabs.iter().enumerate() {
+        if i > 0 {
+            tab_spans.push(Span::styled("  ", dim_style));
+        }
+        let label = format!(" {} ", tab.label());
+        if *tab == d.tab {
+            tab_spans.push(Span::styled(
+                label,
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            tab_spans.push(Span::styled(label, dim_style));
+        }
+    }
+    lines.push(Line::from(tab_spans));
+    lines.push(Line::from(Span::styled(
+        " ─".to_string() + &"─".repeat(popup_area.width.saturating_sub(4) as usize),
+        dim_style,
+    )));
+    lines.push(Line::from(""));
+
+    // Fields for current tab
+    let fields = SettingsField::fields_for_tab(d.tab);
+    for field in &fields {
+        let is_active = *field == d.field;
+        let label = format!("  {:<16}", field.label());
+        let label_style = if is_active { active_style } else { base_style };
+
+        let mut spans: Vec<Span<'static>> = vec![Span::styled(label, label_style)];
+
+        match field {
+            SettingsField::AiProvider => {
+                let is_editing_this = d.editing && is_active;
+                if is_editing_this {
+                    // Expanded chip selector: show all providers with wrapping
+                    let max_width = popup_area.width.saturating_sub(22) as usize;
+                    let mut row_width = 0usize;
+                    let mut first_in_row = true;
+                    let mut overflow_lines: Vec<Vec<Span<'static>>> = Vec::new();
+                    let current_spans = &mut spans;
+
+                    for (i, name) in d.ai_provider_names.iter().enumerate() {
+                        let chip = format!(" {} ", name);
+                        let chip_len = chip.len() + 1;
+                        if !first_in_row && row_width + chip_len > max_width {
+                            overflow_lines.push(Vec::new());
+                            row_width = 0;
+                            first_in_row = true;
+                        }
+
+                        let style = if i == d.ai_provider_idx {
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::DarkGray)
+                        };
+
+                        let target = if overflow_lines.is_empty() {
+                            &mut *current_spans
+                        } else {
+                            overflow_lines.last_mut().unwrap()
+                        };
+                        if !first_in_row {
+                            target.push(Span::raw(" "));
+                        }
+                        target.push(Span::styled(chip, style));
+                        row_width += chip_len;
+                        first_in_row = false;
+                    }
+
+                    lines.push(Line::from(std::mem::take(current_spans)));
+                    for row in overflow_lines {
+                        let mut indented: Vec<Span<'static>> = vec![Span::raw(
+                            " ".repeat(18),
+                        )];
+                        indented.extend(row);
+                        lines.push(Line::from(indented));
+                    }
+                    continue;
+                } else {
+                    // Collapsed: show just the selected provider name
+                    let val = format!("▸ {}", d.provider_display());
+                    spans.push(Span::styled(val, if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
+            SettingsField::AiApiKey => {
+                if d.editing && is_active {
+                    spans.extend(render_text_input(&d.ai_api_key, true, base_style));
+                } else {
+                    let masked = d.masked_api_key();
+                    let display = if masked.is_empty() {
+                        "(not set)".to_string()
+                    } else {
+                        masked
+                    };
+                    spans.push(Span::styled(display, if is_active { active_style } else { dim_style }));
+                }
+            }
+            SettingsField::AiModel => {
+                if d.editing && is_active {
+                    spans.extend(render_text_input(&d.ai_model, true, base_style));
+                } else {
+                    let t = d.ai_model.text();
+                    let display = if t.is_empty() { "(provider default)" } else { t };
+                    spans.push(Span::styled(display.to_string(), if is_active { active_style } else { dim_style }));
+                }
+            }
+            SettingsField::AiBaseUrl => {
+                if d.editing && is_active {
+                    spans.extend(render_text_input(&d.ai_base_url, true, base_style));
+                } else {
+                    let t = d.ai_base_url.text();
+                    let display = if t.is_empty() { "(provider default)" } else { t };
+                    spans.push(Span::styled(display.to_string(), if is_active { active_style } else { dim_style }));
+                }
+            }
+            SettingsField::AiSummaryLines => {
+                if d.editing && is_active {
+                    spans.extend(render_text_input(&d.ai_summary_lines, true, base_style));
+                } else {
+                    spans.push(Span::styled(
+                        d.ai_summary_lines.text().to_string(),
+                        if is_active { active_style } else { base_style },
+                    ));
+                }
+            }
+            SettingsField::AiTest => {
+                if let Some(status) = &d.ai_test_status {
+                    let color = if status.starts_with('✓') {
+                        Color::Green
+                    } else if status.starts_with('✗') {
+                        Color::Red
+                    } else {
+                        Color::Yellow
+                    };
+                    spans.push(Span::styled(status.clone(), Style::default().fg(color)));
+                } else {
+                    spans.push(Span::styled(
+                        "[press Enter to test]",
+                        if is_active { active_style } else { dim_style },
+                    ));
+                }
+            }
+            SettingsField::DefaultPermission => {
+                let is_editing_this = d.editing && is_active;
+                let is_ro = d.default_permission != "rw";
+                if is_editing_this {
+                    let sel = Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    let unsel = Style::default().fg(Color::DarkGray);
+                    spans.push(Span::styled(" Read Only ", if is_ro { sel } else { unsel }));
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(" Read/Write ", if !is_ro { sel } else { unsel }));
+                } else {
+                    let val = if is_ro { "Read Only" } else { "Read/Write" };
+                    spans.push(Span::styled(format!("▸ {val}"), if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
+            SettingsField::AnalyticsEnabled => {
+                let is_editing_this = d.editing && is_active;
+                if is_editing_this {
+                    let sel = Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    let unsel = Style::default().fg(Color::DarkGray);
+                    spans.push(Span::styled(" Off ", if !d.analytics_enabled { sel } else { unsel }));
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(" On ", if d.analytics_enabled { sel } else { unsel }));
+                } else {
+                    let val = if d.analytics_enabled { "On" } else { "Off" };
+                    spans.push(Span::styled(format!("▸ {val}"), if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
+            // Text input fields: relay_url, tmate_host, tmate_port, auto_expire, jump_lines, ready_ttl
+            _ => {
+                let input = match field {
+                    SettingsField::RelayServerUrl => &d.relay_url,
+                    SettingsField::TmateHost => &d.tmate_host,
+                    SettingsField::TmatePort => &d.tmate_port,
+                    SettingsField::AutoExpire => &d.auto_expire,
+                    SettingsField::JumpLines => &d.jump_lines,
+                    SettingsField::ReadyTtl => &d.ready_ttl,
+                    _ => unreachable!(),
+                };
+                if d.editing && is_active {
+                    spans.extend(render_text_input(input, true, base_style));
+                } else {
+                    let t = input.text();
+                    let display = if t.is_empty() { "(not set)" } else { t };
+                    spans.push(Span::styled(
+                        display.to_string(),
+                        if is_active { active_style } else { base_style },
+                    ));
+                }
+            }
+        }
+
+        lines.push(Line::from(spans));
+    }
+
+    // Spacing + status
+    lines.push(Line::from(""));
+
+    // Dirty indicator
+    if d.dirty {
+        lines.push(Line::from(Span::styled(
+            "  ● Unsaved changes",
+            Style::default().fg(Color::Yellow),
+        )));
+    }
+
+    // Key hints
+    lines.push(Line::from(""));
+    let hint_style = Style::default().fg(Color::DarkGray);
+    if d.editing {
+        let is_selector = matches!(
+            d.field,
+            SettingsField::AiProvider
+                | SettingsField::DefaultPermission
+                | SettingsField::AnalyticsEnabled
+        );
+        if is_selector {
+            lines.push(Line::from(Span::styled(
+                "  ←/→:choose  Enter/Esc:done",
+                hint_style,
+            )));
+        } else {
+            lines.push(Line::from(Span::styled(
+                "  type to edit  Enter/Esc:done",
+                hint_style,
+            )));
+        }
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("  ←/→:tab  ", hint_style),
+            Span::styled("j/k:field  ", hint_style),
+            Span::styled("Enter:edit  ", hint_style),
+            Span::styled("Ctrl+S:save  ", hint_style),
+            Span::styled("Esc:close", hint_style),
+        ]));
+    }
+
+    let p = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().borders(Borders::ALL).title("Settings"));
+
+    f.render_widget(p, popup_area);
+}
+
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
@@ -1317,6 +1612,7 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
         key("Ctrl+e", "Relationships"),
         key("S", "Share (Max)"),
         key("Tab", "Active panel (Pro)"),
+        key(",", "Settings"),
         key("?", "Help"),
         key("q", "Quit"),
         Line::from(""),

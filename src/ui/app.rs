@@ -25,7 +25,7 @@ use super::{
     AppState, CreateGroupDialog,
     DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog, ForkDialog, ForkField,
     MoveGroupDialog, NewSessionDialog, NewSessionField, RenameGroupDialog, RenameSessionDialog,
-    SessionEditField, TagPickerDialog, TagSpec, TextInput, TreeItem,
+    SessionEditField, SettingsDialog, SettingsField, TagPickerDialog, TagSpec, TextInput, TreeItem,
 };
 
 #[cfg(feature = "pro")]
@@ -103,6 +103,7 @@ pub struct App {
     storage: Arc<Mutex<Storage>>,
     tmux: Arc<TmuxManager>,
     analytics: crate::analytics::ActivityTracker,
+    config: crate::config::ConfigFile,
 
     // Auth
     auth_token: Option<crate::auth::AuthToken>,
@@ -154,8 +155,6 @@ impl App {
     const STATUS_COOLDOWN: Duration = Duration::from_secs(2);
     const STATUS_FALLBACK: Duration = Duration::from_secs(10);
 
-    const DEFAULT_READY_TTL: Duration = Duration::from_secs(40 * 60);
-
     /// Create new application
     pub async fn new(profile: &str) -> Result<Self> {
         let storage = Storage::new(profile).await?;
@@ -186,13 +185,12 @@ impl App {
         // Get system PTY limit once at startup.
         let system_ptmx_max = crate::tmux::ptmx::get_ptmx_max().await;
 
-        let cfg = crate::config::ConfigFile::load().await.ok().flatten();
-        let attention_ttl = Duration::from_secs(
-            cfg.as_ref()
-                .map(|c| c.ready_ttl_minutes())
-                .unwrap_or(Self::DEFAULT_READY_TTL.as_secs() / 60)
-                * 60,
-        );
+        let config = crate::config::ConfigFile::load()
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let attention_ttl = Duration::from_secs(config.ready_ttl_minutes() * 60);
 
         // Create shared PTY state and spawn background monitor
         let ptmx_state: SharedPtmxState = Arc::new(RwLock::new(
@@ -243,6 +241,7 @@ impl App {
             storage: Arc::new(Mutex::new(storage)),
             tmux: Arc::new(tmux),
             analytics,
+            config: config.clone(),
             ptmx_state,
             _ptmx_task: ptmx_task,
             cached_ptmx_total: 0,
@@ -251,7 +250,7 @@ impl App {
             #[cfg(feature = "pro")]
             list_state: ratatui::widgets::ListState::default(),
             #[cfg(feature = "pro")]
-            jump_lines: cfg.as_ref().map(|c| c.jump_lines()).unwrap_or(10),
+            jump_lines: config.jump_lines(),
             #[cfg(feature = "pro")]
             viewer_state: None,
             #[cfg(feature = "pro")]
@@ -260,8 +259,7 @@ impl App {
             summarizer: {
                 let is_max = crate::auth::AuthToken::load().map_or(false, |t| t.is_max());
                 if is_max {
-                    let ai_cfg = cfg.as_ref().map(|c| c.ai().clone()).unwrap_or_default();
-                    crate::ai::Summarizer::from_config(&ai_cfg)
+                    crate::ai::Summarizer::from_config(config.ai())
                 } else {
                     None
                 }
@@ -729,6 +727,12 @@ impl App {
     async fn handle_normal_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> Result<()> {
         if self.keybindings.matches("quit", &key, modifiers) {
             self.dialog = Some(Dialog::QuitConfirm);
+            self.state = AppState::Dialog;
+            return Ok(());
+        }
+
+        if self.keybindings.matches("settings", &key, modifiers) {
+            self.dialog = Some(Dialog::Settings(SettingsDialog::new(&self.config)));
             self.state = AppState::Dialog;
             return Ok(());
         }
@@ -2580,6 +2584,145 @@ impl App {
                 }
                 _ => {}
             },
+
+            Dialog::Settings(d) => {
+                if d.editing {
+                    // Edit mode: route keys based on field type
+                    let is_selector = matches!(
+                        d.field,
+                        SettingsField::AiProvider
+                            | SettingsField::DefaultPermission
+                            | SettingsField::AnalyticsEnabled
+                    );
+
+                    if is_selector {
+                        // Selector edit mode: ←/→ cycles, Enter/Esc exits
+                        match key {
+                            KeyCode::Esc | KeyCode::Enter => {
+                                d.editing = false;
+                            }
+                            KeyCode::Left | KeyCode::Char('h') => match d.field {
+                                SettingsField::AiProvider => d.cycle_provider(-1),
+                                SettingsField::DefaultPermission => d.toggle_permission(),
+                                SettingsField::AnalyticsEnabled => {
+                                    d.analytics_enabled = !d.analytics_enabled;
+                                    d.dirty = true;
+                                }
+                                _ => {}
+                            },
+                            KeyCode::Right | KeyCode::Char('l') => match d.field {
+                                SettingsField::AiProvider => d.cycle_provider(1),
+                                SettingsField::DefaultPermission => d.toggle_permission(),
+                                SettingsField::AnalyticsEnabled => {
+                                    d.analytics_enabled = !d.analytics_enabled;
+                                    d.dirty = true;
+                                }
+                                _ => {}
+                            },
+                            _ => {}
+                        }
+                    } else {
+                        // TextInput edit mode
+                        match key {
+                            KeyCode::Esc | KeyCode::Enter => {
+                                d.editing = false;
+                            }
+                            KeyCode::Backspace => {
+                                if let Some(input) = d.active_input() {
+                                    input.backspace();
+                                    d.dirty = true;
+                                }
+                            }
+                            KeyCode::Delete => {
+                                if let Some(input) = d.active_input() {
+                                    input.delete();
+                                    d.dirty = true;
+                                }
+                            }
+                            KeyCode::Left => {
+                                if let Some(input) = d.active_input() {
+                                    input.move_left();
+                                }
+                            }
+                            KeyCode::Right => {
+                                if let Some(input) = d.active_input() {
+                                    input.move_right();
+                                }
+                            }
+                            KeyCode::Home => {
+                                if let Some(input) = d.active_input() {
+                                    input.move_home();
+                                }
+                            }
+                            KeyCode::End => {
+                                if let Some(input) = d.active_input() {
+                                    input.move_end();
+                                }
+                            }
+                            KeyCode::Char(c) => {
+                                if let Some(input) = d.active_input() {
+                                    input.insert(c);
+                                    d.dirty = true;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                } else {
+                    // Navigation mode: ←/→ always switch tabs
+                    match key {
+                        KeyCode::Esc => {
+                            self.dialog = None;
+                            self.state = AppState::Normal;
+                        }
+                        KeyCode::Char('s') if modifiers.contains(KeyModifiers::CONTROL) => {
+                            self.apply_settings().await?;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if let Some(Dialog::Settings(d)) = self.dialog.as_mut() {
+                                d.move_field(-1);
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if let Some(Dialog::Settings(d)) = self.dialog.as_mut() {
+                                d.move_field(1);
+                            }
+                        }
+                        KeyCode::Left | KeyCode::Char('h') => {
+                            if let Some(Dialog::Settings(d)) = self.dialog.as_mut() {
+                                d.switch_tab(-1);
+                            }
+                        }
+                        KeyCode::Right | KeyCode::Char('l') => {
+                            if let Some(Dialog::Settings(d)) = self.dialog.as_mut() {
+                                d.switch_tab(1);
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if let Some(Dialog::Settings(d)) = self.dialog.as_mut() {
+                                match d.field {
+                                    // Selectors: Enter activates edit mode
+                                    SettingsField::AiProvider
+                                    | SettingsField::DefaultPermission
+                                    | SettingsField::AnalyticsEnabled => {
+                                        d.editing = true;
+                                    }
+                                    // Test: trigger test
+                                    SettingsField::AiTest => {
+                                        self.test_ai_connection().await;
+                                    }
+                                    // Text inputs: Enter activates edit mode
+                                    f if f.is_text_input() => {
+                                        d.editing = true;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -3738,6 +3881,13 @@ impl App {
         }
     }
 
+    pub fn settings_dialog(&self) -> Option<&SettingsDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::Settings(d)) => Some(d),
+            _ => None,
+        }
+    }
+
     #[cfg(feature = "pro")]
     pub fn share_dialog(&self) -> Option<&ShareDialog> {
         match self.dialog.as_ref() {
@@ -3983,5 +4133,161 @@ impl App {
     #[cfg(feature = "pro")]
     pub fn viewer_state(&self) -> Option<&ViewerState> {
         self.viewer_state.as_ref()
+    }
+
+    /// Apply settings from the dialog: update config, save to disk, hot-reload subsystems.
+    async fn apply_settings(&mut self) -> Result<()> {
+        let Some(Dialog::Settings(d)) = self.dialog.as_ref() else {
+            return Ok(());
+        };
+
+        // Update AI config
+        #[cfg(feature = "max")]
+        {
+            if let Some(name) = d.ai_provider_names.get(d.ai_provider_idx) {
+                self.config.ai.provider = name.clone();
+            }
+            self.config.ai.api_key = d.ai_api_key.text().to_string();
+            self.config.ai.model = d.ai_model.text().to_string();
+            let base_url = d.ai_base_url.text().trim().to_string();
+            self.config.ai.base_url = if base_url.is_empty() {
+                None
+            } else {
+                Some(base_url)
+            };
+            self.config.ai.summary_lines = d
+                .ai_summary_lines
+                .text()
+                .trim()
+                .parse()
+                .unwrap_or(200);
+        }
+
+        // Update sharing config
+        let relay = d.relay_url.text().trim().to_string();
+        self.config.sharing.relay_server_url = if relay.is_empty() {
+            None
+        } else {
+            Some(relay)
+        };
+        self.config.sharing.tmate_server_host = d.tmate_host.text().trim().to_string();
+        self.config.sharing.tmate_server_port =
+            d.tmate_port.text().trim().parse().unwrap_or(22);
+        self.config.sharing.default_permission = d.default_permission.clone();
+        let expire = d.auto_expire.text().trim().to_string();
+        self.config.sharing.auto_expire_minutes = if expire.is_empty() {
+            None
+        } else {
+            expire.parse().ok()
+        };
+
+        // Update general config
+        self.config.analytics.enabled = d.analytics_enabled;
+        self.config.jump_lines = Some(
+            d.jump_lines.text().trim().parse().unwrap_or(10),
+        );
+        self.config.ready_ttl_minutes = Some(
+            d.ready_ttl.text().trim().parse().unwrap_or(40),
+        );
+
+        // Save to disk
+        self.config.save()?;
+
+        // Hot-reload: update attention TTL
+        self.attention_ttl =
+            Duration::from_secs(self.config.ready_ttl_minutes() * 60);
+
+        // Hot-reload: update jump_lines
+        #[cfg(feature = "pro")]
+        {
+            self.jump_lines = self.config.jump_lines();
+        }
+
+        // Hot-reload: recreate AI summarizer with new config
+        #[cfg(feature = "max")]
+        {
+            let is_max = self
+                .auth_token
+                .as_ref()
+                .map_or(false, |t| t.is_max());
+            if is_max {
+                self.summarizer =
+                    crate::ai::Summarizer::from_config(self.config.ai());
+            }
+        }
+
+        // Close dialog
+        self.dialog = None;
+        self.state = AppState::Normal;
+        Ok(())
+    }
+
+    /// Test AI connection from settings dialog.
+    async fn test_ai_connection(&mut self) {
+        #[cfg(feature = "max")]
+        {
+            let Some(Dialog::Settings(d)) = self.dialog.as_mut() else {
+                return;
+            };
+            let provider_name = d
+                .ai_provider_names
+                .get(d.ai_provider_idx)
+                .cloned()
+                .unwrap_or_default();
+            let api_key = d.ai_api_key.text().to_string();
+
+            if provider_name.is_empty() || api_key.is_empty() {
+                d.ai_test_status = Some("✗ Provider or API key not set".to_string());
+                return;
+            }
+
+            d.ai_test_status = Some("Testing...".to_string());
+
+            let meta = ai_api_provider::provider_by_name(&provider_name);
+            if meta.is_none() {
+                d.ai_test_status = Some(format!("✗ Unknown provider: {provider_name}"));
+                return;
+            }
+            let meta = meta.unwrap();
+
+            let mut config = ai_api_provider::ApiConfig::new(meta.provider, api_key);
+            let model_override = d.ai_model.text().trim().to_string();
+            if !model_override.is_empty() {
+                config.model = model_override;
+            }
+            let base_url_text = d.ai_base_url.text().trim().to_string();
+            if !base_url_text.is_empty() {
+                config.base_url = Some(base_url_text);
+            }
+            config.max_tokens = 16;
+
+            let client = ai_api_provider::ApiClient::new();
+            let messages = vec![ai_api_provider::ChatMessage {
+                role: "user".to_string(),
+                content: "Say hi in one word.".to_string(),
+            }];
+
+            match client.chat(&config, &messages).await {
+                Ok(_) => {
+                    if let Some(Dialog::Settings(d)) = self.dialog.as_mut() {
+                        d.ai_test_status =
+                            Some(format!("✓ Connected ({})", provider_name));
+                    }
+                }
+                Err(e) => {
+                    if let Some(Dialog::Settings(d)) = self.dialog.as_mut() {
+                        d.ai_test_status =
+                            Some(format!("✗ {}", e));
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(feature = "max"))]
+        {
+            if let Some(Dialog::Settings(d)) = self.dialog.as_mut() {
+                d.ai_test_status = Some("✗ AI requires Max tier build".to_string());
+            }
+        }
     }
 }

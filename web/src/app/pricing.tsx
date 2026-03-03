@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 
-const CREEM_MAX_PRODUCT_ID = "PLACEHOLDER_MAX_PRODUCT_ID";
+const CREEM_MAX_MONTHLY_ID = "prod_15F20YtTPacpgeBuWLKu4H";
+const CREEM_MAX_YEARLY_ID = "prod_6Ip9uykuzi8KqwBKczqYNx";
 
 export function PricingSection() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");

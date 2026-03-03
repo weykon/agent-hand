@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyModifiers};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::error::Result;
 use crate::session::Storage;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 enum OneOrMany {
     One(String),
@@ -23,7 +23,7 @@ impl OneOrMany {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ConfigFile {
     #[serde(default)]
     keybindings: HashMap<String, OneOrMany>,
@@ -32,7 +32,7 @@ pub struct ConfigFile {
     tmux: TmuxKeys,
 
     #[serde(default)]
-    analytics: AnalyticsConfig,
+    pub analytics: AnalyticsConfig,
 
     #[serde(default)]
     claude: ClaudeHooksConfig,
@@ -42,24 +42,24 @@ pub struct ConfigFile {
 
     /// Sharing configuration (Premium)
     #[serde(default)]
-    sharing: SharingConfig,
+    pub sharing: SharingConfig,
 
-    /// How long a session stays in “Ready (✓)” after leaving Running.
+    /// How long a session stays in "Ready (✓)" after leaving Running.
     /// Unit: minutes. Default: 40.
     #[serde(default)]
-    ready_ttl_minutes: Option<u64>,
+    pub ready_ttl_minutes: Option<u64>,
 
     /// Lines to jump with Ctrl+D / Ctrl+U. Default: 10.
     #[serde(default)]
-    jump_lines: Option<usize>,
+    pub jump_lines: Option<usize>,
 
     /// AI configuration (Max tier)
     #[cfg(feature = "max")]
     #[serde(default)]
-    ai: AiConfig,
+    pub ai: AiConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct TmuxKeys {
     #[serde(default)]
     switcher: Option<String>,
@@ -71,19 +71,19 @@ struct TmuxKeys {
     copy_mode: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AnalyticsConfig {
     #[serde(default = "default_analytics_enabled")]
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ClaudeHooksConfig {
     #[serde(default)]
     user_prompt_logging: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct StatusDetectionConfig {
     #[serde(default)]
     pub prompt_contains: Vec<String>,
@@ -96,7 +96,7 @@ pub struct StatusDetectionConfig {
 }
 
 /// Configuration for remote session sharing (Premium)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SharingConfig {
     /// tmate relay host (default: tmate.io, or self-hosted)
     #[serde(default = "default_tmate_host")]
@@ -142,7 +142,7 @@ impl Default for SharingConfig {
 
 /// AI provider configuration (Max tier)
 #[cfg(feature = "max")]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AiConfig {
     /// Provider name (e.g. "deepseek", "claude", "ollama"). Default: "deepseek"
     #[serde(default = "default_ai_provider")]
@@ -274,6 +274,17 @@ impl ConfigFile {
     #[cfg(feature = "max")]
     pub fn ai(&self) -> &AiConfig {
         &self.ai
+    }
+
+    /// Save configuration to `~/.agent-hand/config.toml`.
+    pub fn save(&self) -> Result<()> {
+        let dir = Storage::get_agent_hand_dir()?;
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("config.toml");
+        let toml = toml::to_string_pretty(self)
+            .map_err(|e| crate::Error::InvalidInput(format!("TOML serialize: {e}")))?;
+        std::fs::write(path, toml)?;
+        Ok(())
     }
 }
 
@@ -498,6 +509,13 @@ impl Default for KeyBindings {
             vec![KeySpec {
                 code: KeyCode::Char('u'),
                 modifiers: KeyModifiers::CONTROL,
+            }],
+        );
+        kb.bindings.insert(
+            "settings",
+            vec![KeySpec {
+                code: KeyCode::Char(','),
+                modifiers: KeyModifiers::NONE,
             }],
         );
 

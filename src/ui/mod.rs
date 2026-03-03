@@ -11,6 +11,7 @@ pub use dialogs::{
     DeleteConfirmDialog, DeleteGroupChoice, DeleteGroupDialog, Dialog,
     ForkDialog, ForkField, MoveGroupDialog, NewSessionDialog,
     NewSessionField, RenameGroupDialog, RenameSessionDialog, SessionEditField,
+    SettingsDialog, SettingsField, SettingsTab,
     TagPickerDialog, TagSpec,
 };
 

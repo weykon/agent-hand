@@ -252,6 +252,7 @@ pub enum Dialog {
     RenameSession(RenameSessionDialog),
     TagPicker(TagPickerDialog),
     QuitConfirm,
+    Settings(SettingsDialog),
     #[cfg(feature = "pro")]
     Share(ShareDialog),
     #[cfg(feature = "pro")]
@@ -397,6 +398,302 @@ pub struct NewFromContextDialog {
     pub context_preview: String,
     pub title: TextInput,
     pub injection_method: ContextInjectionMethod,
+}
+
+// ── Settings Dialog ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsTab {
+    AI,
+    Sharing,
+    General,
+}
+
+impl SettingsTab {
+    pub fn available_tabs() -> Vec<SettingsTab> {
+        let mut tabs = Vec::new();
+        #[cfg(feature = "max")]
+        tabs.push(SettingsTab::AI);
+        #[cfg(feature = "pro")]
+        tabs.push(SettingsTab::Sharing);
+        tabs.push(SettingsTab::General);
+        tabs
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::AI => "AI",
+            Self::Sharing => "Sharing",
+            Self::General => "General",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsField {
+    // AI tab
+    AiProvider,
+    AiApiKey,
+    AiModel,
+    AiBaseUrl,
+    AiSummaryLines,
+    AiTest,
+    // Sharing tab
+    RelayServerUrl,
+    TmateHost,
+    TmatePort,
+    DefaultPermission,
+    AutoExpire,
+    // General tab
+    AnalyticsEnabled,
+    JumpLines,
+    ReadyTtl,
+}
+
+impl SettingsField {
+    pub fn fields_for_tab(tab: SettingsTab) -> Vec<SettingsField> {
+        match tab {
+            SettingsTab::AI => vec![
+                Self::AiProvider,
+                Self::AiApiKey,
+                Self::AiModel,
+                Self::AiBaseUrl,
+                Self::AiSummaryLines,
+                Self::AiTest,
+            ],
+            SettingsTab::Sharing => vec![
+                Self::RelayServerUrl,
+                Self::TmateHost,
+                Self::TmatePort,
+                Self::DefaultPermission,
+                Self::AutoExpire,
+            ],
+            SettingsTab::General => vec![
+                Self::AnalyticsEnabled,
+                Self::JumpLines,
+                Self::ReadyTtl,
+            ],
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::AiProvider => "Provider",
+            Self::AiApiKey => "API Key",
+            Self::AiModel => "Model",
+            Self::AiBaseUrl => "Base URL",
+            Self::AiSummaryLines => "Summary Lines",
+            Self::AiTest => "Test Connection",
+            Self::RelayServerUrl => "Relay Server",
+            Self::TmateHost => "tmate Host",
+            Self::TmatePort => "tmate Port",
+            Self::DefaultPermission => "Default Permission",
+            Self::AutoExpire => "Auto-Expire (min)",
+            Self::AnalyticsEnabled => "Analytics",
+            Self::JumpLines => "Jump Lines",
+            Self::ReadyTtl => "Ready TTL (min)",
+        }
+    }
+
+    pub fn is_text_input(&self) -> bool {
+        matches!(
+            self,
+            Self::AiApiKey
+                | Self::AiModel
+                | Self::AiBaseUrl
+                | Self::AiSummaryLines
+                | Self::RelayServerUrl
+                | Self::TmateHost
+                | Self::TmatePort
+                | Self::AutoExpire
+                | Self::JumpLines
+                | Self::ReadyTtl
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SettingsDialog {
+    pub tab: SettingsTab,
+    pub field: SettingsField,
+    // AI
+    pub ai_provider_idx: usize,
+    pub ai_provider_names: Vec<String>,
+    pub ai_api_key: TextInput,
+    pub ai_model: TextInput,
+    pub ai_base_url: TextInput,
+    pub ai_summary_lines: TextInput,
+    pub ai_test_status: Option<String>,
+    // Sharing
+    pub relay_url: TextInput,
+    pub tmate_host: TextInput,
+    pub tmate_port: TextInput,
+    pub default_permission: String,
+    pub auto_expire: TextInput,
+    // General
+    pub analytics_enabled: bool,
+    pub jump_lines: TextInput,
+    pub ready_ttl: TextInput,
+    // State
+    pub editing: bool,
+    pub dirty: bool,
+}
+
+impl SettingsDialog {
+    #[allow(unused_variables)]
+    pub fn new(cfg: &crate::config::ConfigFile) -> Self {
+        // Build provider list + AI fields (max-gated)
+        #[cfg(feature = "max")]
+        let (ai_provider_names, ai_provider_idx, ai_api_key, ai_model, ai_base_url, ai_summary_lines) = {
+            let names: Vec<String> = ai_api_provider::PROVIDERS
+                .iter()
+                .map(|p| p.name.to_string())
+                .collect();
+            let idx = names
+                .iter()
+                .position(|n| n == &cfg.ai.provider)
+                .unwrap_or(0);
+            let key = TextInput::with_text(&cfg.ai.api_key);
+            let model = TextInput::with_text(&cfg.ai.model);
+            let base = TextInput::with_text(cfg.ai.base_url.as_deref().unwrap_or(""));
+            let lines = TextInput::with_text(cfg.ai.summary_lines.to_string());
+            (names, idx, key, model, base, lines)
+        };
+        #[cfg(not(feature = "max"))]
+        let (ai_provider_names, ai_provider_idx, ai_api_key, ai_model, ai_base_url, ai_summary_lines) = {
+            (Vec::<String>::new(), 0usize, TextInput::new(), TextInput::new(), TextInput::new(), TextInput::with_text("200"))
+        };
+
+        let tabs = SettingsTab::available_tabs();
+        let first_tab = tabs.first().copied().unwrap_or(SettingsTab::General);
+        let first_field = SettingsField::fields_for_tab(first_tab)
+            .first()
+            .copied()
+            .unwrap_or(SettingsField::AnalyticsEnabled);
+
+        Self {
+            tab: first_tab,
+            field: first_field,
+            ai_provider_idx,
+            ai_provider_names,
+            ai_api_key,
+            ai_model,
+            ai_base_url,
+            ai_summary_lines,
+            ai_test_status: None,
+            relay_url: TextInput::with_text(
+                cfg.sharing().relay_server_url.as_deref().unwrap_or(""),
+            ),
+            tmate_host: TextInput::with_text(&cfg.sharing().tmate_server_host),
+            tmate_port: TextInput::with_text(cfg.sharing().tmate_server_port.to_string()),
+            default_permission: cfg.sharing().default_permission.clone(),
+            auto_expire: TextInput::with_text(
+                cfg.sharing()
+                    .auto_expire_minutes
+                    .map(|m| m.to_string())
+                    .unwrap_or_default(),
+            ),
+            analytics_enabled: cfg.analytics_enabled(),
+            jump_lines: TextInput::with_text(cfg.jump_lines().to_string()),
+            ready_ttl: TextInput::with_text(cfg.ready_ttl_minutes().to_string()),
+            editing: false,
+            dirty: false,
+        }
+    }
+
+    pub fn current_fields(&self) -> Vec<SettingsField> {
+        SettingsField::fields_for_tab(self.tab)
+    }
+
+    pub fn active_input(&mut self) -> Option<&mut TextInput> {
+        match self.field {
+            SettingsField::AiApiKey => Some(&mut self.ai_api_key),
+            SettingsField::AiModel => Some(&mut self.ai_model),
+            SettingsField::AiBaseUrl => Some(&mut self.ai_base_url),
+            SettingsField::AiSummaryLines => Some(&mut self.ai_summary_lines),
+            SettingsField::RelayServerUrl => Some(&mut self.relay_url),
+            SettingsField::TmateHost => Some(&mut self.tmate_host),
+            SettingsField::TmatePort => Some(&mut self.tmate_port),
+            SettingsField::AutoExpire => Some(&mut self.auto_expire),
+            SettingsField::JumpLines => Some(&mut self.jump_lines),
+            SettingsField::ReadyTtl => Some(&mut self.ready_ttl),
+            _ => None,
+        }
+    }
+
+    pub fn move_field(&mut self, delta: i32) {
+        let fields = self.current_fields();
+        if fields.is_empty() {
+            return;
+        }
+        let idx = fields.iter().position(|f| *f == self.field).unwrap_or(0);
+        let new_idx = if delta > 0 {
+            (idx + 1) % fields.len()
+        } else if idx == 0 {
+            fields.len() - 1
+        } else {
+            idx - 1
+        };
+        self.field = fields[new_idx];
+    }
+
+    pub fn switch_tab(&mut self, delta: i32) {
+        let tabs = SettingsTab::available_tabs();
+        if tabs.is_empty() {
+            return;
+        }
+        let idx = tabs.iter().position(|t| *t == self.tab).unwrap_or(0);
+        let new_idx = if delta > 0 {
+            (idx + 1) % tabs.len()
+        } else if idx == 0 {
+            tabs.len() - 1
+        } else {
+            idx - 1
+        };
+        self.tab = tabs[new_idx];
+        let fields = SettingsField::fields_for_tab(self.tab);
+        self.field = fields.first().copied().unwrap_or(SettingsField::AnalyticsEnabled);
+    }
+
+    pub fn provider_display(&self) -> &str {
+        self.ai_provider_names
+            .get(self.ai_provider_idx)
+            .map(|s| s.as_str())
+            .unwrap_or("(none)")
+    }
+
+    pub fn cycle_provider(&mut self, delta: i32) {
+        let len = self.ai_provider_names.len();
+        if len == 0 {
+            return;
+        }
+        if delta > 0 {
+            self.ai_provider_idx = (self.ai_provider_idx + 1) % len;
+        } else if self.ai_provider_idx == 0 {
+            self.ai_provider_idx = len - 1;
+        } else {
+            self.ai_provider_idx -= 1;
+        }
+        self.dirty = true;
+    }
+
+    pub fn toggle_permission(&mut self) {
+        self.default_permission = if self.default_permission == "ro" {
+            "rw".to_string()
+        } else {
+            "ro".to_string()
+        };
+        self.dirty = true;
+    }
+
+    pub fn masked_api_key(&self) -> String {
+        let key = self.ai_api_key.text();
+        if key.len() <= 4 {
+            "*".repeat(key.len())
+        } else {
+            format!("{}****{}", &key[..3], &key[key.len() - 4..])
+        }
+    }
 }
 
 impl NewSessionDialog {
