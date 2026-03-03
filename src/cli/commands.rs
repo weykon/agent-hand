@@ -859,9 +859,11 @@ fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else if max <= 3 {
-        s[..max].to_string()
+        let end = s.floor_char_boundary(max);
+        s[..end].to_string()
     } else {
-        format!("{}...", &s[..max - 3])
+        let end = s.floor_char_boundary(max - 3);
+        format!("{}...", &s[..end])
     }
 }
 
