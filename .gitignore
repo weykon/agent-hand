@@ -6,5 +6,6 @@ web/node_modules/
 web/.next/
 web/out/
 deploy/
+.local-scripts/
 agent-hand-auth/
 pro/
