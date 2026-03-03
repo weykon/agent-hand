@@ -161,8 +161,12 @@ impl App {
         let (mut sessions, groups, relationships) = storage.load().await?;
         // Status is derived from tmux probes; the persisted value can be stale across restarts.
         // Reset to avoid treating old Running→Idle as a fresh completion.
+        // Also clear stale sharing state — relay rooms are ephemeral and won't survive TUI restart.
         for s in &mut sessions {
             s.status = Status::Idle;
+            if s.sharing.as_ref().is_some_and(|sh| sh.active) {
+                s.sharing = None;
+            }
         }
 
         let tmux = TmuxManager::new();
