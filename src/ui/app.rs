@@ -743,9 +743,22 @@ impl App {
             let is_pro = self.auth_token.as_ref().map_or(false, |t| t.is_pro());
             let active_count = self.active_sessions().len();
             if is_pro && active_count > 0 {
-                self.active_panel_focused = !self.active_panel_focused;
-                if self.active_panel_selected >= active_count {
-                    self.active_panel_selected = active_count.saturating_sub(1);
+                if self.active_panel_focused {
+                    // Switching TO tree — sync tree selection to active panel session
+                    let active = self.active_sessions();
+                    if let Some(session) = active.get(self.active_panel_selected) {
+                        let id = session.id.clone();
+                        self.active_panel_focused = false;
+                        self.focus_tree_on_session_id(&id);
+                    } else {
+                        self.active_panel_focused = false;
+                    }
+                } else {
+                    // Switching TO active panel
+                    self.active_panel_focused = true;
+                    if self.active_panel_selected >= active_count {
+                        self.active_panel_selected = active_count.saturating_sub(1);
+                    }
                 }
                 return Ok(());
             }
@@ -778,6 +791,14 @@ impl App {
                             self.preview.clear();
                         } else {
                             self.active_panel_selected += 1;
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Right if modifiers == KeyModifiers::NONE => {
+                        if let Some(id) = active.get(self.active_panel_selected) {
+                            let id = id.clone();
+                            self.active_panel_focused = false;
+                            self.focus_tree_on_session_id(&id);
                         }
                         return Ok(());
                     }
@@ -3531,6 +3552,21 @@ impl App {
             self.pending_attach = Some(tmux_session);
         }
         Ok(())
+    }
+
+    /// Jump tree selection to the session with the given ID (without attaching).
+    #[cfg(feature = "pro")]
+    fn focus_tree_on_session_id(&mut self, id: &str) {
+        if let Some(pos) = self
+            .tree
+            .iter()
+            .position(|item| matches!(item, TreeItem::Session { id: sid, .. } if sid == id))
+        {
+            self.selected_index = pos;
+            self.enforce_scrolloff();
+            self.on_navigation();
+            self.preview.clear();
+        }
     }
 
     /// Find session by tmux session name (matches against each session's tmux_name())
