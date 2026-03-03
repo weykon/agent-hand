@@ -131,6 +131,12 @@ pub enum Command {
         /// Session ID or title
         id: String,
     },
+
+    /// Join a shared session via relay URL
+    Join {
+        /// Share URL (e.g. https://relay.asymptai.com/share/ROOM_ID?token=TOKEN)
+        url: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

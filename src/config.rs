@@ -111,9 +111,13 @@ pub struct SharingConfig {
     #[serde(default)]
     pub auto_expire_minutes: Option<u64>,
     /// WebSocket relay server URL (e.g. "http://localhost:9090").
-    /// When set, the relay is used instead of tmate for session sharing.
+    /// When set, overrides relay discovery and uses this URL directly.
     #[serde(default)]
     pub relay_server_url: Option<String>,
+    /// URL for relay discovery (default: auth server's /api/relay-discover).
+    /// The client calls this to get the best relay URL automatically.
+    #[serde(default = "default_relay_discovery_url")]
+    pub relay_discovery_url: String,
 }
 
 fn default_tmate_host() -> String {
@@ -128,6 +132,10 @@ fn default_share_permission() -> String {
     "ro".to_string()
 }
 
+fn default_relay_discovery_url() -> String {
+    "https://auth.asymptai.com/api/relay-discover".to_string()
+}
+
 impl Default for SharingConfig {
     fn default() -> Self {
         Self {
@@ -136,6 +144,7 @@ impl Default for SharingConfig {
             default_permission: default_share_permission(),
             auto_expire_minutes: None,
             relay_server_url: None,
+            relay_discovery_url: default_relay_discovery_url(),
         }
     }
 }

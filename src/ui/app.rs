@@ -1078,6 +1078,18 @@ impl App {
             return Ok(());
         }
 
+        // J: Join a shared session via URL (Max tier)
+        #[cfg(feature = "pro")]
+        if key == KeyCode::Char('J') && modifiers == KeyModifiers::SHIFT {
+            if crate::auth::AuthToken::require_max("sharing").is_ok() {
+                self.dialog = Some(Dialog::JoinSession(
+                    crate::ui::dialogs::JoinSessionDialog::new(),
+                ));
+                self.state = AppState::Dialog;
+            }
+            return Ok(());
+        }
+
         // S: Share selected session (Max tier)
         #[cfg(feature = "pro")]
         if key == KeyCode::Char('S') && modifiers == KeyModifiers::SHIFT {
@@ -2278,7 +2290,20 @@ impl App {
                             .flatten()
                             .map(|c| c.sharing().clone())
                             .unwrap_or_default();
-                        let relay_url = sharing_cfg.relay_server_url.clone();
+                        // Try manual override first, then discover from auth
+                        let relay_url = match sharing_cfg.relay_server_url.clone() {
+                            Some(url) => Some(url),
+                            None => {
+                                if let Some(auth) = &self.auth_token {
+                                    crate::pro::collab::client::RelayClient::discover_relay(
+                                        &sharing_cfg.relay_discovery_url,
+                                        &auth.access_token,
+                                    ).await
+                                } else {
+                                    None
+                                }
+                            }
+                        };
 
                         let sid = d.session_id.clone();
                         let perm = d.permission;
@@ -2602,6 +2627,44 @@ impl App {
                 }
                 KeyCode::Char(c) => {
                     d.title.insert(c);
+                }
+                _ => {}
+            },
+
+            #[cfg(feature = "pro")]
+            Dialog::JoinSession(d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Enter => {
+                    if !d.connecting {
+                        let url_text = d.url_input.text().to_string();
+                        if let Some((relay_url, room_id, token)) =
+                            crate::ui::dialogs::JoinSessionDialog::parse_share_url(&url_text)
+                        {
+                            d.connecting = true;
+                            d.status = Some("Connecting...".to_string());
+                            let relay = relay_url.clone();
+                            let rid = room_id.clone();
+                            let tok = token.clone();
+                            self.dialog = None;
+                            self.state = AppState::Normal;
+                            if let Err(e) = self.connect_viewer(&relay, &rid, &tok).await {
+                                tracing::warn!("Failed to join session: {}", e);
+                            }
+                        } else {
+                            d.status = Some("Invalid URL. Expected: https://.../share/ROOM_ID?token=TOKEN".to_string());
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    d.url_input.backspace();
+                    d.status = None;
+                }
+                KeyCode::Char(c) => {
+                    d.url_input.insert(c);
+                    d.status = None;
                 }
                 _ => {}
             },
@@ -3958,6 +4021,14 @@ impl App {
     pub fn annotate_dialog(&self) -> Option<&crate::ui::AnnotateDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::Annotate(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "pro")]
+    pub fn join_session_dialog(&self) -> Option<&crate::ui::JoinSessionDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::JoinSession(d)) => Some(d),
             _ => None,
         }
     }

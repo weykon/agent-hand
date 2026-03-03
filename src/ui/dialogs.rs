@@ -261,6 +261,8 @@ pub enum Dialog {
     Annotate(AnnotateDialog),
     #[cfg(feature = "pro")]
     NewFromContext(NewFromContextDialog),
+    #[cfg(feature = "pro")]
+    JoinSession(JoinSessionDialog),
 }
 
 /// Dialog for sharing a session remotely (Premium)
@@ -278,6 +280,61 @@ pub struct ShareDialog {
     pub relay_share_url: Option<String>,
     /// Room ID on the relay server.
     pub relay_room_id: Option<String>,
+}
+
+/// Dialog for joining a shared session via relay URL (Premium)
+#[cfg(feature = "pro")]
+#[derive(Debug, Clone)]
+pub struct JoinSessionDialog {
+    /// Share URL input (e.g. https://relay.asymptai.com/share/ROOM_ID?token=TOKEN)
+    pub url_input: TextInput,
+    /// Status message shown to user
+    pub status: Option<String>,
+    /// Whether currently connecting
+    pub connecting: bool,
+}
+
+#[cfg(feature = "pro")]
+impl JoinSessionDialog {
+    pub fn new() -> Self {
+        Self {
+            url_input: TextInput::new(),
+            status: None,
+            connecting: false,
+        }
+    }
+
+    /// Parse a share URL into (relay_base_url, room_id, viewer_token).
+    /// Accepts: https://relay.asymptai.com/share/ROOM_ID?token=TOKEN
+    pub fn parse_share_url(url: &str) -> Option<(String, String, String)> {
+        let url = url.trim();
+        // Find /share/ in the URL
+        let share_idx = url.find("/share/")?;
+        let base_url = &url[..share_idx];
+        let after_share = &url[share_idx + 7..]; // skip "/share/"
+
+        // Split room_id from query string
+        let (room_id, query) = if let Some(q_idx) = after_share.find('?') {
+            (&after_share[..q_idx], &after_share[q_idx + 1..])
+        } else {
+            (after_share, "")
+        };
+
+        if room_id.is_empty() {
+            return None;
+        }
+
+        // Extract token from query params
+        let token = query
+            .split('&')
+            .find_map(|pair| {
+                let (k, v) = pair.split_once('=')?;
+                if k == "token" { Some(v.to_string()) } else { None }
+            })
+            .unwrap_or_default();
+
+        Some((base_url.to_string(), room_id.to_string(), token))
+    }
 }
 
 #[cfg(feature = "pro")]

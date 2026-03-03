@@ -82,7 +82,44 @@ pub async fn run_cli(args: Args) -> Result<()> {
             expire,
         }) => {
             #[cfg(feature = "pro")]
-            { crate::pro::commands::handle_share(profile, &id, &permission, expire).await }
+            {
+                // Try relay first (via discovery or config), fall back to tmate
+                let sharing_cfg = crate::config::ConfigFile::load()
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|c| c.sharing().clone())
+                    .unwrap_or_default();
+
+                let relay_url = match sharing_cfg.relay_server_url.clone() {
+                    Some(url) => Some(url),
+                    None => {
+                        if let Some(auth) = crate::auth::AuthToken::load() {
+                            crate::pro::collab::client::RelayClient::discover_relay(
+                                &sharing_cfg.relay_discovery_url,
+                                &auth.access_token,
+                            ).await
+                        } else {
+                            None
+                        }
+                    }
+                };
+
+                if let Some(relay) = relay_url {
+                    let client = crate::pro::commands::handle_relay_share(
+                        profile, &id, &permission, expire, &relay,
+                    ).await?;
+                    // Keep client alive until Ctrl+C
+                    println!("Press Ctrl+C to stop sharing.");
+                    tokio::signal::ctrl_c().await.ok();
+                    let session_id = id.clone();
+                    let tmux_name = format!("ah-{}", &session_id[..8.min(session_id.len())]);
+                    client.stop(&tmux_name).await;
+                    Ok(())
+                } else {
+                    crate::pro::commands::handle_share(profile, &id, &permission, expire).await
+                }
+            }
             #[cfg(not(feature = "pro"))]
             {
                 let _ = (id, permission, expire);
@@ -97,6 +134,101 @@ pub async fn run_cli(args: Args) -> Result<()> {
             #[cfg(not(feature = "pro"))]
             {
                 let _ = id;
+                eprintln!("Session sharing requires Max subscription. Visit https://weykon.github.io/agent-hand");
+                Ok(())
+            }
+        }
+
+        Some(Command::Join { url }) => {
+            #[cfg(feature = "pro")]
+            {
+                use crate::ui::JoinSessionDialog;
+
+                crate::auth::AuthToken::require_max("sharing")?;
+
+                let (relay_url, room_id, token) = JoinSessionDialog::parse_share_url(&url)
+                    .ok_or_else(|| crate::Error::InvalidInput(
+                        "Invalid share URL. Expected: https://.../share/ROOM_ID?token=TOKEN".to_string()
+                    ))?;
+
+                println!("Connecting to shared session...");
+                println!("  Relay: {}", relay_url);
+                println!("  Room:  {}", &room_id[..std::cmp::min(8, room_id.len())]);
+
+                // For CLI viewer, we connect and stream to stdout using a simple loop
+                use crate::pro::collab::protocol::ControlMessage;
+                use futures_util::{SinkExt, StreamExt};
+                use base64::Engine;
+
+                let ws_url = format!("{}/ws/{}", relay_url, room_id)
+                    .replace("https://", "wss://")
+                    .replace("http://", "ws://");
+
+                let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+                    .await
+                    .map_err(|e| crate::Error::Other(format!("WebSocket connect failed: {}", e)))?;
+
+                let (mut ws_write, mut ws_read) = ws_stream.split();
+
+                // Send ViewerAuth
+                let auth_msg = ControlMessage::ViewerAuth {
+                    token,
+                    user_token: None,
+                };
+                let json = serde_json::to_string(&auth_msg)
+                    .map_err(|e| crate::Error::Other(format!("Serialize error: {}", e)))?;
+                ws_write.send(tokio_tungstenite::tungstenite::Message::Text(json.into()))
+                    .await
+                    .map_err(|e| crate::Error::Other(format!("Send error: {}", e)))?;
+
+                // Wait for AuthResult
+                if let Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) = ws_read.next().await {
+                    if let Ok(ControlMessage::AuthResult { success, error, .. }) = serde_json::from_str(&text) {
+                        if !success {
+                            return Err(crate::Error::Other(format!(
+                                "Auth failed: {}", error.unwrap_or_default()
+                            )));
+                        }
+                    }
+                }
+
+                println!("Connected! Streaming terminal output (Ctrl+C to quit)...");
+                println!("---");
+
+                // Stream output to stdout
+                use std::io::Write;
+                while let Some(Ok(msg)) = ws_read.next().await {
+                    match msg {
+                        tokio_tungstenite::tungstenite::Message::Binary(data) => {
+                            let _ = std::io::stdout().write_all(&data);
+                            let _ = std::io::stdout().flush();
+                        }
+                        tokio_tungstenite::tungstenite::Message::Text(text) => {
+                            if let Ok(ControlMessage::Snapshot { data, .. }) = serde_json::from_str(&text) {
+                                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
+                                    // Clear screen and write snapshot
+                                    print!("\x1b[2J\x1b[H");
+                                    let _ = std::io::stdout().write_all(&decoded);
+                                    let _ = std::io::stdout().flush();
+                                }
+                            } else if let Ok(ControlMessage::RoomClosed { reason }) = serde_json::from_str(&text) {
+                                println!("\n--- Session ended: {} ---", reason);
+                                break;
+                            }
+                        }
+                        tokio_tungstenite::tungstenite::Message::Close(_) => {
+                            println!("\n--- Connection closed ---");
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+
+                Ok(())
+            }
+            #[cfg(not(feature = "pro"))]
+            {
+                let _ = url;
                 eprintln!("Session sharing requires Max subscription. Visit https://weykon.github.io/agent-hand");
                 Ok(())
             }

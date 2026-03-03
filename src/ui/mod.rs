@@ -18,7 +18,7 @@ pub use dialogs::{
 #[cfg(feature = "pro")]
 pub use dialogs::{
     AnnotateDialog, ContextInjectionMethod, CreateRelationshipDialog,
-    CreateRelationshipField, NewFromContextDialog, ShareDialog,
+    CreateRelationshipField, JoinSessionDialog, NewFromContextDialog, ShareDialog,
 };
 pub use input::TextInput;
 pub use switcher::run_switcher;

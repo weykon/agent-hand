@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
@@ -510,6 +510,12 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
 
     if let Some(d) = app.settings_dialog() {
         render_settings_dialog(f, area, d);
+        return;
+    }
+
+    #[cfg(feature = "pro")]
+    if let Some(d) = app.join_session_dialog() {
+        render_join_session_dialog(f, area, d);
         return;
     }
 
@@ -2041,6 +2047,56 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
         )
         .wrap(Wrap { trim: false });
     f.render_widget(preview, chunks[1]);
+}
+
+#[cfg(feature = "pro")]
+fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSessionDialog) {
+    let popup_area = centered_rect(65, 30, area);
+    f.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .title(" Join Shared Session ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .style(Style::default().bg(Color::Rgb(20, 20, 35)));
+    f.render_widget(block, popup_area);
+
+    let inner = popup_area.inner(Margin { horizontal: 2, vertical: 1 });
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // label
+            Constraint::Length(1), // input
+            Constraint::Length(1), // spacer
+            Constraint::Length(1), // status
+            Constraint::Length(1), // spacer
+            Constraint::Length(1), // hint
+        ])
+        .split(inner);
+
+    let label = Paragraph::new("Paste share URL:")
+        .style(Style::default().fg(Color::Gray));
+    f.render_widget(label, chunks[0]);
+
+    let input_text = d.url_input.text();
+    let input = Paragraph::new(format!("▸ {}", input_text))
+        .style(Style::default().fg(Color::White));
+    f.render_widget(input, chunks[1]);
+
+    if let Some(ref status) = d.status {
+        let color = if status.contains("Invalid") || status.contains("fail") {
+            Color::Red
+        } else {
+            Color::Yellow
+        };
+        let status_line = Paragraph::new(status.as_str())
+            .style(Style::default().fg(color));
+        f.render_widget(status_line, chunks[3]);
+    }
+
+    let hint = Paragraph::new("Enter: connect  Esc: cancel")
+        .style(Style::default().fg(Color::DarkGray));
+    f.render_widget(hint, chunks[5]);
 }
 
 #[cfg(feature = "pro")]
