@@ -3524,13 +3524,24 @@ impl App {
             self.preview.clear();
         }
 
-        let Some(&idx) = self.sessions_by_id.get(id) else {
+        // Look up session — try index map first, fall back to linear scan
+        // in case the index map is momentarily stale.
+        let idx = if let Some(&i) = self.sessions_by_id.get(id) {
+            i
+        } else if let Some(i) = self.sessions.iter().position(|s| s.id == id) {
+            i
+        } else {
             return Ok(());
         };
         let session = self.sessions[idx].clone();
 
         let tmux_session = session.tmux_name();
-        if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
+        // Remember whether the session already existed before we try to create it.
+        // `session_exists` can return Err on transient tmux failures; treat that
+        // conservatively for creation (assume doesn't exist → try to create) but
+        // optimistically for attach (see below).
+        let existed_before = self.tmux.session_exists(&tmux_session).unwrap_or(false);
+        if !existed_before {
             let _ = self
                 .tmux
                 .create_session(
@@ -3546,7 +3557,10 @@ impl App {
                 .await;
         }
 
-        if self.tmux.session_exists(&tmux_session).unwrap_or(false) {
+        // Proceed with attach if the session existed before OR exists now.
+        // This avoids a transient `session_exists` error after creation
+        // blocking the attach for sessions that were already running.
+        if existed_before || self.tmux.session_exists(&tmux_session).unwrap_or(false) {
             // Ensure the friendly title is stamped (covers pre-existing sessions too).
             let _ = self.tmux.set_session_title(&tmux_session, &session.title).await;
             self.pending_attach = Some(tmux_session);
