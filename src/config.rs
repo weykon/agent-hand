@@ -61,6 +61,10 @@ pub struct ConfigFile {
     #[serde(default)]
     pub jump_lines: Option<usize>,
 
+    /// Scroll padding: keep cursor N lines from top/bottom edge. Default: 5.
+    #[serde(default)]
+    pub scroll_padding: Option<usize>,
+
     /// AI configuration (Max tier)
     #[cfg(feature = "max")]
     #[serde(default)]
@@ -350,6 +354,10 @@ impl ConfigFile {
 
     pub fn jump_lines(&self) -> usize {
         self.jump_lines.unwrap_or(10)
+    }
+
+    pub fn scroll_padding(&self) -> usize {
+        self.scroll_padding.unwrap_or(5)
     }
 
     pub fn sharing(&self) -> &SharingConfig {

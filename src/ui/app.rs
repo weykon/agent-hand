@@ -116,6 +116,7 @@ pub struct App {
     list_state: ratatui::widgets::ListState,
     #[cfg(feature = "pro")]
     jump_lines: usize,
+    scroll_padding: usize,
 
     // Viewer mode state (pro only) — for viewing shared terminal sessions
     #[cfg(feature = "pro")]
@@ -263,6 +264,7 @@ impl App {
             list_state: ratatui::widgets::ListState::default(),
             #[cfg(feature = "pro")]
             jump_lines: config.jump_lines(),
+            scroll_padding: config.scroll_padding(),
             #[cfg(feature = "pro")]
             notification_manager: crate::pro::notification::NotificationManager::new(
                 config.notification(),
@@ -4246,6 +4248,10 @@ impl App {
         self.tick_count
     }
 
+    pub fn scroll_padding(&self) -> usize {
+        self.scroll_padding
+    }
+
     pub fn system_ptmx_total(&self) -> u32 {
         self.cached_ptmx_total
     }
@@ -4510,6 +4516,9 @@ impl App {
         self.config.jump_lines = Some(
             d.jump_lines.text().trim().parse().unwrap_or(10),
         );
+        self.config.scroll_padding = Some(
+            d.scroll_padding.text().trim().parse().unwrap_or(5),
+        );
         self.config.ready_ttl_minutes = Some(
             d.ready_ttl.text().trim().parse().unwrap_or(40),
         );
@@ -4521,11 +4530,12 @@ impl App {
         self.attention_ttl =
             Duration::from_secs(self.config.ready_ttl_minutes() * 60);
 
-        // Hot-reload: update jump_lines
+        // Hot-reload: update jump_lines & scroll_padding
         #[cfg(feature = "pro")]
         {
             self.jump_lines = self.config.jump_lines();
         }
+        self.scroll_padding = self.config.scroll_padding();
 
         // Hot-reload: reload notification manager with new config
         #[cfg(feature = "pro")]

@@ -136,8 +136,9 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
         let active = app.active_sessions();
 
         if is_pro && !active.is_empty() {
-            // 2 border rows + 1 row per session, capped at 8 total rows
-            let panel_h = (active.len() as u16 + 2).min(8);
+            // 2 border rows + 1 row per session, capped at 40% of available height
+            let max_h = (area.height * 2 / 5).max(8);
+            let panel_h = (active.len() as u16 + 2).min(max_h);
             let rows = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(panel_h), Constraint::Min(0)])
@@ -212,12 +213,14 @@ fn render_active_panel(f: &mut Frame, area: Rect, app: &App, active: &[&crate::s
     };
 
     let title = format!("⚡ Active ({})", active.len());
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(border_style),
-    );
+    let list = List::new(items)
+        .scroll_padding(app.scroll_padding())
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .border_style(border_style),
+        );
 
     let mut state = if focused {
         ListState::default().with_selected(Some(selected))
@@ -418,23 +421,25 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(Color::DarkGray)
     };
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(
-                format!(
-                    "Tree ({}/{})",
-                    app.selected_index() + 1,
-                    tree.len()
-                ),
-                if tree_focused {
-                    Style::default().fg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ))
-            .border_style(border_style),
-    );
+    let list = List::new(items)
+        .scroll_padding(app.scroll_padding())
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Span::styled(
+                    format!(
+                        "Tree ({}/{})",
+                        app.selected_index() + 1,
+                        tree.len()
+                    ),
+                    if tree_focused {
+                        Style::default().fg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    },
+                ))
+                .border_style(border_style),
+        );
 
     #[cfg(feature = "pro")]
     {
@@ -1685,7 +1690,7 @@ fn render_settings_dialog(
                     spans.push(Span::styled("  (Enter to open)", dim_style));
                 }
             }
-            // Text input fields: relay_url, tmate_host, tmate_port, auto_expire, jump_lines, ready_ttl
+            // Text input fields: relay_url, tmate_host, tmate_port, auto_expire, jump_lines, scroll_padding, ready_ttl
             _ => {
                 let input = match field {
                     SettingsField::RelayServerUrl => &d.relay_url,
@@ -1693,6 +1698,7 @@ fn render_settings_dialog(
                     SettingsField::TmatePort => &d.tmate_port,
                     SettingsField::AutoExpire => &d.auto_expire,
                     SettingsField::JumpLines => &d.jump_lines,
+                    SettingsField::ScrollPadding => &d.scroll_padding,
                     SettingsField::ReadyTtl => &d.ready_ttl,
                     _ => unreachable!(),
                 };

@@ -530,6 +530,7 @@ pub enum SettingsField {
     // General tab
     AnalyticsEnabled,
     JumpLines,
+    ScrollPadding,
     ReadyTtl,
 }
 
@@ -566,6 +567,7 @@ impl SettingsField {
             SettingsTab::General => vec![
                 Self::AnalyticsEnabled,
                 Self::JumpLines,
+                Self::ScrollPadding,
                 Self::ReadyTtl,
             ],
         }
@@ -604,6 +606,7 @@ impl SettingsField {
             Self::NotifPackLink => "Browse Packs",
             Self::AnalyticsEnabled => "Analytics",
             Self::JumpLines => "Jump Lines",
+            Self::ScrollPadding => "Scroll Padding",
             Self::ReadyTtl => "Ready TTL (min)",
         }
     }
@@ -620,6 +623,7 @@ impl SettingsField {
                 | Self::TmatePort
                 | Self::AutoExpire
                 | Self::JumpLines
+                | Self::ScrollPadding
                 | Self::ReadyTtl
         )
     }
@@ -683,6 +687,7 @@ pub struct SettingsDialog {
     // General
     pub analytics_enabled: bool,
     pub jump_lines: TextInput,
+    pub scroll_padding: TextInput,
     pub ready_ttl: TextInput,
     // State
     pub editing: bool,
@@ -792,6 +797,7 @@ impl SettingsDialog {
             notif_volume,
             analytics_enabled: cfg.analytics_enabled(),
             jump_lines: TextInput::with_text(cfg.jump_lines().to_string()),
+            scroll_padding: TextInput::with_text(cfg.scroll_padding().to_string()),
             ready_ttl: TextInput::with_text(cfg.ready_ttl_minutes().to_string()),
             editing: false,
             dirty: false,
@@ -815,6 +821,7 @@ impl SettingsDialog {
             #[cfg(feature = "pro")]
             SettingsField::NotifVolume => Some(&mut self.notif_volume),
             SettingsField::JumpLines => Some(&mut self.jump_lines),
+            SettingsField::ScrollPadding => Some(&mut self.scroll_padding),
             SettingsField::ReadyTtl => Some(&mut self.ready_ttl),
             _ => None,
         }
