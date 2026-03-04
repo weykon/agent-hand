@@ -538,8 +538,9 @@ impl App {
         let mut had_error: Vec<String> = Vec::new();
 
         // --- Phase 1: Process hook events (event-driven, precise) ---
-        // Sessions updated by hook events are tracked so we can skip polling for them.
-        let mut hook_updated: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Track which sessions were updated by hooks and what status they got.
+        // Running/Waiting from hooks is trusted; Idle is not (polling may detect activity).
+        let mut hook_updated: HashMap<String, Status> = HashMap::new();
 
         if let Some(ref mut receiver) = self.event_receiver {
             let events = receiver.poll();
@@ -605,7 +606,7 @@ impl App {
                 self.previous_statuses
                     .insert(session.id.clone(), new_status);
                 session.status = new_status;
-                hook_updated.insert(session.id.clone());
+                hook_updated.insert(session.id.clone(), new_status);
             }
         }
 
@@ -614,8 +615,11 @@ impl App {
         let selected_id = self.selected_session().map(|s| s.id.clone());
 
         for session in &mut self.sessions {
-            if hook_updated.contains(&session.id) {
-                continue; // Already updated by hook event
+            match hook_updated.get(&session.id) {
+                // Hook reports active state → trust it, skip polling
+                Some(Status::Running | Status::Waiting | Status::Starting) => continue,
+                // Hook reports Idle → allow polling to verify (may detect activity)
+                Some(Status::Idle | Status::Error) | None => {}
             }
 
             let tmux_session = session.tmux_name();
