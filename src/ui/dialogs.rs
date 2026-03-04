@@ -548,8 +548,6 @@ impl SettingsField {
             ],
             SettingsTab::Sharing => vec![
                 Self::RelayServerUrl,
-                Self::TmateHost,
-                Self::TmatePort,
                 Self::DefaultPermission,
                 Self::AutoExpire,
             ],

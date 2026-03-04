@@ -4670,9 +4670,6 @@ impl App {
         } else {
             Some(relay)
         };
-        self.config.sharing.tmate_server_host = d.tmate_host.text().trim().to_string();
-        self.config.sharing.tmate_server_port =
-            d.tmate_port.text().trim().parse().unwrap_or(22);
         self.config.sharing.default_permission = d.default_permission.clone();
         let expire = d.auto_expire.text().trim().to_string();
         self.config.sharing.auto_expire_minutes = if expire.is_empty() {

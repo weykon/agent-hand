@@ -1711,12 +1711,10 @@ fn render_settings_dialog(
                     spans.push(Span::styled("  (Enter to open)", dim_style));
                 }
             }
-            // Text input fields: relay_url, tmate_host, tmate_port, auto_expire, jump_lines, scroll_padding, ready_ttl
+            // Text input fields: relay_url, auto_expire, jump_lines, scroll_padding, ready_ttl
             _ => {
                 let input = match field {
                     SettingsField::RelayServerUrl => &d.relay_url,
-                    SettingsField::TmateHost => &d.tmate_host,
-                    SettingsField::TmatePort => &d.tmate_port,
                     SettingsField::AutoExpire => &d.auto_expire,
                     SettingsField::JumpLines => &d.jump_lines,
                     SettingsField::ScrollPadding => &d.scroll_padding,
