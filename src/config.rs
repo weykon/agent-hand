@@ -199,6 +199,18 @@ pub struct NotificationConfig {
     /// Play sound on tool failure
     #[serde(default = "default_true")]
     pub on_error: bool,
+    /// Play sound on session start (non-Running → Running)
+    #[serde(default = "default_true")]
+    pub on_session_start: bool,
+    /// Play sound when prompt received while already running
+    #[serde(default = "default_true")]
+    pub on_task_acknowledge: bool,
+    /// Play sound when context window is about to compact
+    #[serde(default = "default_true")]
+    pub on_resource_limit: bool,
+    /// Play sound on rapid-fire prompt spam
+    #[serde(default = "default_true")]
+    pub on_user_spam: bool,
     /// Suppress sound when the session is currently attached (focused)
     #[serde(default = "default_true")]
     pub quiet_when_focused: bool,
@@ -223,6 +235,10 @@ impl Default for NotificationConfig {
             on_task_complete: true,
             on_input_required: true,
             on_error: true,
+            on_session_start: true,
+            on_task_acknowledge: true,
+            on_resource_limit: true,
+            on_user_spam: true,
             quiet_when_focused: true,
         }
     }

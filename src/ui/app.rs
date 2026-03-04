@@ -593,6 +593,11 @@ impl App {
         let mut became_waiting: Vec<String> = Vec::new();
         #[cfg(feature = "pro")]
         let mut had_error: Vec<String> = Vec::new();
+        // (session_id, was_already_running) for session.start vs task.acknowledge
+        #[cfg(feature = "pro")]
+        let mut prompt_submitted: Vec<(String, bool)> = Vec::new();
+        #[cfg(feature = "pro")]
+        let mut hit_resource_limit: Vec<String> = Vec::new();
 
         // --- Phase 1: Process hook events (event-driven, precise) ---
         // Track which sessions were updated by hooks and what status they got.
@@ -649,7 +654,7 @@ impl App {
                     running_to_done.push(session.id.clone());
                 }
 
-                // Track Waiting/Error transitions for notifications
+                // Track Waiting/Error/Prompt/Compact transitions for notifications
                 #[cfg(feature = "pro")]
                 {
                     if new_status == Status::Waiting && prev_status != Status::Waiting {
@@ -657,6 +662,13 @@ impl App {
                     }
                     if matches!(event.kind, HookEventKind::ToolFailure { .. }) {
                         had_error.push(session.id.clone());
+                    }
+                    if matches!(event.kind, HookEventKind::UserPromptSubmit) {
+                        prompt_submitted
+                            .push((session.id.clone(), prev_status == Status::Running));
+                    }
+                    if matches!(event.kind, HookEventKind::PreCompact) {
+                        hit_resource_limit.push(session.id.clone());
                     }
                 }
 
@@ -827,6 +839,19 @@ impl App {
             }
             for session_id in &had_error {
                 self.notification_manager.on_error(session_id);
+            }
+            for (session_id, was_running) in &prompt_submitted {
+                // Check spam first — if spam detected, skip start/ack
+                if self.notification_manager.on_user_prompt(session_id) {
+                    // spam sound already played
+                } else if *was_running {
+                    self.notification_manager.on_task_acknowledge(session_id);
+                } else {
+                    self.notification_manager.on_session_start(session_id);
+                }
+            }
+            for session_id in &hit_resource_limit {
+                self.notification_manager.on_resource_limit(session_id);
             }
         }
 
