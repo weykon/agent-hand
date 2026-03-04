@@ -24,13 +24,31 @@ fn waiting_anim(tick: u64) -> &'static str {
     FRAMES[(tick as usize) % FRAMES.len()]
 }
 
-/// Render a TextInput with cursor visible when active
-fn render_text_input(input: &TextInput, active: bool, base_style: Style) -> Vec<Span<'static>> {
+/// Minimum visible width for input fields (in characters)
+const INPUT_MIN_WIDTH: usize = 30;
+
+/// Render a TextInput with cursor visible when active.
+/// A subtle background strip marks the editable area so users can see where to type.
+fn render_text_input(input: &TextInput, active: bool, _base_style: Style) -> Vec<Span<'static>> {
     let text = input.text();
     let cursor_pos = input.cursor();
 
+    // Background strip so the input area is visually distinct
+    let field_bg = if active {
+        Color::DarkGray
+    } else {
+        Color::Indexed(236) // very subtle dark gray (#303030)
+    };
+    let field_style = Style::default().bg(field_bg);
+
+    // Padding to fill the input area to a minimum visible width
+    let text_char_len = text.chars().count();
+    let pad_len = INPUT_MIN_WIDTH.saturating_sub(text_char_len + 1); // +1 for cursor
+    let padding: String = " ".repeat(pad_len);
+
     if !active {
-        return vec![Span::styled(text.to_string(), base_style)];
+        let display = format!("{}{}", text, " ".repeat(INPUT_MIN_WIDTH.saturating_sub(text_char_len)));
+        return vec![Span::styled(display, field_style)];
     }
 
     // Split text at cursor position
@@ -53,9 +71,9 @@ fn render_text_input(input: &TextInput, active: bool, base_style: Style) -> Vec<
         .add_modifier(Modifier::BOLD);
 
     vec![
-        Span::styled(before.to_string(), base_style),
+        Span::styled(before.to_string(), field_style),
         Span::styled(cursor_char.to_string(), cursor_style),
-        Span::styled(rest.to_string(), base_style),
+        Span::styled(format!("{}{}", rest, padding), field_style),
     ]
 }
 
