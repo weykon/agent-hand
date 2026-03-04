@@ -1471,6 +1471,27 @@ fn render_settings_dialog(
                     }
                 }
             }
+            SettingsField::MouseCapture => {
+                let is_editing_this = d.editing && is_active;
+                let labels = ["Auto", "On", "Off"];
+                if is_editing_this {
+                    let sel = Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    let unsel = Style::default().fg(Color::DarkGray);
+                    for (i, label) in labels.iter().enumerate() {
+                        if i > 0 {
+                            spans.push(Span::raw(" "));
+                        }
+                        let style = if d.mouse_capture_mode == i as u8 { sel } else { unsel };
+                        spans.push(Span::styled(format!(" {label} "), style));
+                    }
+                } else {
+                    let val = labels[d.mouse_capture_mode as usize % 3];
+                    spans.push(Span::styled(format!("▸ {val}"), if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
             // ── Notification tab fields (Pro) — Hook Integration ──
             #[cfg(feature = "pro")]
             SettingsField::NotifHookStatus => {
@@ -2005,6 +2026,15 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(pty_color),
     ));
     spans.push(Span::raw("  |  "));
+
+    // Mouse capture hint
+    if app.mouse_captured() {
+        spans.push(Span::styled(
+            "Shift+Drag",
+            Style::default().fg(Color::DarkGray),
+        ));
+        spans.push(Span::styled(":select text  ", Style::default().fg(Color::DarkGray)));
+    }
 
     #[cfg(feature = "pro")]
     if app.state() == crate::ui::AppState::Relationships {

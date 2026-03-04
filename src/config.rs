@@ -23,6 +23,18 @@ impl OneOrMany {
     }
 }
 
+
+/// Mouse capture mode for the TUI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseCaptureMode {
+    /// Detect environment: disable in nested tmux / weak terminals, enable otherwise.
+    Auto,
+    /// Always capture mouse events.
+    On,
+    /// Never capture mouse events (terminal-native selection).
+    Off,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ConfigFile {
     #[serde(default)]
@@ -64,6 +76,10 @@ pub struct ConfigFile {
     /// Scroll padding: keep cursor N lines from top/bottom edge. Default: 5.
     #[serde(default)]
     pub scroll_padding: Option<usize>,
+
+    /// Mouse capture mode: "auto" (default), "on", "off"
+    #[serde(default)]
+    pub mouse_capture: Option<String>,
 
     /// AI configuration (Max tier)
     #[cfg(feature = "max")]
@@ -358,6 +374,14 @@ impl ConfigFile {
 
     pub fn scroll_padding(&self) -> usize {
         self.scroll_padding.unwrap_or(5)
+    }
+
+    pub fn mouse_capture(&self) -> MouseCaptureMode {
+        match self.mouse_capture.as_deref() {
+            Some("on") => MouseCaptureMode::On,
+            Some("off") => MouseCaptureMode::Off,
+            _ => MouseCaptureMode::Auto,
+        }
     }
 
     pub fn sharing(&self) -> &SharingConfig {

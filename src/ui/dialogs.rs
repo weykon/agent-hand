@@ -529,6 +529,7 @@ pub enum SettingsField {
     NotifPackLink,
     // General tab
     AnalyticsEnabled,
+    MouseCapture,
     JumpLines,
     ScrollPadding,
     ReadyTtl,
@@ -566,6 +567,7 @@ impl SettingsField {
             ],
             SettingsTab::General => vec![
                 Self::AnalyticsEnabled,
+                Self::MouseCapture,
                 Self::JumpLines,
                 Self::ScrollPadding,
                 Self::ReadyTtl,
@@ -605,6 +607,7 @@ impl SettingsField {
             #[cfg(feature = "pro")]
             Self::NotifPackLink => "Browse Packs",
             Self::AnalyticsEnabled => "Analytics",
+            Self::MouseCapture => "Mouse Capture",
             Self::JumpLines => "Jump Lines",
             Self::ScrollPadding => "Scroll Padding",
             Self::ReadyTtl => "Ready TTL (min)",
@@ -631,7 +634,7 @@ impl SettingsField {
     /// Whether this field is a selector (toggle/cycle) type.
     pub fn is_selector(&self) -> bool {
         match self {
-            Self::AiProvider | Self::DefaultPermission | Self::AnalyticsEnabled => true,
+            Self::AiProvider | Self::DefaultPermission | Self::AnalyticsEnabled | Self::MouseCapture => true,
             #[cfg(feature = "pro")]
             Self::NotifAutoRegister
             | Self::NotifEnabled
@@ -686,6 +689,8 @@ pub struct SettingsDialog {
     pub notif_volume: TextInput,
     // General
     pub analytics_enabled: bool,
+    /// 0=Auto, 1=On, 2=Off
+    pub mouse_capture_mode: u8,
     pub jump_lines: TextInput,
     pub scroll_padding: TextInput,
     pub ready_ttl: TextInput,
@@ -796,6 +801,11 @@ impl SettingsDialog {
             #[cfg(feature = "pro")]
             notif_volume,
             analytics_enabled: cfg.analytics_enabled(),
+            mouse_capture_mode: match cfg.mouse_capture() {
+                crate::config::MouseCaptureMode::Auto => 0,
+                crate::config::MouseCaptureMode::On => 1,
+                crate::config::MouseCaptureMode::Off => 2,
+            },
             jump_lines: TextInput::with_text(cfg.jump_lines().to_string()),
             scroll_padding: TextInput::with_text(cfg.scroll_padding().to_string()),
             ready_ttl: TextInput::with_text(cfg.ready_ttl_minutes().to_string()),

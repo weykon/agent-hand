@@ -118,6 +118,11 @@ pub struct App {
     jump_lines: usize,
     scroll_padding: usize,
 
+    // Mouse capture state
+    mouse_captured: bool,
+    /// Set when settings change mouse_capture; applied next event loop iteration.
+    mouse_capture_changed: bool,
+
     // Viewer mode state (pro only) — for viewing shared terminal sessions
     #[cfg(feature = "pro")]
     viewer_state: Option<ViewerState>,
@@ -153,6 +158,29 @@ pub struct ViewerState {
     pub connected: Arc<std::sync::atomic::AtomicBool>,
     /// Handle to the viewer task.
     pub task_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// Decide whether mouse capture should be enabled based on config + environment.
+fn resolve_mouse_capture(config: &crate::config::ConfigFile) -> bool {
+    use crate::config::MouseCaptureMode;
+    match config.mouse_capture() {
+        MouseCaptureMode::On => true,
+        MouseCaptureMode::Off => false,
+        MouseCaptureMode::Auto => {
+            // Nested tmux: outer tmux grabs mouse events → disable
+            if std::env::var("TMUX").is_ok() {
+                return false;
+            }
+            // Apple Terminal has poor mouse support
+            if std::env::var("TERM_PROGRAM")
+                .map(|v| v == "Apple_Terminal")
+                .unwrap_or(false)
+            {
+                return false;
+            }
+            true
+        }
+    }
 }
 
 impl App {
@@ -265,6 +293,8 @@ impl App {
             #[cfg(feature = "pro")]
             jump_lines: config.jump_lines(),
             scroll_padding: config.scroll_padding(),
+            mouse_captured: resolve_mouse_capture(&config),
+            mouse_capture_changed: false,
             #[cfg(feature = "pro")]
             notification_manager: crate::pro::notification::NotificationManager::new(
                 config.notification(),
@@ -306,7 +336,11 @@ impl App {
         // Setup terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        if self.mouse_captured {
+            execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        } else {
+            execute!(stdout, EnterAlternateScreen)?;
+        }
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -317,11 +351,15 @@ impl App {
 
         // Restore terminal
         disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
+        if self.mouse_captured {
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+        } else {
+            execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        }
         terminal.show_cursor()?;
 
         result
@@ -338,6 +376,20 @@ impl App {
         self.on_navigation();
 
         loop {
+            // Hot-reload mouse capture state (triggered by settings save)
+            if self.mouse_capture_changed {
+                self.mouse_capture_changed = false;
+                let want = resolve_mouse_capture(&self.config);
+                if want != self.mouse_captured {
+                    if want {
+                        execute!(terminal.backend_mut(), EnableMouseCapture)?;
+                    } else {
+                        execute!(terminal.backend_mut(), DisableMouseCapture)?;
+                    }
+                    self.mouse_captured = want;
+                }
+            }
+
             // Draw UI
             terminal.draw(|f| {
                 self.width = f.area().width;
@@ -353,6 +405,11 @@ impl App {
                     }
                     CrosstermEvent::Resize(_, _) => {
                         // Next draw will re-render with new size
+                    }
+                    CrosstermEvent::Mouse(mouse) => {
+                        if self.mouse_captured {
+                            self.handle_mouse_event(mouse);
+                        }
                     }
                     _ => {}
                 }
@@ -2819,6 +2876,10 @@ impl App {
                                     d.analytics_enabled = !d.analytics_enabled;
                                     d.dirty = true;
                                 }
+                                SettingsField::MouseCapture => {
+                                    d.mouse_capture_mode = (d.mouse_capture_mode + 2) % 3; // cycle backward
+                                    d.dirty = true;
+                                }
                                 #[cfg(feature = "pro")]
                                 SettingsField::NotifAutoRegister => {
                                     d.hook_auto_register = !d.hook_auto_register;
@@ -2853,6 +2914,10 @@ impl App {
                                 SettingsField::DefaultPermission => d.toggle_permission(),
                                 SettingsField::AnalyticsEnabled => {
                                     d.analytics_enabled = !d.analytics_enabled;
+                                    d.dirty = true;
+                                }
+                                SettingsField::MouseCapture => {
+                                    d.mouse_capture_mode = (d.mouse_capture_mode + 1) % 3; // cycle forward
                                     d.dirty = true;
                                 }
                                 #[cfg(feature = "pro")]
@@ -3676,6 +3741,115 @@ impl App {
         }
     }
 
+    /// Handle mouse events (scroll, click).
+    fn handle_mouse_event(&mut self, mouse: crossterm::event::MouseEvent) {
+        use crossterm::event::{MouseEventKind, MouseButton};
+
+        // Ignore mouse events when a dialog or help overlay is open
+        if self.state == AppState::Dialog || self.help_visible {
+            return;
+        }
+
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                self.move_selection_up();
+                self.on_navigation();
+                #[cfg(feature = "pro")]
+                self.enforce_scrolloff();
+            }
+            MouseEventKind::ScrollDown => {
+                self.move_selection_down();
+                self.on_navigation();
+                #[cfg(feature = "pro")]
+                self.enforce_scrolloff();
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.handle_mouse_click(mouse.column, mouse.row);
+            }
+            _ => {}
+        }
+    }
+
+    /// Map a mouse click (column, row) to the corresponding tree item index.
+    ///
+    /// Layout (vertical): Title (3 rows) | Content | StatusBar (3 rows).
+    /// Content left panel is 45% width.
+    /// The session tree has a 1-row border top, items, 1-row border bottom.
+    fn handle_mouse_click(&mut self, col: u16, row: u16) {
+        // Layout: title=3, content=middle, status_bar=3
+        let title_h: u16 = 3;
+        let status_h: u16 = 3;
+        let total = self.height;
+        if total <= title_h + status_h {
+            return;
+        }
+        let content_h = total - title_h - status_h;
+        let content_top = title_h;
+
+        // Session list occupies left 45% of content area
+        let left_width = (self.width * 45) / 100;
+        if col >= left_width {
+            return; // Click is in preview pane
+        }
+        if row < content_top || row >= content_top + content_h {
+            return; // Click is outside content area
+        }
+
+        // Pro: account for the active panel above the tree
+        let tree_area_top;
+        #[cfg(feature = "pro")]
+        {
+            let is_pro = self.auth_token.as_ref().map_or(false, |t| t.is_pro());
+            let active_count = self.active_sessions().len();
+            if is_pro && active_count > 0 {
+                let max_panel_h = (content_h * 2 / 5).max(8);
+                let panel_h = (active_count as u16 + 2).min(max_panel_h);
+                tree_area_top = content_top + panel_h;
+            } else {
+                tree_area_top = content_top;
+            }
+        }
+        #[cfg(not(feature = "pro"))]
+        {
+            tree_area_top = content_top;
+        }
+
+        if row < tree_area_top {
+            return; // Click is in the active panel, not the tree
+        }
+
+        // Inside tree area: 1 row border top, then items
+        let item_row = row.saturating_sub(tree_area_top + 1); // +1 for top border
+
+        // Determine viewport offset (scroll position)
+        let viewport_offset: usize;
+        #[cfg(feature = "pro")]
+        {
+            viewport_offset = self.list_state.offset();
+        }
+        #[cfg(not(feature = "pro"))]
+        {
+            // Non-pro: ratatui auto-scrolls around selected; approximate offset
+            let visible = self.height.saturating_sub(title_h + status_h + 2) as usize; // 2 for borders
+            viewport_offset = if self.selected_index >= visible {
+                self.selected_index.saturating_sub(visible / 2)
+            } else {
+                0
+            };
+        }
+
+        let target_index = viewport_offset + item_row as usize;
+        if target_index < self.tree.len() {
+            self.selected_index = target_index;
+            self.on_navigation();
+            #[cfg(feature = "pro")]
+            {
+                self.list_state.select(Some(target_index));
+                self.enforce_scrolloff();
+            }
+        }
+    }
+
     /// Visible tree rows (total height minus header, status bar, borders)
     #[cfg(feature = "pro")]
     fn visible_tree_height(&self) -> usize {
@@ -3867,21 +4041,29 @@ impl App {
         name: &str,
     ) -> Result<()> {
         disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
+        if self.mouse_captured {
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+        } else {
+            execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        }
         terminal.show_cursor()?;
 
         let attach_result = self.tmux.attach_session(name).await;
 
         enable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            EnterAlternateScreen,
-            EnableMouseCapture
-        )?;
+        if self.mouse_captured {
+            execute!(
+                terminal.backend_mut(),
+                EnterAlternateScreen,
+                EnableMouseCapture
+            )?;
+        } else {
+            execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+        }
         terminal.clear()?;
 
         attach_result
@@ -4256,6 +4438,10 @@ impl App {
         self.scroll_padding
     }
 
+    pub fn mouse_captured(&self) -> bool {
+        self.mouse_captured
+    }
+
     pub fn system_ptmx_total(&self) -> u32 {
         self.cached_ptmx_total
     }
@@ -4526,6 +4712,13 @@ impl App {
         self.config.ready_ttl_minutes = Some(
             d.ready_ttl.text().trim().parse().unwrap_or(40),
         );
+        let mouse_str = match d.mouse_capture_mode {
+            0 => "auto",
+            1 => "on",
+            _ => "off",
+        };
+        self.config.mouse_capture = Some(mouse_str.to_string());
+        self.mouse_capture_changed = true;
 
         // Save to disk
         self.config.save()?;
