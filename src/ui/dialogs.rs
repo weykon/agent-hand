@@ -463,6 +463,8 @@ pub struct NewFromContextDialog {
 pub enum SettingsTab {
     AI,
     Sharing,
+    #[cfg(feature = "pro")]
+    Notification,
     General,
 }
 
@@ -473,6 +475,8 @@ impl SettingsTab {
         tabs.push(SettingsTab::AI);
         #[cfg(feature = "pro")]
         tabs.push(SettingsTab::Sharing);
+        #[cfg(feature = "pro")]
+        tabs.push(SettingsTab::Notification);
         tabs.push(SettingsTab::General);
         tabs
     }
@@ -481,6 +485,8 @@ impl SettingsTab {
         match self {
             Self::AI => "AI",
             Self::Sharing => "Sharing",
+            #[cfg(feature = "pro")]
+            Self::Notification => "Sound",
             Self::General => "General",
         }
     }
@@ -501,6 +507,21 @@ pub enum SettingsField {
     TmatePort,
     DefaultPermission,
     AutoExpire,
+    // Notification tab (Pro)
+    #[cfg(feature = "pro")]
+    NotifEnabled,
+    #[cfg(feature = "pro")]
+    NotifSoundPack,
+    #[cfg(feature = "pro")]
+    NotifOnComplete,
+    #[cfg(feature = "pro")]
+    NotifOnInput,
+    #[cfg(feature = "pro")]
+    NotifOnError,
+    #[cfg(feature = "pro")]
+    NotifVolume,
+    #[cfg(feature = "pro")]
+    NotifPackLink,
     // General tab
     AnalyticsEnabled,
     JumpLines,
@@ -525,6 +546,16 @@ impl SettingsField {
                 Self::DefaultPermission,
                 Self::AutoExpire,
             ],
+            #[cfg(feature = "pro")]
+            SettingsTab::Notification => vec![
+                Self::NotifEnabled,
+                Self::NotifSoundPack,
+                Self::NotifOnComplete,
+                Self::NotifOnInput,
+                Self::NotifOnError,
+                Self::NotifVolume,
+                Self::NotifPackLink,
+            ],
             SettingsTab::General => vec![
                 Self::AnalyticsEnabled,
                 Self::JumpLines,
@@ -546,6 +577,20 @@ impl SettingsField {
             Self::TmatePort => "tmate Port",
             Self::DefaultPermission => "Default Permission",
             Self::AutoExpire => "Auto-Expire (min)",
+            #[cfg(feature = "pro")]
+            Self::NotifEnabled => "Enabled",
+            #[cfg(feature = "pro")]
+            Self::NotifSoundPack => "Sound Pack",
+            #[cfg(feature = "pro")]
+            Self::NotifOnComplete => "On Complete",
+            #[cfg(feature = "pro")]
+            Self::NotifOnInput => "On Input",
+            #[cfg(feature = "pro")]
+            Self::NotifOnError => "On Error",
+            #[cfg(feature = "pro")]
+            Self::NotifVolume => "Volume",
+            #[cfg(feature = "pro")]
+            Self::NotifPackLink => "Browse Packs",
             Self::AnalyticsEnabled => "Analytics",
             Self::JumpLines => "Jump Lines",
             Self::ReadyTtl => "Ready TTL (min)",
@@ -567,6 +612,20 @@ impl SettingsField {
                 | Self::ReadyTtl
         )
     }
+
+    /// Whether this field is a selector (toggle/cycle) type.
+    pub fn is_selector(&self) -> bool {
+        match self {
+            Self::AiProvider | Self::DefaultPermission | Self::AnalyticsEnabled => true,
+            #[cfg(feature = "pro")]
+            Self::NotifEnabled
+            | Self::NotifSoundPack
+            | Self::NotifOnComplete
+            | Self::NotifOnInput
+            | Self::NotifOnError => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -587,6 +646,21 @@ pub struct SettingsDialog {
     pub tmate_port: TextInput,
     pub default_permission: String,
     pub auto_expire: TextInput,
+    // Notification (Pro)
+    #[cfg(feature = "pro")]
+    pub notif_enabled: bool,
+    #[cfg(feature = "pro")]
+    pub notif_pack_names: Vec<String>,
+    #[cfg(feature = "pro")]
+    pub notif_pack_idx: usize,
+    #[cfg(feature = "pro")]
+    pub notif_on_complete: bool,
+    #[cfg(feature = "pro")]
+    pub notif_on_input: bool,
+    #[cfg(feature = "pro")]
+    pub notif_on_error: bool,
+    #[cfg(feature = "pro")]
+    pub notif_volume: TextInput,
     // General
     pub analytics_enabled: bool,
     pub jump_lines: TextInput,
@@ -628,6 +702,27 @@ impl SettingsDialog {
             .copied()
             .unwrap_or(SettingsField::AnalyticsEnabled);
 
+        // Notification fields (Pro)
+        #[cfg(feature = "pro")]
+        let (notif_enabled, notif_pack_names, notif_pack_idx, notif_on_complete, notif_on_input, notif_on_error, notif_volume) = {
+            let nc = cfg.notification();
+            let mut pack_names = crate::pro::notification::SoundPack::list_installed();
+            // Ensure current config pack is in the list even if not found on disk
+            if !pack_names.iter().any(|n| n == &nc.sound_pack) {
+                pack_names.insert(0, nc.sound_pack.clone());
+            }
+            let idx = pack_names.iter().position(|n| n == &nc.sound_pack).unwrap_or(0);
+            (
+                nc.enabled,
+                pack_names,
+                idx,
+                nc.on_task_complete,
+                nc.on_input_required,
+                nc.on_error,
+                TextInput::with_text(format!("{:.0}", nc.volume * 100.0)),
+            )
+        };
+
         Self {
             tab: first_tab,
             field: first_field,
@@ -650,6 +745,20 @@ impl SettingsDialog {
                     .map(|m| m.to_string())
                     .unwrap_or_default(),
             ),
+            #[cfg(feature = "pro")]
+            notif_enabled,
+            #[cfg(feature = "pro")]
+            notif_pack_names,
+            #[cfg(feature = "pro")]
+            notif_pack_idx,
+            #[cfg(feature = "pro")]
+            notif_on_complete,
+            #[cfg(feature = "pro")]
+            notif_on_input,
+            #[cfg(feature = "pro")]
+            notif_on_error,
+            #[cfg(feature = "pro")]
+            notif_volume,
             analytics_enabled: cfg.analytics_enabled(),
             jump_lines: TextInput::with_text(cfg.jump_lines().to_string()),
             ready_ttl: TextInput::with_text(cfg.ready_ttl_minutes().to_string()),
@@ -672,10 +781,38 @@ impl SettingsDialog {
             SettingsField::TmateHost => Some(&mut self.tmate_host),
             SettingsField::TmatePort => Some(&mut self.tmate_port),
             SettingsField::AutoExpire => Some(&mut self.auto_expire),
+            #[cfg(feature = "pro")]
+            SettingsField::NotifVolume => Some(&mut self.notif_volume),
             SettingsField::JumpLines => Some(&mut self.jump_lines),
             SettingsField::ReadyTtl => Some(&mut self.ready_ttl),
             _ => None,
         }
+    }
+
+    /// Cycle sound pack selection (Pro)
+    #[cfg(feature = "pro")]
+    pub fn cycle_pack(&mut self, delta: i32) {
+        let len = self.notif_pack_names.len();
+        if len == 0 {
+            return;
+        }
+        if delta > 0 {
+            self.notif_pack_idx = (self.notif_pack_idx + 1) % len;
+        } else if self.notif_pack_idx == 0 {
+            self.notif_pack_idx = len - 1;
+        } else {
+            self.notif_pack_idx -= 1;
+        }
+        self.dirty = true;
+    }
+
+    /// Get the currently selected pack name (Pro)
+    #[cfg(feature = "pro")]
+    pub fn pack_display(&self) -> &str {
+        self.notif_pack_names
+            .get(self.notif_pack_idx)
+            .map(|s| s.as_str())
+            .unwrap_or("(none)")
     }
 
     pub fn move_field(&mut self, delta: i32) {

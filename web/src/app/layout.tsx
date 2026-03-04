@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -20,7 +21,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className={`${inter.className} antialiased`}>{children}</body>
+      <body className={`${inter.className} antialiased`}>
+        {children}
+        <Script id="ah-analytics" strategy="afterInteractive">{`
+(function(){
+  if(location.hostname==='localhost'||location.hostname==='127.0.0.1')return;
+  var vid;try{vid=localStorage.getItem('_ah_vid');if(!vid){vid=typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Date.now().toString(36);localStorage.setItem('_ah_vid',vid);}}catch(e){vid=Math.random().toString(36).slice(2);}
+  try{fetch('https://auth.asymptai.com/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:location.pathname,referrer:document.referrer||'',visitor_id:vid}),keepalive:true}).catch(function(){});}catch(e){}
+})();
+        `}</Script>
+      </body>
     </html>
   );
 }

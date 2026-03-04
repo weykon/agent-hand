@@ -44,6 +44,10 @@ pub struct ConfigFile {
     #[serde(default)]
     pub sharing: SharingConfig,
 
+    /// Sound notification configuration (Pro)
+    #[serde(default)]
+    pub notification: NotificationConfig,
+
     /// How long a session stays in "Ready (✓)" after leaving Running.
     /// Unit: minutes. Default: 40.
     #[serde(default)]
@@ -145,6 +149,57 @@ impl Default for SharingConfig {
             auto_expire_minutes: None,
             relay_server_url: None,
             relay_discovery_url: default_relay_discovery_url(),
+        }
+    }
+}
+
+/// Sound notification configuration (Pro tier).
+/// Supports CESP (Coding Event Sound Pack) format — compatible with peon-ping packs.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NotificationConfig {
+    /// Enable sound notifications (default: true when Pro)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Volume 0.0-1.0 (default: 0.5)
+    #[serde(default = "default_volume")]
+    pub volume: f32,
+    /// Sound pack name — looked up in ~/.openpeon/packs/ or ~/.agent-hand/packs/
+    #[serde(default = "default_pack")]
+    pub sound_pack: String,
+    /// Play sound on task completion (Running→Idle)
+    #[serde(default = "default_true")]
+    pub on_task_complete: bool,
+    /// Play sound when agent needs input (→Waiting)
+    #[serde(default = "default_true")]
+    pub on_input_required: bool,
+    /// Play sound on tool failure
+    #[serde(default = "default_true")]
+    pub on_error: bool,
+    /// Suppress sound when the session is currently attached (focused)
+    #[serde(default = "default_true")]
+    pub quiet_when_focused: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_volume() -> f32 {
+    0.5
+}
+fn default_pack() -> String {
+    "peon".to_string()
+}
+
+impl Default for NotificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            volume: default_volume(),
+            sound_pack: default_pack(),
+            on_task_complete: true,
+            on_input_required: true,
+            on_error: true,
+            quiet_when_focused: true,
         }
     }
 }
@@ -278,6 +333,10 @@ impl ConfigFile {
 
     pub fn sharing(&self) -> &SharingConfig {
         &self.sharing
+    }
+
+    pub fn notification(&self) -> &NotificationConfig {
+        &self.notification
     }
 
     #[cfg(feature = "max")]

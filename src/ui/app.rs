@@ -89,6 +89,9 @@ pub struct App {
     last_seen_detach_at: Option<String>,
     force_probe_tmux: Option<String>,
 
+    // Event-driven status detection (from Claude Code hooks)
+    event_receiver: Option<crate::hooks::EventReceiver>,
+
     // PTY monitoring (background task + shared state)
     ptmx_state: crate::tmux::ptmx::SharedPtmxState,
     _ptmx_task: tokio::task::JoinHandle<()>,
@@ -117,6 +120,10 @@ pub struct App {
     // Viewer mode state (pro only) — for viewing shared terminal sessions
     #[cfg(feature = "pro")]
     viewer_state: Option<ViewerState>,
+
+    // Sound notifications (pro only) — plays sounds on status transitions
+    #[cfg(feature = "pro")]
+    notification_manager: crate::pro::notification::NotificationManager,
 
     // Active relay clients keyed by session_id (pro only) — kept alive for streaming
     #[cfg(feature = "pro")]
@@ -240,6 +247,7 @@ impl App {
             last_status_probe: HashMap::new(),
             last_seen_detach_at: None,
             force_probe_tmux: None,
+            event_receiver: crate::hooks::EventReceiver::new().ok(),
             tick_count: 0,
             attention_ttl,
             storage: Arc::new(Mutex::new(storage)),
@@ -255,6 +263,10 @@ impl App {
             list_state: ratatui::widgets::ListState::default(),
             #[cfg(feature = "pro")]
             jump_lines: config.jump_lines(),
+            #[cfg(feature = "pro")]
+            notification_manager: crate::pro::notification::NotificationManager::new(
+                config.notification(),
+            ),
             #[cfg(feature = "pro")]
             viewer_state: None,
             #[cfg(feature = "pro")]
@@ -514,12 +526,96 @@ impl App {
 
     async fn refresh_statuses(&mut self) -> Result<()> {
         let now = Instant::now();
-        let selected_id = self.selected_session().map(|s| s.id.clone());
 
         // Collect session IDs that transition from Running to Idle/Waiting for auto-capture
         let mut running_to_done: Vec<String> = Vec::new();
+        // Collect sessions that transitioned to Waiting or had errors (for notifications)
+        #[cfg(feature = "pro")]
+        let mut became_waiting: Vec<String> = Vec::new();
+        #[cfg(feature = "pro")]
+        let mut had_error: Vec<String> = Vec::new();
+
+        // --- Phase 1: Process hook events (event-driven, precise) ---
+        // Sessions updated by hook events are tracked so we can skip polling for them.
+        let mut hook_updated: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        if let Some(ref mut receiver) = self.event_receiver {
+            let events = receiver.poll();
+            for event in events {
+                // Find the session matching this tmux session name
+                let session = self
+                    .sessions
+                    .iter_mut()
+                    .find(|s| s.tmux_name() == event.tmux_session);
+                let Some(session) = session else {
+                    continue;
+                };
+
+                let prev_status = session.status;
+                let now_utc = chrono::Utc::now();
+
+                use crate::hooks::HookEventKind;
+                let new_status = match &event.kind {
+                    HookEventKind::UserPromptSubmit => Status::Running,
+                    HookEventKind::Stop => Status::Idle,
+                    HookEventKind::Notification { notification_type } => {
+                        match notification_type.as_str() {
+                            "idle_prompt" => Status::Idle,
+                            "elicitation_dialog" | "permission_prompt" => Status::Waiting,
+                            _ => Status::Idle,
+                        }
+                    }
+                    HookEventKind::PermissionRequest { .. } => Status::Waiting,
+                    HookEventKind::ToolFailure { .. } => Status::Idle,
+                    HookEventKind::SubagentStart => Status::Running,
+                    HookEventKind::PreCompact => Status::Running,
+                };
+
+                // Record timestamps
+                if new_status == Status::Running
+                    || (prev_status == Status::Running && new_status == Status::Idle)
+                {
+                    session.last_running_at = Some(now_utc);
+                }
+                if new_status == Status::Waiting && prev_status != Status::Waiting {
+                    session.last_waiting_at = Some(now_utc);
+                }
+
+                // Detect Running → Done transition
+                let tracked_prev = self.previous_statuses.get(&session.id).copied();
+                if tracked_prev == Some(Status::Running)
+                    && (new_status == Status::Idle || new_status == Status::Waiting)
+                {
+                    running_to_done.push(session.id.clone());
+                }
+
+                // Track Waiting/Error transitions for notifications
+                #[cfg(feature = "pro")]
+                {
+                    if new_status == Status::Waiting && prev_status != Status::Waiting {
+                        became_waiting.push(session.id.clone());
+                    }
+                    if matches!(event.kind, HookEventKind::ToolFailure { .. }) {
+                        had_error.push(session.id.clone());
+                    }
+                }
+
+                self.previous_statuses
+                    .insert(session.id.clone(), new_status);
+                session.status = new_status;
+                hook_updated.insert(session.id.clone());
+            }
+        }
+
+        // --- Phase 2: Polling fallback for sessions without hook events ---
+        // Only probe sessions that weren't updated by hooks this cycle.
+        let selected_id = self.selected_session().map(|s| s.id.clone());
 
         for session in &mut self.sessions {
+            if hook_updated.contains(&session.id) {
+                continue; // Already updated by hook event
+            }
+
             let tmux_session = session.tmux_name();
             if !self.tmux.session_exists(&tmux_session).unwrap_or(false) {
                 session.status = Status::Idle;
@@ -532,7 +628,6 @@ impl App {
             let activity = self.tmux.session_activity(&tmux_session).unwrap_or(0);
             let prev_activity = self.last_tmux_activity.get(&session.id).copied();
 
-            // Track activity changes (but don't infer Running from it - attach/detach also changes activity)
             let activity_changed = prev_activity.is_some_and(|a| activity > a);
             if activity_changed || prev_activity.is_none() {
                 self.last_tmux_activity.insert(session.id.clone(), activity);
@@ -542,7 +637,6 @@ impl App {
                 }
             }
 
-            // Decide whether to probe this session
             let need_fallback_probe = self
                 .last_status_probe
                 .get(&session.id)
@@ -555,11 +649,6 @@ impl App {
 
             let is_selected = selected_id.as_deref() == Some(session.id.as_str());
 
-            // Probe when:
-            // - Fallback timer expired (infrequent probe for all sessions)
-            // - Selected session with recent activity that has settled
-            // - Activity just changed (something happened, check it)
-            // - First observation (need initial status)
             let force_probe = self.force_probe_tmux.as_deref() == Some(tmux_session.as_str());
             let should_probe = force_probe
                 || need_fallback_probe
@@ -588,19 +677,16 @@ impl App {
             let prev_status = session.status;
             let now_utc = chrono::Utc::now();
 
-            // Record last_running_at when we detect Running or when Running just ended.
             if new_status == Status::Running
                 || (prev_status == Status::Running && new_status == Status::Idle)
             {
                 session.last_running_at = Some(now_utc);
             }
 
-            // Record last_waiting_at on transition into Waiting
             if new_status == Status::Waiting && prev_status != Status::Waiting {
                 session.last_waiting_at = Some(chrono::Utc::now());
             }
 
-            // Detect Running -> Idle/Waiting transition using previous_statuses
             let tracked_prev = self.previous_statuses.get(&session.id).copied();
             if tracked_prev == Some(Status::Running)
                 && (new_status == Status::Idle || new_status == Status::Waiting)
@@ -608,7 +694,6 @@ impl App {
                 running_to_done.push(session.id.clone());
             }
 
-            // Update previous_statuses tracking
             self.previous_statuses.insert(session.id.clone(), new_status);
 
             session.status = new_status;
@@ -663,6 +748,22 @@ impl App {
                         ]);
                     let _ = collector.save_snapshot(&snapshot).await;
                 }
+            }
+        }
+
+        // Sound notifications for status transitions (Pro)
+        #[cfg(feature = "pro")]
+        if crate::auth::AuthToken::require_feature("notification").is_ok()
+            || crate::auth::AuthToken::require_max("notification").is_ok()
+        {
+            for session_id in &running_to_done {
+                self.notification_manager.on_task_complete(session_id);
+            }
+            for session_id in &became_waiting {
+                self.notification_manager.on_input_required(session_id);
+            }
+            for session_id in &had_error {
+                self.notification_manager.on_error(session_id);
             }
         }
 
@@ -2676,12 +2777,7 @@ impl App {
             Dialog::Settings(d) => {
                 if d.editing {
                     // Edit mode: route keys based on field type
-                    let is_selector = matches!(
-                        d.field,
-                        SettingsField::AiProvider
-                            | SettingsField::DefaultPermission
-                            | SettingsField::AnalyticsEnabled
-                    );
+                    let is_selector = d.field.is_selector();
 
                     if is_selector {
                         // Selector edit mode: ←/→ cycles, Enter/Esc exits
@@ -2696,6 +2792,28 @@ impl App {
                                     d.analytics_enabled = !d.analytics_enabled;
                                     d.dirty = true;
                                 }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifEnabled => {
+                                    d.notif_enabled = !d.notif_enabled;
+                                    d.dirty = true;
+                                }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifSoundPack => d.cycle_pack(-1),
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifOnComplete => {
+                                    d.notif_on_complete = !d.notif_on_complete;
+                                    d.dirty = true;
+                                }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifOnInput => {
+                                    d.notif_on_input = !d.notif_on_input;
+                                    d.dirty = true;
+                                }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifOnError => {
+                                    d.notif_on_error = !d.notif_on_error;
+                                    d.dirty = true;
+                                }
                                 _ => {}
                             },
                             KeyCode::Right | KeyCode::Char('l') => match d.field {
@@ -2703,6 +2821,28 @@ impl App {
                                 SettingsField::DefaultPermission => d.toggle_permission(),
                                 SettingsField::AnalyticsEnabled => {
                                     d.analytics_enabled = !d.analytics_enabled;
+                                    d.dirty = true;
+                                }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifEnabled => {
+                                    d.notif_enabled = !d.notif_enabled;
+                                    d.dirty = true;
+                                }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifSoundPack => d.cycle_pack(1),
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifOnComplete => {
+                                    d.notif_on_complete = !d.notif_on_complete;
+                                    d.dirty = true;
+                                }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifOnInput => {
+                                    d.notif_on_input = !d.notif_on_input;
+                                    d.dirty = true;
+                                }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifOnError => {
+                                    d.notif_on_error = !d.notif_on_error;
                                     d.dirty = true;
                                 }
                                 _ => {}
@@ -2790,14 +2930,17 @@ impl App {
                             if let Some(Dialog::Settings(d)) = self.dialog.as_mut() {
                                 match d.field {
                                     // Selectors: Enter activates edit mode
-                                    SettingsField::AiProvider
-                                    | SettingsField::DefaultPermission
-                                    | SettingsField::AnalyticsEnabled => {
+                                    f if f.is_selector() => {
                                         d.editing = true;
                                     }
                                     // Test: trigger test
                                     SettingsField::AiTest => {
                                         self.test_ai_connection().await;
+                                    }
+                                    // Pack link: open in browser
+                                    #[cfg(feature = "pro")]
+                                    SettingsField::NotifPackLink => {
+                                        let _ = open::that("https://peonping.com");
                                     }
                                     // Text inputs: Enter activates edit mode
                                     f if f.is_text_input() => {
@@ -4306,6 +4449,20 @@ impl App {
             expire.parse().ok()
         };
 
+        // Update notification config (Pro)
+        #[cfg(feature = "pro")]
+        {
+            if let Some(pack_name) = d.notif_pack_names.get(d.notif_pack_idx) {
+                self.config.notification.sound_pack = pack_name.clone();
+            }
+            self.config.notification.enabled = d.notif_enabled;
+            self.config.notification.on_task_complete = d.notif_on_complete;
+            self.config.notification.on_input_required = d.notif_on_input;
+            self.config.notification.on_error = d.notif_on_error;
+            let vol_pct: f32 = d.notif_volume.text().trim().parse().unwrap_or(50.0);
+            self.config.notification.volume = (vol_pct / 100.0).clamp(0.0, 1.0);
+        }
+
         // Update general config
         self.config.analytics.enabled = d.analytics_enabled;
         self.config.jump_lines = Some(
@@ -4326,6 +4483,12 @@ impl App {
         #[cfg(feature = "pro")]
         {
             self.jump_lines = self.config.jump_lines();
+        }
+
+        // Hot-reload: reload notification manager with new config
+        #[cfg(feature = "pro")]
+        {
+            self.notification_manager.reload_pack(self.config.notification());
         }
 
         // Hot-reload: recreate AI summarizer with new config

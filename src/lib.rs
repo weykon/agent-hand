@@ -5,6 +5,7 @@ pub mod auth;
 pub mod claude;
 pub mod cli;
 pub mod config;
+pub mod hooks;
 pub mod error;
 pub mod session;
 pub mod sharing;

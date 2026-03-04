@@ -27,6 +27,10 @@ pub async fn run_cli(args: Args) -> Result<()> {
             warn!("failed to ensure Claude hook: {err}");
         }
     }
+    // Install event bridge hooks for event-driven status detection
+    if let Err(err) = crate::claude::ensure_event_bridge_hooks().await {
+        warn!("failed to ensure event bridge hooks: {err}");
+    }
     if let Some(cfg) = cfg.as_ref() {
         if let Err(err) = crate::tmux::set_status_detection_config(cfg.status_detection()) {
             warn!("failed to set status detection config: {err}");

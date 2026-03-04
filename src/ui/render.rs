@@ -1454,6 +1454,167 @@ fn render_settings_dialog(
                     }
                 }
             }
+            // ── Notification tab fields (Pro) ──
+            #[cfg(feature = "pro")]
+            SettingsField::NotifEnabled => {
+                let is_editing_this = d.editing && is_active;
+                if is_editing_this {
+                    let sel = Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    let unsel = Style::default().fg(Color::DarkGray);
+                    spans.push(Span::styled(" Off ", if !d.notif_enabled { sel } else { unsel }));
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(" On ", if d.notif_enabled { sel } else { unsel }));
+                } else {
+                    let val = if d.notif_enabled { "On" } else { "Off" };
+                    spans.push(Span::styled(format!("▸ {val}"), if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
+            #[cfg(feature = "pro")]
+            SettingsField::NotifSoundPack => {
+                let is_editing_this = d.editing && is_active;
+                if is_editing_this {
+                    // Expanded chip selector: show all pack names
+                    let max_width = popup_area.width.saturating_sub(22) as usize;
+                    let mut row_width = 0usize;
+                    let mut first_in_row = true;
+                    let mut overflow_lines: Vec<Vec<Span<'static>>> = Vec::new();
+                    let current_spans = &mut spans;
+
+                    if d.notif_pack_names.is_empty() {
+                        current_spans.push(Span::styled(
+                            "(no packs installed)",
+                            dim_style,
+                        ));
+                    } else {
+                        for (i, name) in d.notif_pack_names.iter().enumerate() {
+                            let chip = format!(" {} ", name);
+                            let chip_len = chip.len() + 1;
+                            if !first_in_row && row_width + chip_len > max_width {
+                                overflow_lines.push(Vec::new());
+                                row_width = 0;
+                                first_in_row = true;
+                            }
+
+                            let style = if i == d.notif_pack_idx {
+                                Style::default()
+                                    .fg(Color::Black)
+                                    .bg(Color::Cyan)
+                                    .add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default().fg(Color::DarkGray)
+                            };
+
+                            let target = if overflow_lines.is_empty() {
+                                &mut *current_spans
+                            } else {
+                                overflow_lines.last_mut().unwrap()
+                            };
+                            if !first_in_row {
+                                target.push(Span::raw(" "));
+                            }
+                            target.push(Span::styled(chip, style));
+                            row_width += chip_len;
+                            first_in_row = false;
+                        }
+                    }
+
+                    lines.push(Line::from(std::mem::take(current_spans)));
+                    for row in overflow_lines {
+                        let mut indented: Vec<Span<'static>> = vec![Span::raw(
+                            " ".repeat(18),
+                        )];
+                        indented.extend(row);
+                        lines.push(Line::from(indented));
+                    }
+                    continue;
+                } else {
+                    let val = format!("▸ {}", d.pack_display());
+                    spans.push(Span::styled(val, if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
+            #[cfg(feature = "pro")]
+            SettingsField::NotifOnComplete => {
+                let is_editing_this = d.editing && is_active;
+                if is_editing_this {
+                    let sel = Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    let unsel = Style::default().fg(Color::DarkGray);
+                    spans.push(Span::styled(" Off ", if !d.notif_on_complete { sel } else { unsel }));
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(" On ", if d.notif_on_complete { sel } else { unsel }));
+                } else {
+                    let val = if d.notif_on_complete { "On" } else { "Off" };
+                    spans.push(Span::styled(format!("▸ {val}"), if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
+            #[cfg(feature = "pro")]
+            SettingsField::NotifOnInput => {
+                let is_editing_this = d.editing && is_active;
+                if is_editing_this {
+                    let sel = Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    let unsel = Style::default().fg(Color::DarkGray);
+                    spans.push(Span::styled(" Off ", if !d.notif_on_input { sel } else { unsel }));
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(" On ", if d.notif_on_input { sel } else { unsel }));
+                } else {
+                    let val = if d.notif_on_input { "On" } else { "Off" };
+                    spans.push(Span::styled(format!("▸ {val}"), if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
+            #[cfg(feature = "pro")]
+            SettingsField::NotifOnError => {
+                let is_editing_this = d.editing && is_active;
+                if is_editing_this {
+                    let sel = Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    let unsel = Style::default().fg(Color::DarkGray);
+                    spans.push(Span::styled(" Off ", if !d.notif_on_error { sel } else { unsel }));
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(" On ", if d.notif_on_error { sel } else { unsel }));
+                } else {
+                    let val = if d.notif_on_error { "On" } else { "Off" };
+                    spans.push(Span::styled(format!("▸ {val}"), if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
+            #[cfg(feature = "pro")]
+            SettingsField::NotifVolume => {
+                if d.editing && is_active {
+                    spans.extend(render_text_input(&d.notif_volume, true, base_style));
+                    spans.push(Span::styled("%", base_style));
+                } else {
+                    let t = d.notif_volume.text();
+                    spans.push(Span::styled(
+                        format!("{t}%"),
+                        if is_active { active_style } else { base_style },
+                    ));
+                }
+            }
+            #[cfg(feature = "pro")]
+            SettingsField::NotifPackLink => {
+                let url = "https://peonping.com";
+                spans.push(Span::styled(
+                    url.to_string(),
+                    Style::default()
+                        .fg(Color::Blue)
+                        .add_modifier(Modifier::UNDERLINED),
+                ));
+                if is_active {
+                    spans.push(Span::styled("  (Enter to open)", dim_style));
+                }
+            }
             // Text input fields: relay_url, tmate_host, tmate_port, auto_expire, jump_lines, ready_ttl
             _ => {
                 let input = match field {
@@ -1496,12 +1657,7 @@ fn render_settings_dialog(
     lines.push(Line::from(""));
     let hint_style = Style::default().fg(Color::DarkGray);
     if d.editing {
-        let is_selector = matches!(
-            d.field,
-            SettingsField::AiProvider
-                | SettingsField::DefaultPermission
-                | SettingsField::AnalyticsEnabled
-        );
+        let is_selector = d.field.is_selector();
         if is_selector {
             lines.push(Line::from(Span::styled(
                 "  ←/→:choose  Enter/Esc:done",
