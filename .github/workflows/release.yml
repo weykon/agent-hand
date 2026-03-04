@@ -29,6 +29,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Clone agent-hooks crate
+        run: git clone https://github.com/weykon/agent-hooks.git tool-adapters
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -90,6 +93,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Clone agent-hooks crate
+        run: git clone https://github.com/weykon/agent-hooks.git tool-adapters
 
       - name: Clone pro module
         env:
