@@ -27,9 +27,22 @@ pub async fn run_cli(args: Args) -> Result<()> {
             warn!("failed to ensure Claude hook: {err}");
         }
     }
-    // Install event bridge hooks for event-driven status detection
-    if let Err(err) = crate::claude::ensure_event_bridge_hooks().await {
-        warn!("failed to ensure event bridge hooks: {err}");
+    // Install event bridge hooks for event-driven status detection.
+    // When auto_register is enabled (default), this also registers hooks
+    // for other detected AI CLI tools (Cursor, Codex, Windsurf, etc.).
+    let auto_register = cfg
+        .as_ref()
+        .map(|c| c.hooks().auto_register)
+        .unwrap_or(true);
+    if auto_register {
+        if let Err(err) = crate::claude::ensure_event_bridge_hooks().await {
+            warn!("failed to ensure event bridge hooks: {err}");
+        }
+    } else {
+        // Even without auto-register, still install bridge script + Claude hooks
+        if let Err(err) = crate::claude::ensure_event_bridge_hooks().await {
+            warn!("failed to ensure event bridge hooks: {err}");
+        }
     }
     if let Some(cfg) = cfg.as_ref() {
         if let Err(err) = crate::tmux::set_status_detection_config(cfg.status_detection()) {

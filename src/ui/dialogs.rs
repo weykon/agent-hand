@@ -507,7 +507,12 @@ pub enum SettingsField {
     TmatePort,
     DefaultPermission,
     AutoExpire,
-    // Notification tab (Pro)
+    // Notification tab (Pro) — Hook Integration section
+    #[cfg(feature = "pro")]
+    NotifHookStatus,
+    #[cfg(feature = "pro")]
+    NotifAutoRegister,
+    // Notification tab (Pro) — Sound section
     #[cfg(feature = "pro")]
     NotifEnabled,
     #[cfg(feature = "pro")]
@@ -548,6 +553,8 @@ impl SettingsField {
             ],
             #[cfg(feature = "pro")]
             SettingsTab::Notification => vec![
+                Self::NotifHookStatus,
+                Self::NotifAutoRegister,
                 Self::NotifEnabled,
                 Self::NotifSoundPack,
                 Self::NotifOnComplete,
@@ -577,6 +584,10 @@ impl SettingsField {
             Self::TmatePort => "tmate Port",
             Self::DefaultPermission => "Default Permission",
             Self::AutoExpire => "Auto-Expire (min)",
+            #[cfg(feature = "pro")]
+            Self::NotifHookStatus => "Hook Status",
+            #[cfg(feature = "pro")]
+            Self::NotifAutoRegister => "Auto-Register",
             #[cfg(feature = "pro")]
             Self::NotifEnabled => "Enabled",
             #[cfg(feature = "pro")]
@@ -618,7 +629,8 @@ impl SettingsField {
         match self {
             Self::AiProvider | Self::DefaultPermission | Self::AnalyticsEnabled => true,
             #[cfg(feature = "pro")]
-            Self::NotifEnabled
+            Self::NotifAutoRegister
+            | Self::NotifEnabled
             | Self::NotifSoundPack
             | Self::NotifOnComplete
             | Self::NotifOnInput
@@ -646,6 +658,13 @@ pub struct SettingsDialog {
     pub tmate_port: TextInput,
     pub default_permission: String,
     pub auto_expire: TextInput,
+    // Hook Integration (Pro)
+    #[cfg(feature = "pro")]
+    pub hook_tools: Vec<agent_hooks::ToolInfo>,
+    #[cfg(feature = "pro")]
+    pub hook_auto_register: bool,
+    #[cfg(feature = "pro")]
+    pub hook_selected_tool: usize,
     // Notification (Pro)
     #[cfg(feature = "pro")]
     pub notif_enabled: bool,
@@ -702,6 +721,12 @@ impl SettingsDialog {
             .copied()
             .unwrap_or(SettingsField::AnalyticsEnabled);
 
+        // Hook integration fields (Pro)
+        #[cfg(feature = "pro")]
+        let (hook_tools, hook_auto_register) = {
+            (agent_hooks::detect_all(), cfg.hooks().auto_register)
+        };
+
         // Notification fields (Pro)
         #[cfg(feature = "pro")]
         let (notif_enabled, notif_pack_names, notif_pack_idx, notif_on_complete, notif_on_input, notif_on_error, notif_volume) = {
@@ -745,6 +770,12 @@ impl SettingsDialog {
                     .map(|m| m.to_string())
                     .unwrap_or_default(),
             ),
+            #[cfg(feature = "pro")]
+            hook_tools,
+            #[cfg(feature = "pro")]
+            hook_auto_register,
+            #[cfg(feature = "pro")]
+            hook_selected_tool: 0,
             #[cfg(feature = "pro")]
             notif_enabled,
             #[cfg(feature = "pro")]
@@ -813,6 +844,52 @@ impl SettingsDialog {
             .get(self.notif_pack_idx)
             .map(|s| s.as_str())
             .unwrap_or("(none)")
+    }
+
+    /// Refresh hook tool detection status (Pro).
+    #[cfg(feature = "pro")]
+    pub fn refresh_hook_status(&mut self) {
+        self.hook_tools = agent_hooks::detect_all();
+    }
+
+    /// Toggle hook registration for the selected tool (Pro).
+    /// Returns an action description if something happened.
+    #[cfg(feature = "pro")]
+    pub fn toggle_selected_hook(&mut self) -> Option<String> {
+        let Some(info) = self.hook_tools.get(self.hook_selected_tool) else {
+            return None;
+        };
+        let bridge = crate::claude::bridge_script_path()?;
+        let adapter = agent_hooks::get_adapter(&info.name)?;
+        let result = match info.status {
+            agent_hooks::ToolStatus::Detected => {
+                adapter.register_hooks(&bridge).ok()?;
+                Some(format!("Registered hooks for {}", info.display_name))
+            }
+            agent_hooks::ToolStatus::HooksRegistered => {
+                adapter.unregister_hooks().ok()?;
+                Some(format!("Unregistered hooks for {}", info.display_name))
+            }
+            agent_hooks::ToolStatus::NotInstalled => None,
+        };
+        self.refresh_hook_status();
+        result
+    }
+
+    /// Cycle through tool list when on HookStatus field (Pro).
+    #[cfg(feature = "pro")]
+    pub fn cycle_hook_tool(&mut self, delta: i32) {
+        let len = self.hook_tools.len();
+        if len == 0 {
+            return;
+        }
+        if delta > 0 {
+            self.hook_selected_tool = (self.hook_selected_tool + 1) % len;
+        } else if self.hook_selected_tool == 0 {
+            self.hook_selected_tool = len - 1;
+        } else {
+            self.hook_selected_tool -= 1;
+        }
     }
 
     pub fn move_field(&mut self, delta: i32) {

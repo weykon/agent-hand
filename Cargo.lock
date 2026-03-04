@@ -6,6 +6,7 @@ version = 4
 name = "agent-hand"
 version = "0.3.0"
 dependencies = [
+ "agent-hooks",
  "ahash",
  "ai_api_provider",
  "anyhow",
@@ -40,6 +41,17 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "agent-hooks"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "toml",
 ]
 
 [[package]]

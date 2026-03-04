@@ -72,6 +72,23 @@ event_map = {
     "subagentStop": {"type": "stop"},
     "subagentStart": {"type": "subagent_start"},
     "beforeSubmitPrompt": {"type": "user_prompt_submit"},
+    "beforeShellExecution": {"type": "user_prompt_submit"},
+    # Codex CLI
+    "userPromptSubmitted": {"type": "user_prompt_submit"},
+    "errorOccurred": {
+        "type": "tool_failure",
+        "tool_name": data.get("tool_name", ""),
+        "error": data.get("error", ""),
+    },
+    # Windsurf
+    "post_cascade_response": {"type": "stop"},
+    "pre_user_prompt": {"type": "user_prompt_submit"},
+    # Kiro
+    "agentSpawn": {"type": "subagent_start"},
+    "userPromptSubmit": {"type": "user_prompt_submit"},
+    # Gemini CLI
+    "turn_complete": {"type": "stop"},
+    "user_prompt_submit": {"type": "user_prompt_submit"},
 }
 
 kind = event_map.get(raw_event)

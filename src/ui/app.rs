@@ -2776,6 +2776,27 @@ impl App {
 
             Dialog::Settings(d) => {
                 if d.editing {
+                    // Hook status edit mode: up/down cycles tools, Enter toggles
+                    #[cfg(feature = "pro")]
+                    if d.field == SettingsField::NotifHookStatus {
+                        match key {
+                            KeyCode::Esc => {
+                                d.editing = false;
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                d.cycle_hook_tool(-1);
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                d.cycle_hook_tool(1);
+                            }
+                            KeyCode::Enter => {
+                                d.toggle_selected_hook();
+                            }
+                            _ => {}
+                        }
+                        return Ok(());
+                    }
+
                     // Edit mode: route keys based on field type
                     let is_selector = d.field.is_selector();
 
@@ -2790,6 +2811,11 @@ impl App {
                                 SettingsField::DefaultPermission => d.toggle_permission(),
                                 SettingsField::AnalyticsEnabled => {
                                     d.analytics_enabled = !d.analytics_enabled;
+                                    d.dirty = true;
+                                }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifAutoRegister => {
+                                    d.hook_auto_register = !d.hook_auto_register;
                                     d.dirty = true;
                                 }
                                 #[cfg(feature = "pro")]
@@ -2821,6 +2847,11 @@ impl App {
                                 SettingsField::DefaultPermission => d.toggle_permission(),
                                 SettingsField::AnalyticsEnabled => {
                                     d.analytics_enabled = !d.analytics_enabled;
+                                    d.dirty = true;
+                                }
+                                #[cfg(feature = "pro")]
+                                SettingsField::NotifAutoRegister => {
+                                    d.hook_auto_register = !d.hook_auto_register;
                                     d.dirty = true;
                                 }
                                 #[cfg(feature = "pro")]
@@ -2936,6 +2967,11 @@ impl App {
                                     // Test: trigger test
                                     SettingsField::AiTest => {
                                         self.test_ai_connection().await;
+                                    }
+                                    // Hook status: enter edit mode (tool selection)
+                                    #[cfg(feature = "pro")]
+                                    SettingsField::NotifHookStatus => {
+                                        d.editing = true;
                                     }
                                     // Pack link: open in browser
                                     #[cfg(feature = "pro")]
@@ -4448,6 +4484,12 @@ impl App {
         } else {
             expire.parse().ok()
         };
+
+        // Update hooks config
+        #[cfg(feature = "pro")]
+        {
+            self.config.hooks.auto_register = d.hook_auto_register;
+        }
 
         // Update notification config (Pro)
         #[cfg(feature = "pro")]

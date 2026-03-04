@@ -174,14 +174,26 @@ fn render_active_panel(f: &mut Frame, area: Rect, app: &App, active: &[&crate::s
                 Status::Running => running_anim(app.tick_count()),
                 Status::Error => "✕",
                 Status::Starting => "⋯",
-                Status::Idle => "○",
+                Status::Idle => {
+                    if app.is_attention_active(&s.id) {
+                        "✓"
+                    } else {
+                        "○"
+                    }
+                }
             };
             let status_color = match s.status {
                 Status::Waiting => Color::Blue,
                 Status::Running => Color::Yellow,
                 Status::Error => Color::Red,
                 Status::Starting => Color::Cyan,
-                Status::Idle => Color::DarkGray,
+                Status::Idle => {
+                    if app.is_attention_active(&s.id) {
+                        Color::Cyan
+                    } else {
+                        Color::DarkGray
+                    }
+                }
             };
 
             let line = Line::from(vec![
@@ -1454,7 +1466,65 @@ fn render_settings_dialog(
                     }
                 }
             }
-            // ── Notification tab fields (Pro) ──
+            // ── Notification tab fields (Pro) — Hook Integration ──
+            #[cfg(feature = "pro")]
+            SettingsField::NotifHookStatus => {
+                // Section header
+                lines.push(Line::from(spans));
+                // Show each tool's status
+                for (i, info) in d.hook_tools.iter().enumerate() {
+                    let is_sel = d.editing && is_active && i == d.hook_selected_tool;
+                    let (sym, sym_color) = match info.status {
+                        agent_hooks::ToolStatus::HooksRegistered => ("\u{2713}", Color::Green),
+                        agent_hooks::ToolStatus::Detected => ("\u{25cf}", Color::Yellow),
+                        agent_hooks::ToolStatus::NotInstalled => ("\u{2717}", Color::DarkGray),
+                    };
+                    let name_style = if is_sel {
+                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    } else if info.status == agent_hooks::ToolStatus::NotInstalled {
+                        dim_style
+                    } else {
+                        base_style
+                    };
+                    let mut row: Vec<Span<'static>> = vec![
+                        Span::raw("    "),
+                        Span::styled(format!("{sym} "), Style::default().fg(sym_color)),
+                        Span::styled(format!("{:<16}", info.display_name), name_style),
+                        Span::styled(info.status.label().to_string(), Style::default().fg(sym_color)),
+                    ];
+                    if is_sel && info.status == agent_hooks::ToolStatus::Detected {
+                        row.push(Span::styled("  (Enter: install)", dim_style));
+                    } else if is_sel && info.status == agent_hooks::ToolStatus::HooksRegistered {
+                        row.push(Span::styled("  (Enter: uninstall)", dim_style));
+                    }
+                    lines.push(Line::from(row));
+                }
+                if !d.editing && is_active {
+                    lines.push(Line::from(Span::styled(
+                        "                  (Enter to manage)",
+                        dim_style,
+                    )));
+                }
+                continue;
+            }
+            #[cfg(feature = "pro")]
+            SettingsField::NotifAutoRegister => {
+                let is_editing_this = d.editing && is_active;
+                if is_editing_this {
+                    let sel = Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    let unsel = Style::default().fg(Color::DarkGray);
+                    spans.push(Span::styled(" Off ", if !d.hook_auto_register { sel } else { unsel }));
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(" On ", if d.hook_auto_register { sel } else { unsel }));
+                } else {
+                    let val = if d.hook_auto_register { "On" } else { "Off" };
+                    spans.push(Span::styled(format!("\u{25b8} {val}"), if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
+            // ── Notification tab fields (Pro) — Sound section ──
             #[cfg(feature = "pro")]
             SettingsField::NotifEnabled => {
                 let is_editing_this = d.editing && is_active;

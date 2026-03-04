@@ -48,6 +48,10 @@ pub struct ConfigFile {
     #[serde(default)]
     pub notification: NotificationConfig,
 
+    /// Hook integration configuration
+    #[serde(default)]
+    pub hooks: HooksConfig,
+
     /// How long a session stays in "Ready (✓)" after leaving Running.
     /// Unit: minutes. Default: 40.
     #[serde(default)]
@@ -204,6 +208,23 @@ impl Default for NotificationConfig {
     }
 }
 
+/// Hook integration configuration.
+/// Controls auto-registration of hooks across detected AI CLI tools.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HooksConfig {
+    /// Automatically register hooks for newly detected tools on startup.
+    #[serde(default = "default_true")]
+    pub auto_register: bool,
+}
+
+impl Default for HooksConfig {
+    fn default() -> Self {
+        Self {
+            auto_register: true,
+        }
+    }
+}
+
 /// AI provider configuration (Max tier)
 #[cfg(feature = "max")]
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -337,6 +358,10 @@ impl ConfigFile {
 
     pub fn notification(&self) -> &NotificationConfig {
         &self.notification
+    }
+
+    pub fn hooks(&self) -> &HooksConfig {
+        &self.hooks
     }
 
     #[cfg(feature = "max")]
