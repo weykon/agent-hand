@@ -261,29 +261,41 @@ impl TmuxManager {
                     ])
                     .status()
                     .await;
+                // Pipe selected text to system clipboard on y/Enter/mouse-release.
+                // copy-pipe-and-cancel = copy to tmux buffer + pipe to cmd + exit copy-mode.
+                let copy_cmd = if cfg!(target_os = "macos") {
+                    "pbcopy"
+                } else {
+                    "xclip -selection clipboard 2>/dev/null || xsel --clipboard 2>/dev/null"
+                };
+                for key in ["y", "Enter"] {
+                    let _ = self
+                        .tmux_cmd()
+                        .args([
+                            "bind-key",
+                            "-T",
+                            "copy-mode-vi",
+                            key,
+                            "send",
+                            "-X",
+                            "copy-pipe-and-cancel",
+                            copy_cmd,
+                        ])
+                        .status()
+                        .await;
+                }
+                // Mouse drag release: auto-copy selection to system clipboard.
                 let _ = self
                     .tmux_cmd()
                     .args([
                         "bind-key",
                         "-T",
                         "copy-mode-vi",
-                        "y",
+                        "MouseDragEnd1Pane",
                         "send",
                         "-X",
-                        "copy-selection-and-cancel",
-                    ])
-                    .status()
-                    .await;
-                let _ = self
-                    .tmux_cmd()
-                    .args([
-                        "bind-key",
-                        "-T",
-                        "copy-mode-vi",
-                        "Enter",
-                        "send",
-                        "-X",
-                        "copy-selection-and-cancel",
+                        "copy-pipe-and-cancel",
+                        copy_cmd,
                     ])
                     .status()
                     .await;
