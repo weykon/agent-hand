@@ -12,6 +12,9 @@ export const metadata: Metadata = {
   icons: {
     icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦀</text></svg>",
   },
+  verification: {
+    google: "_5ro5HWJaAo5Ezfh-skV2ScZK7m4Q7V49bKQgKecgNc",
+  },
 };
 
 export default function RootLayout({
