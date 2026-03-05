@@ -29,6 +29,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <link rel="alternate" type="text/plain" href="/agent-hand/llms.txt" title="LLM-friendly site description" />
+      </head>
       <body className={`${inter.className} antialiased`}>
         {children}
         <Script id="ah-analytics" strategy="afterInteractive">{`

@@ -1,0 +1,74 @@
+# Agent Hand
+
+> A fast, Rust-based terminal session manager (TUI) for AI coding agents like Claude Code, Gemini CLI, and OpenCode. Built on tmux with <50ms startup and ~8MB memory usage.
+
+## What Agent Hand Does
+
+Agent Hand lets developers manage 5+ concurrent AI agent terminal sessions from a single dashboard. It provides real-time status detection (Waiting, Running, Idle), priority jumping to urgent sessions (Ctrl+N), fuzzy search switching (Ctrl+G), session grouping with labels, and PTY monitoring — all running on a dedicated tmux server that won't touch your existing tmux config.
+
+## Key Facts
+
+- Language: Rust
+- Binary size: ~2.7MB
+- Startup time: <50ms
+- Memory usage: ~8MB
+- Platforms: macOS, Linux, WSL
+- License: MIT (core), proprietary (Pro/Max features)
+- Repository: https://github.com/weykon/agent-hand
+
+## Install
+
+```
+curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash
+```
+
+Or build from source:
+
+```
+git clone https://github.com/weykon/agent-hand.git
+cd agent-hand
+cargo build --release
+```
+
+## Pricing
+
+- Free: Core session management TUI, tmux integration, status monitoring, all open-source features
+- Pro ($19 one-time): Auto-upgrade command, priority support, future premium features
+- Max ($9/month or $89/year): AI Session Summarizer, Remote Sharing & Collaboration, Session Relationships & Context
+
+## Core Features
+
+- Status Detection: Visual indicators for WAITING, RUNNING, READY, IDLE states
+- Priority Jump (Ctrl+N): Instantly jump to the most urgent session needing input
+- Fuzzy Switcher (Ctrl+G): Search and switch to any session in milliseconds
+- PTY Monitoring: Real-time pseudo-terminal usage tracking with system-wide gauge
+- Groups & Labels: Organize sessions by project with custom titles and colored labels
+- tmux Isolation: Dedicated tmux server, won't conflict with your existing tmux setup
+
+## Pro/Max Features
+
+- Auto-upgrade command for seamless updates
+- AI-powered session summarization
+- Remote terminal sharing and real-time collaboration via WebSocket relay
+- Session relationships for linking related AI agent contexts
+
+## FAQ
+
+### What is Agent Hand?
+Agent Hand is a Rust TUI that manages multiple AI coding agent terminal sessions (Claude Code, Gemini CLI, OpenCode) from one dashboard using tmux for isolation.
+
+### How is it different from raw tmux?
+Agent Hand adds AI-agent-specific features on top of tmux: automatic status detection, priority jumping, session grouping, PTY monitoring, and a visual dashboard.
+
+### Does it work with Claude Code?
+Yes. It was originally built for managing multiple Claude Code sessions. It detects session status, lets you priority-jump with Ctrl+N, and provides fuzzy search with Ctrl+G.
+
+### Is it free?
+The core session manager is free and open source (MIT). Optional Pro ($19 one-time) and Max ($9/month) tiers add power features.
+
+## Links
+
+- Homepage: https://weykon.github.io/agent-hand/
+- GitHub: https://github.com/weykon/agent-hand
+- Releases: https://github.com/weykon/agent-hand/releases
+- Pricing: https://weykon.github.io/agent-hand/#pricing
