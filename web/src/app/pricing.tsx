@@ -44,9 +44,9 @@ export function PricingSection() {
         </button>
       </div>
 
-      <div className="mx-auto flex max-w-4xl flex-wrap justify-center gap-6">
+      <div className="mx-auto grid max-w-4xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {/* Free */}
-        <div className="w-72 rounded-xl border border-[#333] bg-[#1a1a2e] p-6">
+        <div className="rounded-xl border border-[#333] bg-[#1a1a2e] p-6">
           <h3 className="mb-1 text-lg font-semibold">Free</h3>
           <p className="mb-4 text-3xl font-bold text-[#6366f1]">$0</p>
           <ul className="mb-6 space-y-2 text-left text-sm text-[#94a3b8]">
@@ -66,7 +66,7 @@ export function PricingSection() {
         </div>
 
         {/* Pro */}
-        <div className="w-72 rounded-xl border border-[#333] bg-[#1a1a2e] p-6">
+        <div className="rounded-xl border border-[#333] bg-[#1a1a2e] p-6">
           <h3 className="mb-1 text-lg font-semibold">Pro</h3>
           <p className="mb-4 text-3xl font-bold text-[#6366f1]">
             $19 <span className="text-base font-normal text-[#94a3b8]">one-time</span>
@@ -86,7 +86,7 @@ export function PricingSection() {
         </div>
 
         {/* Max */}
-        <div className="relative w-72 rounded-xl border-2 border-[#a855f7] bg-[#1a1a2e] p-6">
+        <div className="relative rounded-xl border-2 border-[#a855f7] bg-[#1a1a2e] p-6 sm:col-span-2 lg:col-span-1">
           <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#a855f7] px-3 py-0.5 text-xs font-semibold text-white">
             POPULAR
           </span>
