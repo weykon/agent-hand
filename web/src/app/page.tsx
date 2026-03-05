@@ -68,6 +68,53 @@ const stats = [
   { value: "Rust", label: "Powered" },
 ];
 
+const faqData = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: [
+    {
+      "@type": "Question",
+      name: "What is Agent Hand?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Agent Hand is a fast, Rust-based terminal session manager (TUI) for AI coding agents like Claude Code, Gemini CLI, and OpenCode. It uses tmux for isolation, letting you manage 5+ concurrent AI sessions from one dashboard with status detection, priority jump, and fuzzy search.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "How do I install Agent Hand?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Run: curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash — works on macOS, Linux, and WSL. Or build from source with cargo build --release.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Is Agent Hand free?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Yes, the core session manager is free and open source (MIT). There is an optional Pro tier ($19 one-time) for power features and a Max tier ($9/month) for AI summarizer, remote sharing, and session relationships.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Does Agent Hand work with Claude Code?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Yes. Agent Hand was originally built to manage multiple Claude Code sessions. It detects session status (Waiting, Running, Idle), lets you priority-jump to sessions needing input with Ctrl+N, and provides fuzzy search across all sessions with Ctrl+G.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "How is Agent Hand different from tmux?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Agent Hand runs on top of tmux (using a dedicated server so it won't touch your config). It adds AI-agent-specific features: automatic status detection, priority jumping, session grouping, PTY monitoring, and a visual dashboard — things raw tmux doesn't provide.",
+      },
+    },
+  ],
+};
+
 const schemaData = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -95,6 +142,7 @@ export default function HomePage() {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqData) }} />
 
       {/* Navbar */}
       <header className="border-b border-[#1e293b]">
@@ -107,6 +155,7 @@ export default function HomePage() {
             <a href="#install" className="hover:text-white">Install</a>
             <a href="#pricing" className="hover:text-white">Pricing</a>
             <a href="#story" className="hover:text-white">Story</a>
+            <a href="#faq" className="hover:text-white">FAQ</a>
             <a href="https://github.com/weykon/agent-hand" target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-1.5 rounded-md border border-[#333] px-3 py-1.5 hover:border-[#555]">
               <GitHubIcon /> GitHub
@@ -179,7 +228,7 @@ export default function HomePage() {
         <h2 className="mb-8 text-3xl font-bold">See It In Action</h2>
         <div className="mx-auto max-w-3xl overflow-hidden rounded-xl border border-[#333]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/preview.jpg" alt="Agent Hand Dashboard Preview" className="w-full" />
+          <img src="/agent-hand/preview.jpg" alt="Agent Hand — AI terminal session manager dashboard showing Claude Code, Gemini CLI sessions with status indicators" width={1280} height={720} loading="lazy" className="w-full" />
         </div>
       </section>
 
@@ -237,6 +286,23 @@ export default function HomePage() {
             &ldquo;The best tool is the one you&apos;ll actually use.&rdquo;
           </footer>
         </blockquote>
+      </section>
+
+      {/* FAQ */}
+      <section id="faq" className="bg-[#0f0f1a] px-6 py-20">
+        <h2 className="mb-12 text-center text-3xl font-bold">Frequently Asked Questions</h2>
+        <div className="mx-auto max-w-3xl space-y-4">
+          {faqData.mainEntity.map((q) => (
+            <details key={q.name} className="group rounded-xl border border-[#1e293b] bg-[#1a1a2e]">
+              <summary className="cursor-pointer select-none px-6 py-4 text-lg font-medium text-[#e2e8f0] group-open:border-b group-open:border-[#1e293b]">
+                {q.name}
+              </summary>
+              <p className="px-6 py-4 text-sm leading-relaxed text-[#94a3b8]">
+                {q.acceptedAnswer.text}
+              </p>
+            </details>
+          ))}
+        </div>
       </section>
 
       {/* Footer */}

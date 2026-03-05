@@ -15,6 +15,11 @@ export const metadata: Metadata = {
   verification: {
     google: "_5ro5HWJaAo5Ezfh-skV2ScZK7m4Q7V49bKQgKecgNc",
   },
+  other: {
+    "theme-color": "#0a0a14",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
+  },
 };
 
 export default function RootLayout({
