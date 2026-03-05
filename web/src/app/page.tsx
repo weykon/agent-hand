@@ -2,10 +2,46 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { PricingSection } from "./pricing";
 
+const SITE_URL = "https://weykon.github.io/agent-hand";
+
 export const metadata: Metadata = {
-  title: "Agent Hand - Terminal Session Manager for AI Agents",
+  title: "Agent Hand - Terminal Session Manager for AI Coding Agents",
   description:
-    "A fast tmux-backed terminal session manager for AI coding agents like Claude, Copilot, and OpenCode",
+    "Manage 5+ Claude Code, Gemini CLI, and AI agent sessions from one Rust TUI. Priority jump, fuzzy search, tmux isolation — free & open source. <50ms startup.",
+  keywords: [
+    "tmux session manager", "AI agent terminal", "Claude Code sessions",
+    "AI coding agent manager", "terminal TUI", "Rust developer tools",
+    "agent-deck", "tmux multiplexer", "Claude Code", "Gemini CLI",
+    "multi-agent terminal", "session manager macOS Linux",
+  ],
+  alternates: {
+    canonical: SITE_URL + "/",
+  },
+  openGraph: {
+    title: "Agent Hand — Manage All Your AI Agent Sessions in One TUI",
+    description:
+      "Stop losing track of Claude Code prompts. Agent Hand gives you priority jump, fuzzy search, and status tracking for every AI session — built in Rust, starts in <50ms.",
+    url: SITE_URL + "/",
+    siteName: "Agent Hand",
+    images: [
+      {
+        url: SITE_URL + "/preview.jpg",
+        width: 1280,
+        height: 720,
+        alt: "Agent Hand — AI Session Manager Dashboard",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Agent Hand — Manage All Your AI Agent Sessions in One TUI",
+    description:
+      "Priority jump, fuzzy search, tmux isolation for Claude Code & AI agents. Free & open source Rust TUI.",
+    images: [SITE_URL + "/preview.jpg"],
+    creator: "@weykon",
+  },
 };
 
 function GitHubIcon() {
@@ -36,11 +72,19 @@ const schemaData = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   name: "Agent Hand",
-  description: "A fast tmux-backed terminal session manager for AI coding agents like Claude, Copilot, and OpenCode",
+  url: SITE_URL + "/",
+  image: SITE_URL + "/preview.jpg",
+  description:
+    "Manage 5+ Claude Code, Gemini CLI, and AI agent sessions from one Rust TUI. Priority jump, fuzzy search, tmux isolation — free & open source.",
   applicationCategory: "DeveloperApplication",
   operatingSystem: ["Linux", "macOS", "Windows (WSL)"],
-  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  featureList: "tmux session management, AI agent status tracking, fuzzy search switching, priority jumping with Ctrl+N, groups and labels, dedicated tmux server isolation",
+  offers: [
+    { "@type": "Offer", price: "0", priceCurrency: "USD", name: "Free" },
+    { "@type": "Offer", price: "19", priceCurrency: "USD", name: "Pro", description: "One-time license" },
+    { "@type": "Offer", price: "9", priceCurrency: "USD", name: "Max", description: "Monthly subscription — AI Session Summarizer, Remote Sharing, Session Relationships" },
+  ],
+  featureList:
+    "tmux session management, AI agent status tracking, fuzzy search switching, priority jumping with Ctrl+N, groups and labels, dedicated tmux server isolation",
   softwareVersion: "0.2.13",
   programmingLanguage: "Rust",
   downloadUrl: "https://github.com/weykon/agent-hand/releases",
@@ -205,7 +249,10 @@ export default function HomePage() {
           <Link href="/refund">Refund Policy</Link>
         </div>
         <p className="mt-3">MIT License</p>
+        <p id="ah-stats" style={{ fontSize: "10px", opacity: 0.25, marginTop: "6px", letterSpacing: "0.03em" }} />
       </footer>
+      {/* eslint-disable-next-line @next/next/no-before-interactive-script-outside-document */}
+      <script dangerouslySetInnerHTML={{ __html: `(function(){var el=document.getElementById('ah-stats');if(!el)return;fetch('https://auth.asymptai.com/api/stats?secret=02298e942e3ca7e78da1f10dbf9d181f8661b24935efd520516cf16ea136b4aa&days=30').then(function(r){return r.json();}).then(function(d){var t=d.totals;el.textContent='\uD83D\uDC41 '+t.total_uv+' UV \xB7 '+t.total_pv+' PV (30d)';}).catch(function(){});})();` }} />
     </>
   );
 }

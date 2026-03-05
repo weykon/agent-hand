@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /agent-hand/
+
+Sitemap: https://weykon.github.io/agent-hand/sitemap.xml
