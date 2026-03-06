@@ -326,9 +326,9 @@ impl ConfigFile {
         let xdg_dir = dirs::home_dir().map(|h| h.join(".config").join("agent-hand"));
 
         let candidates: Vec<std::path::PathBuf> = [
-            Some(agent_hand_dir.join("config.json")),
             Some(agent_hand_dir.join("config.toml")),
             xdg_dir.as_ref().map(|d| d.join("config.toml")),
+            Some(agent_hand_dir.join("config.json")),
             xdg_dir.as_ref().map(|d| d.join("config.json")),
         ]
         .into_iter()
@@ -424,7 +424,12 @@ impl ConfigFile {
         let path = dir.join("config.toml");
         let toml = toml::to_string_pretty(self)
             .map_err(|e| crate::Error::InvalidInput(format!("TOML serialize: {e}")))?;
-        std::fs::write(path, toml)?;
+        std::fs::write(&path, toml)?;
+        // Remove legacy config.json so it doesn't shadow the TOML on next load
+        let legacy = dir.join("config.json");
+        if legacy.exists() {
+            let _ = std::fs::remove_file(legacy);
+        }
         Ok(())
     }
 }

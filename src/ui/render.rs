@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
@@ -120,6 +120,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.state() == crate::ui::AppState::Search {
         render_search_popup(f, f.area(), app);
     }
+
+    // Toast notifications overlay (top-right corner)
+    #[cfg(feature = "pro")]
+    render_toast_notifications(f, f.area(), app);
 }
 
 /// Render title bar
@@ -399,10 +403,59 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
                                     Style::default().fg(Color::Yellow),
                                 ));
                             } else if sharing.active {
-                                spans.push(Span::styled(
-                                    format!("[share: {}]", sharing.default_permission),
-                                    Style::default().fg(Color::Green),
-                                ));
+                                // Show viewer count and names if available
+                                #[cfg(feature = "pro")]
+                                {
+                                    if let Some(relay) = app.relay_client(&session.id) {
+                                        let vc = relay.viewer_count();
+                                        let viewers = relay.viewers();
+                                        let perm = &sharing.default_permission;
+                                        if vc > 0 {
+                                            spans.push(Span::styled(
+                                                format!("[{} {}v", perm, vc),
+                                                Style::default().fg(Color::Green),
+                                            ));
+                                            // Show viewer names (truncated)
+                                            let names: Vec<&str> = viewers.iter()
+                                                .take(3)
+                                                .map(|v| v.display_name.as_str())
+                                                .collect();
+                                            let rw_viewer = viewers.iter().find(|v| v.permission == "rw");
+                                            if let Some(rw) = rw_viewer {
+                                                let name = truncate_name(&rw.display_name, 10);
+                                                spans.push(Span::styled(
+                                                    format!(" {}(rw)", name),
+                                                    Style::default().fg(Color::Cyan),
+                                                ));
+                                            } else if !names.is_empty() {
+                                                let display = names.join(",");
+                                                let display = truncate_name(&display, 20);
+                                                spans.push(Span::styled(
+                                                    format!(" {}", display),
+                                                    Style::default().fg(Color::DarkGray),
+                                                ));
+                                            }
+                                            spans.push(Span::styled("]", Style::default().fg(Color::Green)));
+                                        } else {
+                                            spans.push(Span::styled(
+                                                format!("[share: {}]", perm),
+                                                Style::default().fg(Color::Green),
+                                            ));
+                                        }
+                                    } else {
+                                        spans.push(Span::styled(
+                                            format!("[share: {}]", sharing.default_permission),
+                                            Style::default().fg(Color::Green),
+                                        ));
+                                    }
+                                }
+                                #[cfg(not(feature = "pro"))]
+                                {
+                                    spans.push(Span::styled(
+                                        format!("[share: {}]", sharing.default_permission),
+                                        Style::default().fg(Color::Green),
+                                    ));
+                                }
                             } else {
                                 spans.push(Span::styled(
                                     "[share: stopped]",
@@ -549,6 +602,18 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
     }
 
     #[cfg(feature = "pro")]
+    if let Some(d) = app.control_request_dialog() {
+        render_control_request_dialog(f, area, d);
+        return;
+    }
+
+    #[cfg(feature = "pro")]
+    if let Some(d) = app.pack_browser_dialog() {
+        render_pack_browser_dialog(f, area, d);
+        return;
+    }
+
+    #[cfg(feature = "pro")]
     if let Some(d) = app.join_session_dialog() {
         render_join_session_dialog(f, area, d);
         return;
@@ -556,7 +621,7 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
 
     #[cfg(feature = "pro")]
     if let Some(d) = app.share_dialog() {
-        render_share_dialog(f, area, d);
+        render_share_dialog(f, area, d, app);
         return;
     }
 
@@ -1717,16 +1782,37 @@ fn render_settings_dialog(
                 }
             }
             #[cfg(feature = "pro")]
+            SettingsField::NotifTestSound => {
+                if let Some(status) = &d.notif_test_status {
+                    let color = if status.starts_with('✓') {
+                        Color::Green
+                    } else if status.starts_with('✗') {
+                        Color::Red
+                    } else {
+                        Color::Yellow
+                    };
+                    spans.push(Span::styled(status.clone(), Style::default().fg(color)));
+                } else {
+                    spans.push(Span::styled(
+                        "[press Enter to test]",
+                        if is_active { active_style } else { dim_style },
+                    ));
+                }
+            }
+            #[cfg(feature = "pro")]
             SettingsField::NotifPackLink => {
-                let url = "https://peonping.com";
-                spans.push(Span::styled(
-                    url.to_string(),
-                    Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::UNDERLINED),
-                ));
                 if is_active {
-                    spans.push(Span::styled("  (Enter to open)", dim_style));
+                    spans.push(Span::styled(
+                        "Enter to browse",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    spans.push(Span::styled(
+                        "Browse & install",
+                        Style::default().fg(Color::DarkGray),
+                    ));
                 }
             }
             // Text input fields: relay_url, auto_expire, jump_lines, scroll_padding, ready_ttl
@@ -1797,6 +1883,15 @@ fn render_settings_dialog(
         .block(Block::default().borders(Borders::ALL).title("Settings"));
 
     f.render_widget(p, popup_area);
+}
+
+fn truncate_name(name: &str, max: usize) -> String {
+    if name.chars().count() <= max {
+        name.to_string()
+    } else {
+        let end = name.char_indices().nth(max).map(|(i, _)| i).unwrap_or(name.len());
+        format!("{}..", &name[..end])
+    }
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -1885,11 +1980,23 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
         key("p", "Preview snapshot"),
         key("Ctrl+r", "Refresh"),
         key("Ctrl+e", "Relationships"),
-        key("S", "Share (Max)"),
+        key("Shift+S", "Share (Pro)"),
+        key("Shift+J", "Join session (Pro)"),
         key("Tab", "Active panel (Pro)"),
         key(",", "Settings"),
         key("?", "Help"),
         key("q", "Quit"),
+        Line::from(""),
+        section("Viewer Mode (Pro)"),
+        key("Up/Down", "Scroll (RO) / Input (RW)"),
+        key("Shift+Up/Dn", "Scroll (in RW mode)"),
+        key("PgUp/PgDn", "Scroll (RO) / Input (RW)"),
+        key("Home/End", "Scroll top/follow (RO)"),
+        key("F1-F12", "Forwarded in RW mode"),
+        key("r", "Request RW control"),
+        key("Esc", "RW: relinquish control / RO: disconnect"),
+        key("q", "Disconnect (RO only)"),
+        key("Ctrl+V", "Paste URL (join dialog)"),
         Line::from(""),
         section("Status Indicators"),
         Line::from(vec![
@@ -1983,6 +2090,30 @@ fn render_item_hints(spans: &mut Vec<Span<'static>>, app: &App) {
 }
 
 fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
+    // Viewer mode has its own presence bar — skip the normal status bar
+    #[cfg(feature = "pro")]
+    if app.state() == crate::ui::AppState::ViewerMode {
+        let mut spans = vec![
+            Span::raw("  "),
+            Span::styled("?", Style::default().fg(Color::Magenta)),
+            Span::raw(":help  "),
+        ];
+        // Show hosting indicator if user has active shared sessions
+        let hosting = app.hosting_session_count();
+        if hosting > 0 {
+            spans.push(Span::styled("|  ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                format!("Hosting {} session{}", hosting, if hosting == 1 { "" } else { "s" }),
+                Style::default().fg(Color::Yellow),
+            ));
+            spans.push(Span::raw("  "));
+        }
+        let bar = Paragraph::new(Line::from(spans))
+            .style(Style::default().bg(Color::Rgb(20, 20, 35)));
+        f.render_widget(bar, area);
+        return;
+    }
+
     let sessions = app.sessions();
 
     let waiting = sessions
@@ -2043,10 +2174,15 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
     ));
     spans.push(Span::raw("  |  "));
 
-    // Mouse capture hint
+    // Mouse capture hint — show platform-aware copy instructions
     if app.mouse_captured() {
+        let select_hint = if cfg!(target_os = "macos") {
+            "Opt+Drag"
+        } else {
+            "Shift+Drag"
+        };
         spans.push(Span::styled(
-            "Shift+Drag",
+            select_hint,
             Style::default().fg(Color::DarkGray),
         ));
         spans.push(Span::styled(":select text  ", Style::default().fg(Color::DarkGray)));
@@ -2328,81 +2464,257 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
 }
 
 #[cfg(feature = "pro")]
-fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSessionDialog) {
-    let popup_area = centered_rect(65, 30, area);
+fn render_pack_browser_dialog(
+    f: &mut Frame,
+    area: Rect,
+    d: &crate::ui::dialogs::PackBrowserDialog,
+) {
+    use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
+
+    let popup_area = centered_rect(60, 70, area);
     f.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .title(" Install Sound Packs ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(popup_area);
+    f.render_widget(block, popup_area);
+
+    // Layout: status bar at top, pack list, hints at bottom
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // status
+            Constraint::Min(4),   // pack list
+            Constraint::Length(2), // hints
+        ])
+        .split(inner);
+
+    // Status bar
+    let status_style = if d.status.contains("Failed") || d.status.contains("failed") {
+        Style::default().fg(Color::Red)
+    } else if d.status.contains("Installed") || d.status.contains("Done") {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
+    let status = Paragraph::new(format!(" {}", d.status)).style(status_style);
+    f.render_widget(status, chunks[0]);
+
+    // Pack list
+    if d.loading {
+        let loading = Paragraph::new("  Loading...")
+            .style(Style::default().fg(Color::DarkGray));
+        f.render_widget(loading, chunks[1]);
+    } else if d.packs.is_empty() {
+        let empty = Paragraph::new("  No packs found")
+            .style(Style::default().fg(Color::DarkGray));
+        f.render_widget(empty, chunks[1]);
+    } else {
+        let visible_height = chunks[1].height as usize;
+        // Scroll to keep selected visible
+        let scroll_offset = if d.selected >= visible_height {
+            d.selected - visible_height + 1
+        } else {
+            0
+        };
+
+        let items: Vec<ListItem> = d
+            .packs
+            .iter()
+            .enumerate()
+            .skip(scroll_offset)
+            .take(visible_height)
+            .map(|(i, pack)| {
+                let marker = if pack.installed { " [installed]" } else { "" };
+                let text = format!("  {}{}", pack.name, marker);
+                let style = if i == d.selected {
+                    if pack.installed {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    }
+                } else if pack.installed {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                ListItem::new(text).style(style)
+            })
+            .collect();
+
+        let list = List::new(items);
+        f.render_widget(list, chunks[1]);
+    }
+
+    // Hints
+    let hint = if d.installing {
+        " Installing... please wait".to_string()
+    } else {
+        " Enter: Install  |  j/k: Navigate  |  Esc: Close\n Source: github.com/PeonPing/og-packs".to_string()
+    };
+    let hints = Paragraph::new(hint)
+        .style(Style::default().fg(Color::DarkGray));
+    f.render_widget(hints, chunks[2]);
+}
+
+#[cfg(feature = "pro")]
+fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSessionDialog) {
+    let popup_area = centered_rect(65, 35, area);
+    f.render_widget(Clear, popup_area);
+
+    let border_color = if d.connecting {
+        Color::Yellow
+    } else if d.status.as_ref().is_some_and(|s| s.contains("failed") || s.contains("Invalid")) {
+        Color::Red
+    } else {
+        Color::Cyan
+    };
 
     let block = Block::default()
         .title(" Join Shared Session ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(Color::Rgb(20, 20, 35)));
     f.render_widget(block, popup_area);
 
-    let inner = popup_area.inner(Margin { horizontal: 2, vertical: 1 });
+    let inner = popup_area.inner(ratatui::layout::Margin { horizontal: 2, vertical: 1 });
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1), // identity or spacer
             Constraint::Length(1), // label
             Constraint::Length(1), // input
+            Constraint::Length(1), // validation hint
+            Constraint::Length(2), // status (allow 2 lines for long errors)
             Constraint::Length(1), // spacer
-            Constraint::Length(1), // status
-            Constraint::Length(1), // spacer
-            Constraint::Length(1), // hint
+            Constraint::Length(1), // actions hint
         ])
         .split(inner);
 
-    let label = Paragraph::new("Paste share URL:")
-        .style(Style::default().fg(Color::Gray));
-    f.render_widget(label, chunks[0]);
-
-    let input_text = d.url_input.text();
-    let input = Paragraph::new(format!("▸ {}", input_text))
-        .style(Style::default().fg(Color::White));
-    f.render_widget(input, chunks[1]);
-
-    if let Some(ref status) = d.status {
-        let color = if status.contains("Invalid") || status.contains("fail") {
-            Color::Red
-        } else {
-            Color::Yellow
-        };
-        let status_line = Paragraph::new(status.as_str())
-            .style(Style::default().fg(color));
-        f.render_widget(status_line, chunks[3]);
+    // Show identity if logged in
+    if let Some(ref identity) = d.viewer_identity {
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("Joining as: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(identity.as_str(), Style::default().fg(Color::Cyan)),
+            ])),
+            chunks[0],
+        );
     }
 
-    let hint = Paragraph::new("Enter: connect  Esc: cancel")
-        .style(Style::default().fg(Color::DarkGray));
-    f.render_widget(hint, chunks[5]);
+    let label = Paragraph::new(Line::from(vec![
+        Span::styled("Paste share URL ", Style::default().fg(Color::Gray)),
+        Span::styled("(e.g. https://relay.../share/abc?token=...)", Style::default().fg(Color::DarkGray)),
+    ]));
+    f.render_widget(label, chunks[1]);
+
+    let input_text = d.url_input.text();
+    let input_style = if d.connecting {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default().fg(Color::White)
+    };
+    let input = Paragraph::new(format!("\u{25b8} {}", input_text))
+        .style(input_style);
+    f.render_widget(input, chunks[2]);
+
+    // Live validation hint
+    if let Some(ref hint) = d.validation_hint {
+        let hint_color = if hint.contains("valid") && hint.contains("Enter") {
+            Color::Green
+        } else if hint.contains("error") || hint.contains("Missing") {
+            Color::Yellow
+        } else {
+            Color::DarkGray
+        };
+        f.render_widget(
+            Paragraph::new(hint.as_str()).style(Style::default().fg(hint_color)),
+            chunks[3],
+        );
+    }
+
+    if let Some(ref status) = d.status {
+        let (color, prefix) = if status.contains("failed") || status.contains("Invalid") {
+            (Color::Red, "\u{2716} ")
+        } else if d.connecting {
+            (Color::Yellow, "\u{25cb} ")
+        } else {
+            (Color::Green, "\u{2714} ")
+        };
+        let status_line = Paragraph::new(format!("{}{}", prefix, status))
+            .style(Style::default().fg(color))
+            .wrap(Wrap { trim: false });
+        f.render_widget(status_line, chunks[4]);
+    }
+
+    let hint_text = if d.connecting {
+        "Connecting... please wait"
+    } else {
+        "Enter: connect  |  Esc: cancel"
+    };
+    f.render_widget(
+        Paragraph::new(hint_text).style(Style::default().fg(Color::DarkGray)),
+        chunks[6],
+    );
 }
 
 #[cfg(feature = "pro")]
-fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
-    let popup_area = centered_rect(65, 50, area);
+fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, app: &App) {
+    let popup_area = centered_rect(65, 55, area);
     f.render_widget(Clear, popup_area);
 
+    // Get viewers for this session
+    let viewers = app.relay_client(&d.session_id)
+        .map(|c| c.viewers())
+        .unwrap_or_default();
+
+    let title = if d.already_sharing && !viewers.is_empty() {
+        format!("Share: {} ({} viewer{})", d.session_title, viewers.len(), if viewers.len() == 1 { "" } else { "s" })
+    } else {
+        format!("Share: {}", d.session_title)
+    };
     let outer = Block::default()
         .borders(Borders::ALL)
-        .title(format!("Share: {}", d.session_title));
+        .title(title);
 
     let inner_area = outer.inner(popup_area);
     f.render_widget(outer, popup_area);
+    let max_viewer_display = 8; // Cap viewer list to prevent layout overflow
+    let viewer_rows = if viewers.is_empty() {
+        if d.already_sharing { 1 } else { 0 }
+    } else {
+        let count = viewers.len().min(max_viewer_display);
+        let overflow_row = if viewers.len() > max_viewer_display { 1 } else { 0 };
+        (count + 2 + overflow_row) as u16 // +2 for header + spacing
+    };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2), // Permission
-            Constraint::Length(2), // Status
-            Constraint::Length(2), // SSH URL
-            Constraint::Length(2), // Web URL
-            Constraint::Length(2), // Expire
-            Constraint::Min(1),   // Actions
+            Constraint::Length(2),          // Permission
+            Constraint::Length(2),          // Status
+            Constraint::Length(2),          // SSH URL
+            Constraint::Length(2),          // Web URL
+            Constraint::Length(2),          // Expire
+            Constraint::Length(viewer_rows), // Viewers list
+            Constraint::Min(1),            // Actions
         ])
         .split(inner_area);
 
     // Permission line
-    let perm_text = format!("Permission: {} (Tab to toggle)", d.permission);
+    let perm_text = if d.already_sharing {
+        format!("Permission: {}", d.permission)
+    } else {
+        format!("Permission: {} (Tab to toggle)", d.permission)
+    };
     f.render_widget(
         Paragraph::new(perm_text).style(Style::default().fg(Color::White)),
         chunks[0],
@@ -2416,18 +2728,29 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
         )
     } else {
         Span::styled(
-            "○ Not sharing",
+            "○ Not sharing — press Enter to start",
             Style::default().fg(Color::DarkGray),
         )
     };
     f.render_widget(Paragraph::new(Line::from(status)), chunks[1]);
 
     // URL display — prefer relay URL over SSH/web
+    // Check inline copy feedback (show for 2 seconds)
+    let copy_ok = d.copy_feedback_at
+        .map(|t| t.elapsed().as_secs() < 2)
+        .unwrap_or(false);
+
     if let Some(ref relay_url) = d.relay_share_url {
         // Relay mode
-        let relay_line = format!("Share URL: {} (press 'c' to copy)", relay_url);
+        let copy_hint = if copy_ok { " ✓ Copied!" } else { " ('c' to copy)" };
+        let mut spans = vec![
+            Span::styled("URL: ", Style::default().fg(Color::Cyan)),
+            Span::styled(relay_url.as_str(), Style::default().fg(Color::Cyan)),
+        ];
+        spans.push(Span::styled(copy_hint, Style::default().fg(if copy_ok { Color::Green } else { Color::DarkGray })));
         f.render_widget(
-            Paragraph::new(relay_line).style(Style::default().fg(Color::Cyan)),
+            Paragraph::new(Line::from(spans))
+                .wrap(ratatui::widgets::Wrap { trim: true }),
             chunks[2],
         );
         f.render_widget(
@@ -2438,12 +2761,15 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
     } else {
         // Tmate mode
         let ssh_line = if let Some(ref url) = d.ssh_url {
-            format!("SSH: {} (press 'c' to copy)", url)
+            let hint = if copy_ok { " ✓ Copied!" } else { " (press 'c' to copy)" };
+            format!("SSH: {}{}", url, hint)
         } else {
             "SSH: -".to_string()
         };
         f.render_widget(
-            Paragraph::new(ssh_line).style(Style::default().fg(Color::Cyan)),
+            Paragraph::new(ssh_line)
+                .style(Style::default().fg(Color::Cyan))
+                .wrap(ratatui::widgets::Wrap { trim: true }),
             chunks[2],
         );
 
@@ -2453,7 +2779,9 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
             "Web: -".to_string()
         };
         f.render_widget(
-            Paragraph::new(web_line).style(Style::default().fg(Color::Cyan)),
+            Paragraph::new(web_line)
+                .style(Style::default().fg(Color::Cyan))
+                .wrap(ratatui::widgets::Wrap { trim: true }),
             chunks[3],
         );
     }
@@ -2463,9 +2791,59 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
     expire_spans.extend(render_text_input(&d.expire_minutes, true, Style::default()));
     f.render_widget(Paragraph::new(Line::from(expire_spans)), chunks[4]);
 
+    // Viewers list
+    if viewers.is_empty() && d.already_sharing {
+        f.render_widget(
+            Paragraph::new("  No viewers connected yet.")
+                .style(Style::default().fg(Color::DarkGray)),
+            chunks[5],
+        );
+    } else if !viewers.is_empty() {
+        let mut viewer_lines = vec![
+            Line::from(Span::styled(
+                format!("Viewers ({}):", viewers.len()),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )),
+        ];
+        for (i, v) in viewers.iter().enumerate() {
+            if i >= max_viewer_display {
+                viewer_lines.push(Line::from(Span::styled(
+                    format!("  ... and {} more", viewers.len() - max_viewer_display),
+                    Style::default().fg(Color::DarkGray),
+                )));
+                break;
+            }
+            let perm_style = if v.permission == "rw" {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let rw_marker = if v.permission == "rw" { "  \u{2605}" } else { "" };
+            let is_selected = d.selected_viewer == Some(i);
+            let prefix = if is_selected { "> " } else { "  " };
+            let name_style = if is_selected {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let mut spans = vec![
+                Span::raw(prefix),
+                Span::styled(&v.display_name, name_style),
+                Span::raw("  "),
+                Span::styled(&v.permission, perm_style),
+                Span::styled(rw_marker, Style::default().fg(Color::Yellow)),
+            ];
+            if is_selected && v.permission == "rw" {
+                spans.push(Span::styled("  [d: revoke]", Style::default().fg(Color::Red)));
+            }
+            viewer_lines.push(Line::from(spans));
+        }
+        f.render_widget(Paragraph::new(viewer_lines), chunks[5]);
+    }
+
     // Actions hint
     let action = if d.already_sharing {
-        "Enter: Stop sharing  |  c: Copy URL  |  Esc: Close"
+        "Enter: Stop  |  c: Copy URL  |  Up/Down: viewers  |  Esc: Close"
     } else {
         "Enter: Start sharing  |  Esc: Close"
     };
@@ -2473,7 +2851,61 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog) {
         Paragraph::new(action)
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center),
-        chunks[5],
+        chunks[6],
+    );
+}
+
+#[cfg(feature = "pro")]
+fn render_control_request_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ControlRequestDialog) {
+    let popup_area = centered_rect(50, 30, area);
+    f.render_widget(Clear, popup_area);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title("Control Request");
+
+    let inner_area = outer.inner(popup_area);
+    f.render_widget(outer, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // Spacing
+            Constraint::Length(2), // Request message
+            Constraint::Length(2), // Session info
+            Constraint::Length(1), // Spacing
+            Constraint::Min(1),   // Actions
+        ])
+        .split(inner_area);
+
+    let requester = if d.display_name.is_empty() {
+        "An anonymous viewer".to_string()
+    } else {
+        format!("\"{}\"", d.display_name)
+    };
+    f.render_widget(
+        Paragraph::new(format!(
+            "{} requests read-write control",
+            requester
+        ))
+        .style(Style::default().fg(Color::White))
+        .alignment(Alignment::Center),
+        chunks[1],
+    );
+
+    f.render_widget(
+        Paragraph::new(format!("of session \"{}\"", d.session_title))
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center),
+        chunks[2],
+    );
+
+    f.render_widget(
+        Paragraph::new("[Y] Approve    [N] Deny")
+            .style(Style::default().fg(Color::Yellow))
+            .alignment(Alignment::Center),
+        chunks[4],
     );
 }
 
@@ -2697,11 +3129,40 @@ fn render_new_from_context_dialog(
     );
 }
 
+/// Render toast notifications as an overlay in the top-right corner.
+#[cfg(feature = "pro")]
+fn render_toast_notifications(f: &mut Frame, area: Rect, app: &App) {
+    let toasts = app.toast_notifications();
+    if toasts.is_empty() {
+        return;
+    }
+
+    // Show up to 3 most recent notifications
+    let visible: Vec<_> = toasts.iter().rev().take(3).collect();
+    let toast_width = visible.iter()
+        .map(|t| t.message.len() as u16 + 4)
+        .max()
+        .unwrap_or(20)
+        .min(area.width / 2);
+
+    let x = area.right().saturating_sub(toast_width + 1);
+    let y = area.y + 4; // Below title bar
+
+    for (i, toast) in visible.iter().enumerate() {
+        let toast_area = Rect::new(x, y + i as u16, toast_width, 1);
+        if toast_area.y < area.bottom() {
+            f.render_widget(Clear, toast_area);
+            let para = Paragraph::new(format!(" {} ", toast.message))
+                .style(Style::default().fg(Color::White).bg(toast.color));
+            f.render_widget(para, toast_area);
+        }
+    }
+}
+
 /// Render the viewer mode — displays a shared terminal session received via relay.
 #[cfg(feature = "pro")]
 fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
     let Some(vs) = app.viewer_state() else {
-        // No viewer state — show placeholder
         let msg = Paragraph::new("Not connected to any shared session.")
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center);
@@ -2709,93 +3170,286 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         return;
     };
 
+    let connected = vs.connected.load(std::sync::atomic::Ordering::Relaxed);
+    let reconnecting = vs.reconnecting.load(std::sync::atomic::Ordering::Relaxed);
+    let has_rw = vs.has_rw_control.load(std::sync::atomic::Ordering::Acquire);
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(0),    // Terminal content
+            Constraint::Length(1), // Scroll indicator (when scrolled back)
             Constraint::Length(1), // Presence bar
         ])
         .split(area);
 
-    // Render terminal content
-    // We display the raw text content. The content includes ANSI escapes,
-    // but ratatui's Paragraph will render them as-is (plain text).
-    // For a full terminal emulator we'd need a vt100 parser, but plain text
-    // display is a good starting point that shows the content.
-    let content = vs.terminal_content.blocking_lock();
-    let text = String::from_utf8_lossy(&content);
+    // --- Terminal content via vt100 parser ---
+    let content = vs.terminal_content.lock().unwrap();
+    let (term_cols, term_rows) = *vs.terminal_size.lock().unwrap();
 
-    // Take last N lines that fit in the area
-    let lines: Vec<&str> = text.lines().collect();
-    let visible_height = chunks[0].height as usize;
-    let start = lines.len().saturating_sub(visible_height);
-    let visible_lines: Vec<Line> = lines[start..]
-        .iter()
-        .map(|line| {
-            // Strip ANSI escape codes for clean display
-            let cleaned = strip_ansi_escapes(line);
-            Line::from(cleaned)
-        })
-        .collect();
+    // Use host terminal dimensions for the vt100 parser
+    let parser_cols = if term_cols > 0 { term_cols } else { area.width.saturating_sub(2).max(80) };
+    let parser_rows = if term_rows > 0 { term_rows } else { 24 };
+    let mut parser = vt100::Parser::new(parser_rows, parser_cols, 1000); // 1000 lines scrollback
+    parser.process(&content);
+    drop(content);
+
+    // Apply scroll offset — this shifts what screen.cell() considers "visible"
+    let scroll_offset = vs.scroll_offset;
+    parser.set_scrollback(scroll_offset);
+
+    let screen = parser.screen();
+    let (screen_rows, screen_cols) = screen.size();
+    let inner_height = chunks[0].height.saturating_sub(2) as usize; // subtract borders
+    let inner_width = chunks[0].width.saturating_sub(2) as usize;
+    let render_cols = inner_width.min(screen_cols as usize);
+    let render_rows = inner_height.min(screen_rows as usize);
+
+    // Cursor position — only show when following (scroll_offset == 0) and connected
+    let cursor_pos = if scroll_offset == 0 && connected {
+        let (cr, cc) = screen.cursor_position();
+        Some((cr as usize, cc as usize))
+    } else {
+        None
+    };
+
+    let mut visible_lines: Vec<Line> = Vec::with_capacity(render_rows);
+    for row_idx in 0..render_rows {
+        let mut spans: Vec<Span> = Vec::new();
+        let mut current_text = String::new();
+        let mut current_style = Style::default();
+
+        for col_idx in 0..render_cols {
+            let cell = screen.cell(row_idx as u16, col_idx as u16);
+            if let Some(cell) = cell {
+                if cell.is_wide_continuation() {
+                    continue; // Skip continuation cells of wide characters
+                }
+                let mut style = vt100_cell_to_style(cell);
+                let ch = cell.contents();
+
+                // Highlight cursor position — RW gets brighter cursor
+                if cursor_pos == Some((row_idx, col_idx)) {
+                    if has_rw {
+                        style = style.fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    } else {
+                        style = style.add_modifier(Modifier::REVERSED);
+                    }
+                }
+
+                if style == current_style {
+                    if ch.is_empty() {
+                        current_text.push(' ');
+                    } else {
+                        current_text.push_str(&ch);
+                    }
+                } else {
+                    if !current_text.is_empty() {
+                        spans.push(Span::styled(std::mem::take(&mut current_text), current_style));
+                    }
+                    current_style = style;
+                    if ch.is_empty() {
+                        current_text.push(' ');
+                    } else {
+                        current_text.push_str(&ch);
+                    }
+                }
+            }
+        }
+        if !current_text.is_empty() {
+            spans.push(Span::styled(current_text, current_style));
+        }
+        visible_lines.push(Line::from(spans));
+    }
+
+    let reconnect_num = vs.reconnect_attempt.load(std::sync::atomic::Ordering::Relaxed);
+    let title = if reconnecting {
+        if reconnect_num > 0 {
+            format!(" {} [reconnecting {}/10...] ", vs.session_name, reconnect_num)
+        } else {
+            format!(" {} [reconnecting...] ", vs.session_name)
+        }
+    } else if !connected && reconnect_num == 0 {
+        // Initial connection attempt (never connected yet)
+        format!(" {} [connecting...] ", vs.session_name)
+    } else if !connected {
+        format!(" {} [disconnected] ", vs.session_name)
+    } else if has_rw {
+        format!(" {} [RW] ", vs.session_name)
+    } else {
+        format!(" {} [RO] ", vs.session_name)
+    };
+
+    let border_color = if reconnecting {
+        Color::Yellow
+    } else if !connected {
+        Color::Red
+    } else if has_rw {
+        Color::LightCyan
+    } else {
+        Color::Cyan
+    };
 
     let terminal_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
-        .title(format!(" {} ", vs.session_name));
+        .border_style(Style::default().fg(border_color))
+        .title(title);
 
-    let terminal_paragraph = Paragraph::new(visible_lines)
-        .block(terminal_block)
-        .style(Style::default().fg(Color::White));
-
+    let terminal_paragraph = Paragraph::new(visible_lines).block(terminal_block);
     f.render_widget(terminal_paragraph, chunks[0]);
 
-    // Render presence bar
-    let connected = vs.connected.load(std::sync::atomic::Ordering::Relaxed);
-    let viewer_count = vs.viewer_count.load(std::sync::atomic::Ordering::Relaxed);
+    // --- Scroll indicator ---
+    if scroll_offset > 0 {
+        let scroll_text = format!(
+            " Scrolled: +{} lines from bottom | End/G: follow | Up/Down/PgUp/PgDn: scroll ",
+            scroll_offset,
+        );
+        let scroll_bar = Paragraph::new(scroll_text)
+            .style(Style::default().fg(Color::Black).bg(Color::DarkGray));
+        f.render_widget(scroll_bar, chunks[1]);
+    }
 
-    let status_text = if connected {
-        format!(
-            "  Viewing {}  |  {} viewer{}  |  Press Esc to disconnect",
+    // --- Presence bar ---
+    let viewer_count = vs.viewer_count.load(std::sync::atomic::Ordering::Relaxed);
+    let control_pending = vs.control_requested.load(std::sync::atomic::Ordering::Relaxed);
+    // Auto-clear status messages after 5 seconds
+    let status_msg: Option<String> = {
+        let mut guard = vs.status_message.lock().unwrap();
+        match guard.as_ref() {
+            Some((_, ts)) if ts.elapsed() > std::time::Duration::from_secs(5) => {
+                *guard = None;
+                None
+            }
+            Some((msg, _)) => Some(msg.clone()),
+            None => None,
+        }
+    };
+
+    let status_text = if reconnecting {
+        let spinner = ['|', '/', '-', '\\'];
+        let spin_char = spinner[app.tick_count() as usize / 2 % spinner.len()];
+        if reconnect_num > 0 {
+            format!("  {} Reconnecting to {} (attempt {}/10)  |  Esc: disconnect", spin_char, vs.session_name, reconnect_num)
+        } else {
+            format!("  {} Reconnecting to {}...  |  Esc: disconnect", spin_char, vs.session_name)
+        }
+    } else if connected {
+        let identity_part = match &vs.viewer_identity {
+            Some(name) => format!(" ({})", name),
+            None => " (anonymous)".to_string(),
+        };
+        let peers = vs.peer_viewers.read().unwrap_or_else(|e| e.into_inner());
+        let peer_names: String = if peers.is_empty() {
+            String::new()
+        } else {
+            let names: Vec<&str> = peers.iter().take(3).map(|v| v.display_name.as_str()).collect();
+            let suffix = if peers.len() > 3 { format!(" +{}", peers.len() - 3) } else { String::new() };
+            format!(" ({}{})", names.join(", "), suffix)
+        };
+        drop(peers);
+        let viewers_part = format!(
+            "  {}{}  |  {} viewer{}{}",
             vs.session_name,
+            identity_part,
             viewer_count,
-            if viewer_count == 1 { "" } else { "s" }
-        )
+            if viewer_count == 1 { "" } else { "s" },
+            peer_names,
+        );
+
+        let control_part = if has_rw {
+            "  |  RW active  |  Esc: relinquish  |  Shift+Arrows/PgUp/PgDn: scroll".to_string()
+        } else if let Some(ref msg) = status_msg {
+            format!("  |  {}", msg)
+        } else if control_pending {
+            let dots = ".".repeat((app.tick_count() as usize / 2 % 3) + 1);
+            format!("  |  control requested{}", dots)
+        } else {
+            "  |  r: request control".to_string()
+        };
+
+        let latency = vs.latency_ms.load(std::sync::atomic::Ordering::Relaxed);
+        let latency_part = if latency > 0 {
+            format!("  |  {}ms", latency)
+        } else {
+            String::new()
+        };
+        format!("{}{}{}  |  Esc: disconnect", viewers_part, control_part, latency_part)
     } else {
         format!("  Disconnected from {}  |  Press Esc to return", vs.session_name)
     };
 
-    let status_color = if connected { Color::Green } else { Color::Red };
+    let status_color = if reconnecting {
+        Color::Yellow
+    } else if connected {
+        if has_rw {
+            Color::Cyan
+        } else if status_msg.as_ref().is_some_and(|m| m.contains("denied")) {
+            Color::Yellow
+        } else {
+            Color::Green
+        }
+    } else {
+        Color::Red
+    };
     let presence_bar = Paragraph::new(status_text)
         .style(Style::default().fg(Color::White).bg(status_color));
 
-    f.render_widget(presence_bar, chunks[1]);
+    f.render_widget(presence_bar, chunks[2]);
 }
 
-/// Strip ANSI escape sequences from a string for clean display.
+/// Convert a vt100 cell's attributes to a ratatui Style.
 #[cfg(feature = "pro")]
-fn strip_ansi_escapes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
+fn vt100_cell_to_style(cell: &vt100::Cell) -> Style {
+    let mut style = Style::default();
 
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            // Skip ESC sequence
-            if let Some(&'[') = chars.peek() {
-                chars.next(); // consume '['
-                // Read until we hit a letter (the terminating character)
-                while let Some(&c) = chars.peek() {
-                    chars.next();
-                    if c.is_ascii_alphabetic() || c == 'm' || c == 'H' || c == 'J' || c == 'K' {
-                        break;
-                    }
-                }
-            }
-        } else if ch.is_control() && ch != '\n' && ch != '\t' {
-            // Skip other control characters
-        } else {
-            result.push(ch);
-        }
+    // Foreground color
+    style = style.fg(vt100_color_to_ratatui(cell.fgcolor()));
+
+    // Background color
+    let bg = cell.bgcolor();
+    if !matches!(bg, vt100::Color::Default) {
+        style = style.bg(vt100_color_to_ratatui(bg));
     }
 
-    result
+    // Text attributes
+    if cell.bold() {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    if cell.italic() {
+        style = style.add_modifier(Modifier::ITALIC);
+    }
+    if cell.underline() {
+        style = style.add_modifier(Modifier::UNDERLINED);
+    }
+    if cell.inverse() {
+        style = style.add_modifier(Modifier::REVERSED);
+    }
+
+    style
+}
+
+/// Map vt100 colors to ratatui colors.
+#[cfg(feature = "pro")]
+fn vt100_color_to_ratatui(color: vt100::Color) -> Color {
+    match color {
+        vt100::Color::Default => Color::Reset,
+        vt100::Color::Idx(0) => Color::Black,
+        vt100::Color::Idx(1) => Color::Red,
+        vt100::Color::Idx(2) => Color::Green,
+        vt100::Color::Idx(3) => Color::Yellow,
+        vt100::Color::Idx(4) => Color::Blue,
+        vt100::Color::Idx(5) => Color::Magenta,
+        vt100::Color::Idx(6) => Color::Cyan,
+        vt100::Color::Idx(7) => Color::White,
+        vt100::Color::Idx(8) => Color::DarkGray,
+        vt100::Color::Idx(9) => Color::LightRed,
+        vt100::Color::Idx(10) => Color::LightGreen,
+        vt100::Color::Idx(11) => Color::LightYellow,
+        vt100::Color::Idx(12) => Color::LightBlue,
+        vt100::Color::Idx(13) => Color::LightMagenta,
+        vt100::Color::Idx(14) => Color::LightCyan,
+        vt100::Color::Idx(15) => Color::White,
+        vt100::Color::Idx(idx) => Color::Indexed(idx),
+        vt100::Color::Rgb(r, g, b) => Color::Rgb(r, g, b),
+    }
 }

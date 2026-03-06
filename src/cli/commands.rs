@@ -191,6 +191,7 @@ pub async fn run_cli(args: Args) -> Result<()> {
                 let auth_msg = ControlMessage::ViewerAuth {
                     token,
                     user_token: None,
+                    display_name: None,
                 };
                 let json = serde_json::to_string(&auth_msg)
                     .map_err(|e| crate::Error::Other(format!("Serialize error: {}", e)))?;

@@ -135,6 +135,12 @@ pub struct App {
     #[cfg(feature = "pro")]
     relay_clients: HashMap<String, Arc<crate::pro::collab::client::RelayClient>>,
 
+    // Toast notifications for viewer join/leave events
+    #[cfg(feature = "pro")]
+    toast_notifications: Vec<ToastNotification>,
+    #[cfg(feature = "pro")]
+    last_known_viewers: HashMap<String, Vec<String>>,
+
     // AI summarizer (Max tier)
     #[cfg(feature = "max")]
     summarizer: Option<crate::ai::Summarizer>,
@@ -149,15 +155,83 @@ pub struct ViewerState {
     /// Name of the session being viewed.
     pub session_name: String,
     /// Current terminal content (raw bytes with ANSI escapes).
-    pub terminal_content: Arc<tokio::sync::Mutex<Vec<u8>>>,
+    /// Uses std::sync::Mutex so it can be read from synchronous render context.
+    pub terminal_content: Arc<std::sync::Mutex<Vec<u8>>>,
     /// Current terminal dimensions.
-    pub terminal_size: Arc<tokio::sync::Mutex<(u16, u16)>>,
+    pub terminal_size: Arc<std::sync::Mutex<(u16, u16)>>,
     /// Number of viewers (including self).
     pub viewer_count: Arc<std::sync::atomic::AtomicUsize>,
     /// Whether the connection is active.
     pub connected: Arc<std::sync::atomic::AtomicBool>,
     /// Handle to the viewer task.
     pub task_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Channel for sending control messages to the relay (e.g. ControlRequest).
+    pub control_tx: tokio::sync::mpsc::Sender<String>,
+    /// Whether a control request has been sent (waiting for response).
+    pub control_requested: Arc<std::sync::atomic::AtomicBool>,
+    /// Status message for the viewer (e.g. "Control approved!", "Control denied").
+    /// Tuple: (message, timestamp) — auto-cleared after 5 seconds.
+    /// Uses std::sync::Mutex so it can be read from synchronous render context.
+    pub status_message: Arc<std::sync::Mutex<Option<(String, Instant)>>>,
+    /// Scroll offset from bottom (0 = follow latest output).
+    pub scroll_offset: usize,
+    /// Whether the viewer is currently reconnecting.
+    pub reconnecting: Arc<std::sync::atomic::AtomicBool>,
+    /// Current reconnection attempt number (0 = not reconnecting).
+    pub reconnect_attempt: Arc<std::sync::atomic::AtomicU32>,
+    /// Whether the viewer has been granted read-write control.
+    pub has_rw_control: Arc<std::sync::atomic::AtomicBool>,
+    /// Viewer identity: Some(name) if logged in, None if anonymous.
+    pub viewer_identity: Option<String>,
+    /// Timestamp when control was requested (for timeout detection).
+    pub control_request_time: Arc<tokio::sync::Mutex<Option<Instant>>>,
+    /// Other viewers in the same room (updated via ViewerJoined/ViewerLeft).
+    /// Uses std::sync::RwLock so it can be read from synchronous render context.
+    pub peer_viewers: Arc<std::sync::RwLock<Vec<crate::pro::collab::protocol::ViewerInfo>>>,
+    /// Last measured round-trip latency in milliseconds (from Ping/Pong).
+    pub latency_ms: Arc<std::sync::atomic::AtomicU32>,
+}
+
+/// A transient toast notification shown briefly in the UI corner.
+#[cfg(feature = "pro")]
+pub struct ToastNotification {
+    pub message: String,
+    pub created_at: Instant,
+    pub color: ratatui::style::Color,
+}
+
+#[cfg(feature = "pro")]
+impl ToastNotification {
+    const DURATION: Duration = Duration::from_secs(5);
+
+    pub fn is_expired(&self) -> bool {
+        self.created_at.elapsed() > Self::DURATION
+    }
+}
+
+/// Live URL validation hint for the join session dialog.
+/// Returns a status message based on URL structure without connecting.
+#[cfg(feature = "pro")]
+fn live_url_validation_hint(url: &str) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Some("URL should start with https://".to_string());
+    }
+    if !url.contains("/share/") {
+        return Some("Missing /share/ path segment".to_string());
+    }
+    if !url.contains("token=") {
+        return Some("Missing ?token= parameter".to_string());
+    }
+    // Looks valid — parse to verify
+    if crate::ui::dialogs::JoinSessionDialog::parse_share_url(url).is_some() {
+        Some("URL valid — press Enter to connect".to_string())
+    } else {
+        Some("URL format error — check room ID and token".to_string())
+    }
 }
 
 /// Decide whether mouse capture should be enabled based on config + environment.
@@ -303,6 +377,10 @@ impl App {
             viewer_state: None,
             #[cfg(feature = "pro")]
             relay_clients: HashMap::new(),
+            #[cfg(feature = "pro")]
+            toast_notifications: Vec::new(),
+            #[cfg(feature = "pro")]
+            last_known_viewers: HashMap::new(),
             #[cfg(feature = "max")]
             summarizer: {
                 let is_max = crate::auth::AuthToken::load().map_or(false, |t| t.is_max());
@@ -493,6 +571,14 @@ impl App {
             if !expired_ids.is_empty() {
                 let mut mgr = crate::pro::tmate::TmateManager::from_config().await;
                 for id in &expired_ids {
+                    // Clean up relay client if present
+                    if let Some(client) = self.relay_clients.remove(id) {
+                        let tmux_name = self.sessions.iter()
+                            .find(|s| &s.id == id)
+                            .map(|s| s.tmux_name())
+                            .unwrap_or_else(|| TmuxManager::session_name_legacy(id));
+                        client.stop(&tmux_name).await;
+                    }
                     let _ = mgr.stop_sharing(id).await;
                     if let Some(inst) = self.sessions.iter_mut().find(|s| &s.id == id) {
                         inst.sharing = None;
@@ -502,6 +588,58 @@ impl App {
                 storage
                     .save(&self.sessions, &self.groups, &self.relationships)
                     .await?;
+            }
+        }
+
+        // Poll for control requests from viewers (check every ~5 ticks)
+        // Skip when in ViewerMode to avoid dialog overlay on viewer terminal
+        #[cfg(feature = "pro")]
+        if self.tick_count % 5 == 0 && self.dialog.is_none() && self.state != AppState::ViewerMode {
+            self.poll_control_requests().await;
+        }
+
+        // Detect viewer join/leave and create toast notifications
+        #[cfg(feature = "pro")]
+        if self.tick_count % 4 == 0 {
+            self.detect_viewer_changes();
+            self.toast_notifications.retain(|n| !n.is_expired());
+            // Cap queue to prevent unbounded growth from rapid join/leave events
+            if self.toast_notifications.len() > 10 {
+                self.toast_notifications.drain(0..self.toast_notifications.len() - 10);
+            }
+        }
+
+        // Auto-timeout control request after 30 seconds if host hasn't responded
+        #[cfg(feature = "pro")]
+        if let Some(ref vs) = self.viewer_state {
+            if vs.control_requested.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Some(req_time) = *vs.control_request_time.lock().await {
+                    if req_time.elapsed() >= Duration::from_secs(30) {
+                        vs.control_requested.store(false, std::sync::atomic::Ordering::Relaxed);
+                        *vs.control_request_time.lock().await = None;
+                        *vs.status_message.lock().unwrap() = Some(("Control request timed out. Press r to try again.".to_string(), Instant::now()));
+                    }
+                }
+            }
+        }
+
+        // Auto-timeout host-side control request dialog after 30 seconds
+        #[cfg(feature = "pro")]
+        if let Some(Dialog::ControlRequest(ref d)) = self.dialog {
+            if d.created_at.elapsed() >= Duration::from_secs(30) {
+                let sid = d.session_id.clone();
+                let vid = d.viewer_id.clone();
+                let name = d.display_name.clone();
+                self.dialog = None;
+                self.state = AppState::Normal;
+                if let Some(client) = self.relay_clients.get(&sid) {
+                    client.respond_control(&vid, false).await;
+                }
+                self.toast_notifications.push(ToastNotification {
+                    message: format!("Control request from {} auto-denied (timeout)", name),
+                    created_at: Instant::now(),
+                    color: ratatui::style::Color::Yellow,
+                });
             }
         }
 
@@ -1275,9 +1413,9 @@ impl App {
         #[cfg(feature = "pro")]
         if key == KeyCode::Char('J') && modifiers == KeyModifiers::SHIFT {
             if crate::auth::AuthToken::require_max("sharing").is_ok() {
-                self.dialog = Some(Dialog::JoinSession(
-                    crate::ui::dialogs::JoinSessionDialog::new(),
-                ));
+                let mut join_d = crate::ui::dialogs::JoinSessionDialog::new();
+                join_d.viewer_identity = self.auth_token.as_ref().map(|t| t.email.clone());
+                self.dialog = Some(Dialog::JoinSession(join_d));
                 self.state = AppState::Dialog;
             }
             return Ok(());
@@ -1304,16 +1442,29 @@ impl App {
                     if let Some(mins) = sharing_cfg.auto_expire_minutes {
                         expire_input.set_text(&mins.to_string());
                     }
+                    // Restore relay URL/room_id from existing relay client when already sharing
+                    let (relay_share_url, relay_room_id) = if already_sharing {
+                        if let Some(client) = self.relay_clients.get(&inst.id) {
+                            (client.share_url().await, client.room_id().await)
+                        } else {
+                            (None, None)
+                        }
+                    } else {
+                        (None, None)
+                    };
+                    let web_url = relay_share_url.clone();
                     let dialog = ShareDialog {
                         session_id: inst.id.clone(),
                         session_title: inst.title.clone(),
                         permission: default_perm,
                         expire_minutes: expire_input,
                         ssh_url: None,
-                        web_url: None,
+                        web_url,
                         already_sharing,
-                        relay_share_url: None,
-                        relay_room_id: None,
+                        relay_share_url,
+                        relay_room_id,
+                        copy_feedback_at: None,
+                        selected_viewer: None,
                     };
                     self.dialog = Some(Dialog::Share(dialog));
                     self.state = AppState::Dialog;
@@ -2426,14 +2577,17 @@ impl App {
                     self.state = AppState::Normal;
                 }
                 KeyCode::Tab => {
-                    d.permission = match d.permission {
-                        crate::sharing::SharePermission::ReadOnly => {
-                            crate::sharing::SharePermission::ReadWrite
-                        }
-                        crate::sharing::SharePermission::ReadWrite => {
-                            crate::sharing::SharePermission::ReadOnly
-                        }
-                    };
+                    // Only allow permission toggle before sharing starts
+                    if !d.already_sharing {
+                        d.permission = match d.permission {
+                            crate::sharing::SharePermission::ReadOnly => {
+                                crate::sharing::SharePermission::ReadWrite
+                            }
+                            crate::sharing::SharePermission::ReadWrite => {
+                                crate::sharing::SharePermission::ReadOnly
+                            }
+                        };
+                    }
                 }
                 KeyCode::Enter => {
                     if d.already_sharing {
@@ -2512,6 +2666,7 @@ impl App {
                             .map(|s| s.tmux_name())
                             .unwrap_or_else(|| TmuxManager::session_name_legacy(&sid));
 
+                        let mut share_started = false;
                         if let Some(ref relay) = relay_url {
                             // Use relay server
                             if let Some(auth) = &self.auth_token {
@@ -2523,56 +2678,68 @@ impl App {
                                 match client.create_room(&sid, &perm_str, expire).await {
                                     Ok(room) => {
                                         // Start streaming
-                                        if client.start_streaming(&tmux_name).await.is_ok() {
-                                            // Store client to keep background tasks alive
-                                            self.relay_clients.insert(sid.clone(), client);
+                                        match client.start_streaming(&tmux_name).await {
+                                            Ok(()) => {
+                                                share_started = true;
+                                                // Store client to keep background tasks alive
+                                                self.relay_clients.insert(sid.clone(), client);
 
-                                            d.relay_share_url = Some(room.share_url.clone());
-                                            d.relay_room_id = Some(room.room_id.clone());
-                                            d.web_url = Some(room.share_url.clone());
-                                            d.already_sharing = true;
+                                                d.relay_share_url = Some(room.share_url.clone());
+                                                d.relay_room_id = Some(room.room_id.clone());
+                                                d.web_url = Some(room.share_url.clone());
+                                                d.already_sharing = true;
 
-                                            let state = crate::sharing::SharingState {
-                                                active: true,
-                                                tmate_socket: String::new(),
-                                                links: vec![crate::sharing::ShareLink {
-                                                    permission: perm,
-                                                    ssh_url: String::new(),
-                                                    web_url: Some(room.share_url),
-                                                    created_at: chrono::Utc::now(),
-                                                    expires_at: None,
-                                                }],
-                                                default_permission: perm,
-                                                started_at: chrono::Utc::now(),
-                                                auto_expire_minutes: expire,
-                                            };
+                                                let state = crate::sharing::SharingState {
+                                                    active: true,
+                                                    tmate_socket: String::new(),
+                                                    links: vec![crate::sharing::ShareLink {
+                                                        permission: perm,
+                                                        ssh_url: String::new(),
+                                                        web_url: Some(room.share_url),
+                                                        created_at: chrono::Utc::now(),
+                                                        expires_at: None,
+                                                    }],
+                                                    default_permission: perm,
+                                                    started_at: chrono::Utc::now(),
+                                                    auto_expire_minutes: expire,
+                                                };
 
-                                            if let Some(inst) = self
-                                                .sessions
-                                                .iter_mut()
-                                                .find(|s| s.id == d.session_id)
-                                            {
-                                                inst.sharing = Some(state);
+                                                if let Some(inst) = self
+                                                    .sessions
+                                                    .iter_mut()
+                                                    .find(|s| s.id == d.session_id)
+                                                {
+                                                    inst.sharing = Some(state);
+                                                }
+                                                let storage = self.storage.lock().await;
+                                                storage
+                                                    .save(
+                                                        &self.sessions,
+                                                        &self.groups,
+                                                        &self.relationships,
+                                                    )
+                                                    .await?;
+                                                let _ = self.analytics.record_premium_event(
+                                                    crate::analytics::EventType::ShareStart,
+                                                    &d.session_id,
+                                                    &d.session_title,
+                                                ).await;
                                             }
-                                            let storage = self.storage.lock().await;
-                                            storage
-                                                .save(
-                                                    &self.sessions,
-                                                    &self.groups,
-                                                    &self.relationships,
-                                                )
-                                                .await?;
-                                            let _ = self.analytics.record_premium_event(
-                                                crate::analytics::EventType::ShareStart,
-                                                &d.session_id,
-                                                &d.session_title,
-                                            ).await;
+                                            Err(e) => {
+                                                tracing::warn!("Relay streaming failed: {}", e);
+                                                d.relay_share_url = None;
+                                                // Show error in web_url field as fallback indicator
+                                                d.web_url = Some(format!("Error: {}", e));
+                                            }
                                         }
                                     }
-                                    Err(_e) => {}
+                                    Err(e) => {
+                                        tracing::warn!("Relay room creation failed: {}", e);
+                                        d.web_url = Some(format!("Error: {}", e));
+                                    }
                                 }
                             }
-                        } else if crate::pro::tmate::TmateManager::is_available().await {
+                        } else if !share_started && crate::pro::tmate::TmateManager::is_available().await {
                             // Fall back to tmate
                             let mut mgr = crate::pro::tmate::TmateManager::from_config().await;
                             match mgr
@@ -2580,6 +2747,7 @@ impl App {
                                 .await
                             {
                                 Ok(state) => {
+                                    share_started = true;
                                     let ssh = state
                                         .links
                                         .iter()
@@ -2617,8 +2785,14 @@ impl App {
                                         &d.session_title,
                                     ).await;
                                 }
-                                Err(_e) => {}
+                                Err(e) => {
+                                    tracing::warn!("tmate sharing failed: {}", e);
+                                    d.web_url = Some(format!("tmate error: {}", e));
+                                }
                             }
+                        }
+                        if !share_started && d.web_url.is_none() {
+                            d.web_url = Some("No sharing backend available. Configure relay_server_url or install tmate.".to_string());
                         }
                     }
                 }
@@ -2628,7 +2802,18 @@ impl App {
                         .or(d.web_url.as_ref())
                         .or(d.ssh_url.as_ref());
                     if let Some(url) = url {
-                        let _ = std::process::Command::new("pbcopy")
+                        let copy_cmd = if cfg!(target_os = "macos") {
+                            "pbcopy"
+                        } else {
+                            "xclip"
+                        };
+                        let copy_args: &[&str] = if cfg!(target_os = "macos") {
+                            &[]
+                        } else {
+                            &["-selection", "clipboard"]
+                        };
+                        let copy_result = std::process::Command::new(copy_cmd)
+                            .args(copy_args)
                             .stdin(std::process::Stdio::piped())
                             .spawn()
                             .and_then(|mut child| {
@@ -2638,6 +2823,27 @@ impl App {
                                 }
                                 child.wait()
                             });
+                        if copy_result.is_ok() {
+                            d.copy_feedback_at = Some(Instant::now());
+                        }
+                        #[cfg(feature = "pro")]
+                        {
+                            let msg = if copy_result.is_ok() {
+                                "URL copied to clipboard"
+                            } else {
+                                "Failed to copy URL"
+                            };
+                            let color = if copy_result.is_ok() {
+                                ratatui::style::Color::Green
+                            } else {
+                                ratatui::style::Color::Red
+                            };
+                            self.toast_notifications.push(ToastNotification {
+                                message: msg.to_string(),
+                                created_at: Instant::now(),
+                                color,
+                            });
+                        }
                     }
                 }
                 KeyCode::Backspace => {
@@ -2645,6 +2851,55 @@ impl App {
                 }
                 KeyCode::Char(ch) if ch.is_ascii_digit() => {
                     d.expire_minutes.insert(ch);
+                }
+                KeyCode::Up => {
+                    // Navigate viewer list
+                    if d.already_sharing {
+                        let viewer_count = self.relay_clients.get(&d.session_id)
+                            .map(|c| c.viewers().len())
+                            .unwrap_or(0);
+                        if viewer_count > 0 {
+                            d.selected_viewer = Some(match d.selected_viewer {
+                                Some(i) if i > 0 => i - 1,
+                                _ => viewer_count.saturating_sub(1),
+                            });
+                        }
+                    }
+                }
+                KeyCode::Down => {
+                    if d.already_sharing {
+                        let viewer_count = self.relay_clients.get(&d.session_id)
+                            .map(|c| c.viewers().len())
+                            .unwrap_or(0);
+                        if viewer_count > 0 {
+                            d.selected_viewer = Some(match d.selected_viewer {
+                                Some(i) if i + 1 < viewer_count => i + 1,
+                                _ => 0,
+                            });
+                        }
+                    }
+                }
+                KeyCode::Char('d') => {
+                    // Revoke selected viewer's RW control
+                    if d.already_sharing {
+                        if let Some(idx) = d.selected_viewer {
+                            if let Some(client) = self.relay_clients.get(&d.session_id) {
+                                let viewers = client.viewers();
+                                if let Some(v) = viewers.get(idx) {
+                                    if v.permission == "rw" {
+                                        let vid = v.viewer_id.clone();
+                                        let name = v.display_name.clone();
+                                        client.revoke_control(&vid).await;
+                                        self.toast_notifications.push(ToastNotification {
+                                            message: format!("Revoked RW from {}", name),
+                                            created_at: Instant::now(),
+                                            color: ratatui::style::Color::Yellow,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 _ => {}
             },
@@ -2838,26 +3093,135 @@ impl App {
                         {
                             d.connecting = true;
                             d.status = Some("Connecting...".to_string());
+                            d.validation_hint = None;
                             let relay = relay_url.clone();
                             let rid = room_id.clone();
                             let tok = token.clone();
-                            self.dialog = None;
-                            self.state = AppState::Normal;
-                            if let Err(e) = self.connect_viewer(&relay, &rid, &tok).await {
-                                tracing::warn!("Failed to join session: {}", e);
+                            // Keep dialog open during connection attempt
+                            match self.connect_viewer(&relay, &rid, &tok).await {
+                                Ok(()) => {
+                                    // Success — dialog is replaced by ViewerMode (connect_viewer sets state)
+                                    self.dialog = None;
+                                }
+                                Err(e) => {
+                                    // Show user-friendly error in the dialog
+                                    if let Some(Dialog::JoinSession(ref mut d)) = self.dialog {
+                                        d.connecting = false;
+                                        let msg = e.to_string();
+                                        let friendly = if msg.contains("timeout") || msg.contains("Timeout") {
+                                            "Connection timed out. Check your network.".to_string()
+                                        } else if msg.contains("404") || msg.contains("not found") {
+                                            "Session not found. Link may have expired.".to_string()
+                                        } else if msg.contains("401") || msg.contains("auth") {
+                                            "Access denied. Token may be invalid.".to_string()
+                                        } else if msg.contains("WebSocket") || msg.contains("Connection refused") {
+                                            "Relay server unreachable.".to_string()
+                                        } else {
+                                            format!("Connection failed: {}", e)
+                                        };
+                                        d.status = Some(friendly);
+                                    }
+                                }
                             }
                         } else {
-                            d.status = Some("Invalid URL. Expected: https://.../share/ROOM_ID?token=TOKEN".to_string());
+                            d.status = Some("Invalid URL format. Expected: https://.../share/ROOM_ID?token=TOKEN".to_string());
                         }
                     }
                 }
                 KeyCode::Backspace => {
                     d.url_input.backspace();
-                    d.status = None;
+                    d.validation_hint = live_url_validation_hint(d.url_input.text());
+                }
+                KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    // Clipboard paste — platform-aware with Wayland fallback
+                    let clipboard_text = if cfg!(target_os = "macos") {
+                        std::process::Command::new("pbpaste").output().ok()
+                    } else {
+                        // Try wl-paste (Wayland) first, fall back to xclip (X11)
+                        std::process::Command::new("wl-paste")
+                            .arg("--no-newline")
+                            .output()
+                            .ok()
+                            .filter(|o| o.status.success())
+                            .or_else(|| {
+                                std::process::Command::new("xclip")
+                                    .args(["-selection", "clipboard", "-o"])
+                                    .output()
+                                    .ok()
+                            })
+                    };
+                    if let Some(output) = clipboard_text {
+                        if output.status.success() {
+                            if let Ok(text) = String::from_utf8(output.stdout) {
+                                let trimmed = text.trim();
+                                for c in trimmed.chars() {
+                                    d.url_input.insert(c);
+                                }
+                                d.validation_hint = live_url_validation_hint(d.url_input.text());
+                            }
+                        }
+                    }
                 }
                 KeyCode::Char(c) => {
                     d.url_input.insert(c);
-                    d.status = None;
+                    d.validation_hint = live_url_validation_hint(d.url_input.text());
+                }
+                _ => {}
+            },
+
+            #[cfg(feature = "pro")]
+            Dialog::ControlRequest(ref d) => match key {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    let sid = d.session_id.clone();
+                    let vid = d.viewer_id.clone();
+                    let name = d.display_name.clone();
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                    // Approve the control request
+                    if let Some(client) = self.relay_clients.get(&sid) {
+                        client.respond_control(&vid, true).await;
+                    }
+                    self.toast_notifications.push(ToastNotification {
+                        message: format!("Granted RW control to {}", name),
+                        created_at: Instant::now(),
+                        color: ratatui::style::Color::Green,
+                    });
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    let sid = d.session_id.clone();
+                    let vid = d.viewer_id.clone();
+                    let name = d.display_name.clone();
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                    // Deny the control request
+                    if let Some(client) = self.relay_clients.get(&sid) {
+                        client.respond_control(&vid, false).await;
+                    }
+                    self.toast_notifications.push(ToastNotification {
+                        message: format!("Denied control request from {}", name),
+                        created_at: Instant::now(),
+                        color: ratatui::style::Color::Yellow,
+                    });
+                }
+                _ => {}
+            },
+
+            #[cfg(feature = "pro")]
+            Dialog::PackBrowser(ref mut d) => match key {
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    d.move_selection(-1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    d.move_selection(1);
+                }
+                KeyCode::Enter => {
+                    if !d.installing && !d.loading {
+                        self.install_selected_pack().await;
+                    }
                 }
                 _ => {}
             },
@@ -3027,6 +3391,12 @@ impl App {
                     // Navigation mode: ←/→ always switch tabs
                     match key {
                         KeyCode::Esc => {
+                            // Auto-save if settings were modified
+                            if let Some(Dialog::Settings(d)) = self.dialog.as_ref() {
+                                if d.dirty {
+                                    self.apply_settings().await?;
+                                }
+                            }
                             self.dialog = None;
                             self.state = AppState::Normal;
                         }
@@ -3069,11 +3439,14 @@ impl App {
                                     SettingsField::NotifHookStatus => {
                                         d.editing = true;
                                     }
-                                    // Pack link: open in browser
+                                    // Test sound: play a test notification
                                     #[cfg(feature = "pro")]
-                                    SettingsField::NotifPackLink => {
-                                        let _ = open::that("https://peonping.com");
+                                    SettingsField::NotifTestSound => {
+                                        self.test_notification_sound();
                                     }
+                                    // Pack browser: handled after match to avoid borrow issues
+                                    #[cfg(feature = "pro")]
+                                    SettingsField::NotifPackLink => {}
                                     // Text inputs: Enter activates edit mode
                                     f if f.is_text_input() => {
                                         d.editing = true;
@@ -3084,6 +3457,16 @@ impl App {
                         }
                         _ => {}
                     }
+                }
+            }
+        }
+
+        // Deferred: open pack browser after Settings match arm releases borrows
+        #[cfg(feature = "pro")]
+        if key == KeyCode::Enter {
+            if let Some(Dialog::Settings(d)) = self.dialog.as_ref() {
+                if !d.editing && d.field == SettingsField::NotifPackLink {
+                    self.open_pack_browser().await;
                 }
             }
         }
@@ -3775,6 +4158,23 @@ impl App {
             return;
         }
 
+        // ViewerMode: mouse scroll adjusts terminal scroll offset
+        #[cfg(feature = "pro")]
+        if self.state == AppState::ViewerMode {
+            if let Some(ref mut vs) = self.viewer_state {
+                match mouse.kind {
+                    MouseEventKind::ScrollUp => {
+                        vs.scroll_offset = vs.scroll_offset.saturating_add(3);
+                    }
+                    MouseEventKind::ScrollDown => {
+                        vs.scroll_offset = vs.scroll_offset.saturating_sub(3);
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
         match mouse.kind {
             MouseEventKind::ScrollUp => {
                 self.move_selection_up();
@@ -4430,6 +4830,22 @@ impl App {
     }
 
     #[cfg(feature = "pro")]
+    pub fn pack_browser_dialog(&self) -> Option<&crate::ui::dialogs::PackBrowserDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::PackBrowser(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "pro")]
+    pub fn control_request_dialog(&self) -> Option<&crate::ui::ControlRequestDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::ControlRequest(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "pro")]
     pub fn new_from_context_dialog(&self) -> Option<&crate::ui::NewFromContextDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::NewFromContext(d)) => Some(d),
@@ -4512,110 +4928,294 @@ impl App {
     pub async fn connect_viewer(&mut self, relay_url: &str, room_id: &str, viewer_token: &str) -> Result<()> {
         use crate::pro::collab::protocol::ControlMessage;
 
-        let terminal_content = Arc::new(tokio::sync::Mutex::new(Vec::<u8>::new()));
-        let terminal_size = Arc::new(tokio::sync::Mutex::new((80u16, 24u16)));
+        let terminal_content = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        let terminal_size = Arc::new(std::sync::Mutex::new((80u16, 24u16)));
         let viewer_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-        let ws_url = format!("{}/ws/{}", relay_url, room_id)
+        let ws_url = format!("{}/ws/{}", relay_url.trim_end_matches('/'), room_id)
             .replace("https://", "wss://")
             .replace("http://", "ws://");
+
+        // Extract display name and access token from auth token
+        let viewer_display_name = self.auth_token.as_ref().map(|t| {
+            t.email.split('@').next().unwrap_or(&t.email).to_string()
+        });
+        let viewer_user_token = self.auth_token.as_ref().map(|t| t.access_token.clone());
+
+        // Channel for sending control messages from the viewer UI
+        let (ctrl_tx, mut ctrl_rx) = tokio::sync::mpsc::channel::<String>(16);
+        let control_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let status_message = Arc::new(std::sync::Mutex::new(None::<(String, Instant)>));
+        let reconnecting = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let reconnect_attempt = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let has_rw_control = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let control_request_time = Arc::new(tokio::sync::Mutex::new(None::<Instant>));
+        let peer_viewers = Arc::new(std::sync::RwLock::new(Vec::<crate::pro::collab::protocol::ViewerInfo>::new()));
+        let latency_ms = Arc::new(std::sync::atomic::AtomicU32::new(0));
 
         // Clone Arcs for the spawned task
         let content_clone = terminal_content.clone();
         let size_clone = terminal_size.clone();
         let count_clone = viewer_count.clone();
         let connected_clone = connected.clone();
+        let control_requested_clone = control_requested.clone();
+        let status_msg_clone = status_message.clone();
+        let reconnecting_clone = reconnecting.clone();
+        let reconnect_attempt_clone = reconnect_attempt.clone();
+        let has_rw_clone = has_rw_control.clone();
+        let control_req_time_clone = control_request_time.clone();
+        let peers_clone = peer_viewers.clone();
+        let latency_clone = latency_ms.clone();
         let token = viewer_token.to_string();
+        let viewer_display_name_for_task = viewer_display_name.clone();
+        let viewer_user_token_for_task = viewer_user_token;
 
         let task_handle = tokio::spawn(async move {
             use futures_util::{SinkExt, StreamExt};
             use base64::Engine;
 
-            let (ws_stream, _) = match tokio_tungstenite::connect_async(&ws_url).await {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::warn!("Viewer WS connect failed: {}", e);
-                    return;
+            const MAX_RECONNECT_ATTEMPTS: u32 = 10;
+            const MAX_BACKOFF_SECS: u64 = 30;
+            let mut attempt: u32 = 0;
+            let mut room_closed = false;
+
+            loop {
+                // --- Connect ---
+                if attempt > 0 {
+                    reconnecting_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+                    reconnect_attempt_clone.store(attempt, std::sync::atomic::Ordering::Relaxed);
+                    let delay = std::cmp::min(1u64 << attempt.min(5), MAX_BACKOFF_SECS);
+                    tracing::info!("Viewer reconnecting in {}s (attempt {}/{})", delay, attempt, MAX_RECONNECT_ATTEMPTS);
+                    tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
                 }
-            };
 
-            let (mut ws_write, mut ws_read) = ws_stream.split();
-
-            // Send ViewerAuth
-            let auth_msg = ControlMessage::ViewerAuth {
-                token,
-                user_token: None,
-            };
-            let json = match serde_json::to_string(&auth_msg) {
-                Ok(j) => j,
-                Err(e) => {
-                    tracing::warn!("Failed to serialize viewer auth: {}", e);
-                    return;
-                }
-            };
-            if ws_write.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await.is_err() {
-                return;
-            }
-
-            // Wait for AuthResult
-            if let Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) = ws_read.next().await {
-                if let Ok(ControlMessage::AuthResult { success, .. }) = serde_json::from_str(&text) {
-                    if !success {
-                        tracing::warn!("Viewer auth failed");
-                        return;
+                let (ws_stream, _) = match tokio_tungstenite::connect_async(&ws_url).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        let detail = if err_str.contains("timed out") || err_str.contains("Timed out") {
+                            "timed out"
+                        } else if err_str.contains("Connection refused") {
+                            "relay unreachable"
+                        } else if err_str.contains("404") || err_str.contains("not found") {
+                            "session not found"
+                        } else if err_str.contains("401") || err_str.contains("403") {
+                            "access denied"
+                        } else {
+                            "connection error"
+                        };
+                        tracing::warn!("Viewer WS connect failed: {}", e);
+                        attempt += 1;
+                        if attempt > MAX_RECONNECT_ATTEMPTS {
+                            *status_msg_clone.lock().unwrap() = Some((
+                                format!("Connection lost ({}). Press Esc to return.", detail),
+                                Instant::now()
+                            ));
+                            break;
+                        }
+                        continue;
                     }
+                };
+
+                let (mut ws_write, mut ws_read) = ws_stream.split();
+
+                // Send ViewerAuth with identity and user token for RW auth
+                let auth_msg = ControlMessage::ViewerAuth {
+                    token: token.clone(),
+                    user_token: viewer_user_token_for_task.clone(),
+                    display_name: viewer_display_name_for_task.clone(),
+                };
+                let json = match serde_json::to_string(&auth_msg) {
+                    Ok(j) => j,
+                    Err(_) => break,
+                };
+                if ws_write.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await.is_err() {
+                    attempt += 1;
+                    if attempt > MAX_RECONNECT_ATTEMPTS { break; }
+                    continue;
                 }
-            }
 
-            connected_clone.store(true, std::sync::atomic::Ordering::Relaxed);
-
-            // Main receive loop
-            while let Some(Ok(msg)) = ws_read.next().await {
-                match msg {
-                    tokio_tungstenite::tungstenite::Message::Binary(data) => {
-                        // Append raw PTY output, cap at 2MB to prevent unbounded growth
-                        // (snapshots will reset the buffer periodically)
-                        let mut buf = content_clone.lock().await;
-                        buf.extend_from_slice(&data);
-                        const MAX_VIEWER_BUF: usize = 2 * 1024 * 1024;
-                        if buf.len() > MAX_VIEWER_BUF {
-                            // Keep only the last 1MB
-                            let drain_to = buf.len() - (MAX_VIEWER_BUF / 2);
-                            buf.drain(..drain_to);
+                // Wait for AuthResult
+                match ws_read.next().await {
+                    Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
+                        if let Ok(ControlMessage::AuthResult { success, error, permission, .. }) = serde_json::from_str(&text) {
+                            if !success {
+                                let reason = error.unwrap_or_else(|| "unknown error".to_string());
+                                tracing::warn!("Viewer auth failed: {}", reason);
+                                *status_msg_clone.lock().unwrap() = Some((format!("Auth failed: {}", reason), Instant::now()));
+                                break;
+                            }
+                            // Show permission downgrade reason if present
+                            if let Some(note) = error {
+                                *status_msg_clone.lock().unwrap() = Some((note, Instant::now()));
+                            }
+                            // Set initial RW state from auth response
+                            if permission == "rw" {
+                                has_rw_clone.store(true, std::sync::atomic::Ordering::Release);
+                            }
                         }
                     }
-                    tokio_tungstenite::tungstenite::Message::Text(text) => {
-                        match serde_json::from_str::<ControlMessage>(&text) {
-                            Ok(ControlMessage::Snapshot { cols, rows, data }) => {
-                                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                                    // Replace content with snapshot (keyframe)
-                                    *content_clone.lock().await = decoded;
-                                    *size_clone.lock().await = (cols, rows);
+                    _ => {
+                        attempt += 1;
+                        if attempt > MAX_RECONNECT_ATTEMPTS { break; }
+                        continue;
+                    }
+                }
+
+                // Connected successfully — reset state
+                let had_rw = has_rw_clone.load(std::sync::atomic::Ordering::Acquire);
+                attempt = 0;
+                connected_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+                reconnecting_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                reconnect_attempt_clone.store(0, std::sync::atomic::Ordering::Relaxed);
+                control_requested_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                has_rw_clone.store(false, std::sync::atomic::Ordering::Release);
+                if let Ok(mut list) = peers_clone.write() { list.clear(); }
+
+                // Re-request control if viewer previously had RW (reconnection recovery)
+                if had_rw {
+                    *status_msg_clone.lock().unwrap() = Some(("Reconnected. Re-requesting control...".to_string(), Instant::now()));
+                    let identity = viewer_display_name_for_task.clone().unwrap_or_default();
+                    let req = ControlMessage::ControlRequest {
+                        viewer_id: String::new(),
+                        display_name: identity,
+                    };
+                    if let Ok(json) = serde_json::to_string(&req) {
+                        let _ = ws_write.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await;
+                        control_requested_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+                        *control_req_time_clone.lock().await = Some(Instant::now());
+                    }
+                }
+
+                // Main loop: receive from relay + send control messages + periodic ping
+                let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(25));
+                ping_interval.tick().await; // consume the immediate first tick
+
+                loop {
+                    tokio::select! {
+                        ws_msg = ws_read.next() => {
+                            match ws_msg {
+                                Some(Ok(tokio_tungstenite::tungstenite::Message::Binary(data))) => {
+                                    let mut buf = content_clone.lock().unwrap();
+                                    buf.extend_from_slice(&data);
+                                    const MAX_VIEWER_BUF: usize = 2 * 1024 * 1024;
+                                    if buf.len() > MAX_VIEWER_BUF {
+                                        let drain_to = buf.len() - (MAX_VIEWER_BUF / 2);
+                                        buf.drain(..drain_to);
+                                    }
                                 }
+                                Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
+                                    match serde_json::from_str::<ControlMessage>(&text) {
+                                        Ok(ControlMessage::Snapshot { cols, rows, data }) => {
+                                            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
+                                                *content_clone.lock().unwrap() = decoded;
+                                                *size_clone.lock().unwrap() = (cols, rows);
+                                            }
+                                        }
+                                        Ok(ControlMessage::Resize { cols, rows }) => {
+                                            *size_clone.lock().unwrap() = (cols, rows);
+                                        }
+                                        Ok(ControlMessage::ViewerCount { count }) => {
+                                            count_clone.store(count, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                        Ok(ControlMessage::ControlResponse { approved, .. }) => {
+                                            control_requested_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                                            *control_req_time_clone.lock().await = None;
+                                            let msg = if approved {
+                                                "Control granted! Type normally to send input.".to_string()
+                                            } else {
+                                                "Control request denied.".to_string()
+                                            };
+                                            *status_msg_clone.lock().unwrap() = Some((msg, Instant::now()));
+                                            // Update RW state after status message to avoid race
+                                            // where render sees has_rw=true but no status message yet
+                                            has_rw_clone.store(approved, std::sync::atomic::Ordering::Release);
+                                        }
+                                        Ok(ControlMessage::HostRevoke { .. }) => {
+                                            // Host revoked our RW control
+                                            has_rw_clone.store(false, std::sync::atomic::Ordering::Release);
+                                            control_requested_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                                            *status_msg_clone.lock().unwrap() = Some(("Host revoked your control. Press r to re-request.".to_string(), Instant::now()));
+                                        }
+                                        Ok(ControlMessage::ViewerJoined { viewer_id, display_name, permission }) => {
+                                            if let Ok(mut list) = peers_clone.write() {
+                                                if let Some(existing) = list.iter_mut().find(|v| v.viewer_id == viewer_id) {
+                                                    existing.display_name = display_name;
+                                                    existing.permission = permission;
+                                                } else {
+                                                    list.push(crate::pro::collab::protocol::ViewerInfo { viewer_id, display_name, permission });
+                                                }
+                                            }
+                                        }
+                                        Ok(ControlMessage::ViewerLeft { viewer_id }) => {
+                                            if let Ok(mut list) = peers_clone.write() {
+                                                list.retain(|v| v.viewer_id != viewer_id);
+                                            }
+                                        }
+                                        Ok(ControlMessage::Pong { ts }) => {
+                                            let now_ms = chrono::Utc::now().timestamp_millis();
+                                            let rtt = (now_ms - ts).max(0) as u32;
+                                            latency_clone.store(rtt, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                        Ok(ControlMessage::RoomClosed { .. }) => {
+                                            connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                                            room_closed = true;
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) | None => {
+                                    connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    break;
+                                }
+                                _ => {}
                             }
-                            Ok(ControlMessage::Resize { cols, rows }) => {
-                                *size_clone.lock().await = (cols, rows);
+                        }
+                        Some(ctrl_json) = ctrl_rx.recv() => {
+                            // Check for graceful close signal
+                            if ctrl_json == "__close__" {
+                                let _ = ws_write.send(tokio_tungstenite::tungstenite::Message::Close(None)).await;
+                                connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                                return; // Exit entirely, no reconnect
                             }
-                            Ok(ControlMessage::ViewerCount { count }) => {
-                                count_clone.store(count, std::sync::atomic::Ordering::Relaxed);
-                            }
-                            Ok(ControlMessage::RoomClosed { .. }) => {
+                            let msg = tokio_tungstenite::tungstenite::Message::Text(ctrl_json.into());
+                            if ws_write.send(msg).await.is_err() {
                                 connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                                 break;
                             }
-                            _ => {}
+                        }
+                        _ = ping_interval.tick() => {
+                            let ts = chrono::Utc::now().timestamp_millis();
+                            let ping = ControlMessage::Ping { ts };
+                            if let Ok(json) = serde_json::to_string(&ping) {
+                                let msg = tokio_tungstenite::tungstenite::Message::Text(json.into());
+                                if ws_write.send(msg).await.is_err() {
+                                    connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                                    break;
+                                }
+                            }
                         }
                     }
-                    tokio_tungstenite::tungstenite::Message::Close(_) => {
-                        connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
-                        break;
-                    }
-                    _ => {}
+                }
+
+                // If room was explicitly closed, don't reconnect
+                if room_closed {
+                    *status_msg_clone.lock().unwrap() = Some(("Session ended by host.".to_string(), Instant::now()));
+                    break;
+                }
+
+                // Otherwise attempt reconnect
+                attempt += 1;
+                if attempt > MAX_RECONNECT_ATTEMPTS {
+                    *status_msg_clone.lock().unwrap() = Some(("Connection lost. Press Esc to return.".to_string(), Instant::now()));
+                    break;
                 }
             }
 
             connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+            reconnecting_clone.store(false, std::sync::atomic::Ordering::Relaxed);
         });
 
         self.viewer_state = Some(ViewerState {
@@ -4625,6 +5225,17 @@ impl App {
             viewer_count,
             connected,
             task_handle: Some(task_handle),
+            control_tx: ctrl_tx,
+            control_requested,
+            status_message,
+            scroll_offset: 0,
+            reconnecting,
+            reconnect_attempt,
+            has_rw_control,
+            viewer_identity: viewer_display_name,
+            control_request_time,
+            peer_viewers,
+            latency_ms,
         });
 
         self.state = AppState::ViewerMode;
@@ -4635,8 +5246,24 @@ impl App {
     #[cfg(feature = "pro")]
     pub fn disconnect_viewer(&mut self) {
         if let Some(vs) = self.viewer_state.take() {
+            // If we had RW control, send ControlRevoke before disconnecting
+            // so the host knows we're no longer controlling
+            if vs.has_rw_control.load(std::sync::atomic::Ordering::Acquire) {
+                let msg = crate::pro::collab::protocol::ControlMessage::ControlRevoke;
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = vs.control_tx.try_send(json);
+                }
+            }
+            // Signal the WS task to close gracefully by sending a special close marker
+            let _ = vs.control_tx.try_send("__close__".to_string());
+            // Mark as disconnected immediately for responsive UI
+            vs.connected.store(false, std::sync::atomic::Ordering::Relaxed);
+            // Give the task a brief moment to send Close frame, then abort
             if let Some(handle) = vs.task_handle {
-                handle.abort();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    handle.abort();
+                });
             }
         }
         self.state = AppState::Normal;
@@ -4644,13 +5271,193 @@ impl App {
 
     /// Handle key events in viewer mode.
     #[cfg(feature = "pro")]
-    async fn handle_viewer_key(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> Result<()> {
+    async fn handle_viewer_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> Result<()> {
+        use base64::Engine;
+
+        let has_rw = self.viewer_state.as_ref()
+            .map(|vs| vs.has_rw_control.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(false);
+
+        // Esc: if RW, first relinquish control (→ RO); if RO, disconnect
+        if key == KeyCode::Esc {
+            if has_rw {
+                // Relinquish RW control — send ControlRevoke and go back to RO mode
+                if let Some(ref vs) = self.viewer_state {
+                    let msg = crate::pro::collab::protocol::ControlMessage::ControlRevoke;
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        let _ = vs.control_tx.send(json).await;
+                    }
+                    vs.has_rw_control.store(false, std::sync::atomic::Ordering::Release);
+                    vs.control_requested.store(false, std::sync::atomic::Ordering::Relaxed);
+                    *vs.status_message.lock().unwrap() = Some(("Control relinquished. Press Esc again to disconnect.".to_string(), Instant::now()));
+                }
+                return Ok(());
+            }
+            self.disconnect_viewer();
+            return Ok(());
+        }
+
+        // Scroll controls (always available: arrow keys, PgUp/PgDn, Home/End)
         match key {
-            KeyCode::Esc | KeyCode::Char('q') => {
-                self.disconnect_viewer();
+            KeyCode::Up if !has_rw || modifiers.contains(KeyModifiers::SHIFT) => {
+                if let Some(ref mut vs) = self.viewer_state {
+                    vs.scroll_offset = vs.scroll_offset.saturating_add(1);
+                }
+                return Ok(());
+            }
+            KeyCode::Down if !has_rw || modifiers.contains(KeyModifiers::SHIFT) => {
+                if let Some(ref mut vs) = self.viewer_state {
+                    vs.scroll_offset = vs.scroll_offset.saturating_sub(1);
+                }
+                return Ok(());
+            }
+            KeyCode::PageUp if !has_rw || modifiers.contains(KeyModifiers::SHIFT) => {
+                if let Some(ref mut vs) = self.viewer_state {
+                    vs.scroll_offset = vs.scroll_offset.saturating_add(20);
+                }
+                return Ok(());
+            }
+            KeyCode::PageDown if !has_rw || modifiers.contains(KeyModifiers::SHIFT) => {
+                if let Some(ref mut vs) = self.viewer_state {
+                    vs.scroll_offset = vs.scroll_offset.saturating_sub(20);
+                }
+                return Ok(());
+            }
+            KeyCode::Home if !has_rw => {
+                if let Some(ref mut vs) = self.viewer_state {
+                    vs.scroll_offset = usize::MAX / 2;
+                }
+                return Ok(());
+            }
+            KeyCode::End if !has_rw => {
+                if let Some(ref mut vs) = self.viewer_state {
+                    vs.scroll_offset = 0;
+                }
+                return Ok(());
             }
             _ => {}
         }
+
+        // RO-only controls
+        if !has_rw {
+            match key {
+                KeyCode::Char('q') => {
+                    self.disconnect_viewer();
+                }
+                KeyCode::Char('r') => {
+                    if let Some(ref vs) = self.viewer_state {
+                        if !vs.control_requested.load(std::sync::atomic::Ordering::Relaxed) {
+                            let identity = vs.viewer_identity.clone().unwrap_or_default();
+                            let msg = crate::pro::collab::protocol::ControlMessage::ControlRequest {
+                                viewer_id: String::new(), // server overwrites with real ID
+                                display_name: identity,
+                            };
+                            if let Ok(json) = serde_json::to_string(&msg) {
+                                if vs.control_tx.send(json).await.is_ok() {
+                                    vs.control_requested.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    *vs.control_request_time.lock().await = Some(Instant::now());
+                                } else {
+                                    *vs.status_message.lock().unwrap() = Some(("Send failed. Try again.".to_string(), Instant::now()));
+                                }
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char('k') => {
+                    if let Some(ref mut vs) = self.viewer_state {
+                        vs.scroll_offset = vs.scroll_offset.saturating_add(1);
+                    }
+                }
+                KeyCode::Char('j') => {
+                    if let Some(ref mut vs) = self.viewer_state {
+                        vs.scroll_offset = vs.scroll_offset.saturating_sub(1);
+                    }
+                }
+                KeyCode::Char('G') => {
+                    if let Some(ref mut vs) = self.viewer_state {
+                        vs.scroll_offset = 0;
+                    }
+                }
+                KeyCode::Char(_) | KeyCode::Enter | KeyCode::Backspace | KeyCode::Tab => {
+                    // Viewer typed something in RO mode — hint to request control
+                    if let Some(ref vs) = self.viewer_state {
+                        if !vs.control_requested.load(std::sync::atomic::Ordering::Relaxed) {
+                            let guard = vs.status_message.lock().unwrap();
+                            // Only show hint if no other status message is active
+                            if guard.is_none() {
+                                drop(guard);
+                                *vs.status_message.lock().unwrap() = Some(("Press 'r' to request control for typing.".to_string(), Instant::now()));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
+        // --- RW mode: forward keystrokes as Input messages ---
+        // Reset scroll to follow when typing
+        if let Some(ref mut vs) = self.viewer_state {
+            vs.scroll_offset = 0;
+        }
+
+        let input_bytes: Option<Vec<u8>> = match key {
+            KeyCode::Char(c) => {
+                if modifiers.contains(KeyModifiers::CONTROL) {
+                    // Ctrl+C = 0x03, Ctrl+D = 0x04, etc. Normalize to lowercase first.
+                    let ctrl_byte = (c.to_ascii_lowercase() as u8).wrapping_sub(b'a' - 1);
+                    Some(vec![ctrl_byte])
+                } else {
+                    let mut buf = [0u8; 4];
+                    let s = c.encode_utf8(&mut buf);
+                    Some(s.as_bytes().to_vec())
+                }
+            }
+            KeyCode::Enter => Some(vec![b'\r']),
+            KeyCode::Backspace => Some(vec![0x7f]),
+            KeyCode::Tab => Some(vec![b'\t']),
+            KeyCode::Up => Some(b"\x1b[A".to_vec()),
+            KeyCode::Down => Some(b"\x1b[B".to_vec()),
+            KeyCode::Right => Some(b"\x1b[C".to_vec()),
+            KeyCode::Left => Some(b"\x1b[D".to_vec()),
+            KeyCode::Home => Some(b"\x1b[H".to_vec()),
+            KeyCode::End => Some(b"\x1b[F".to_vec()),
+            KeyCode::Delete => Some(b"\x1b[3~".to_vec()),
+            KeyCode::PageUp => Some(b"\x1b[5~".to_vec()),
+            KeyCode::PageDown => Some(b"\x1b[6~".to_vec()),
+            KeyCode::Insert => Some(b"\x1b[2~".to_vec()),
+            KeyCode::F(n) => {
+                let seq = match n {
+                    1 => b"\x1bOP".to_vec(),
+                    2 => b"\x1bOQ".to_vec(),
+                    3 => b"\x1bOR".to_vec(),
+                    4 => b"\x1bOS".to_vec(),
+                    5 => b"\x1b[15~".to_vec(),
+                    6 => b"\x1b[17~".to_vec(),
+                    7 => b"\x1b[18~".to_vec(),
+                    8 => b"\x1b[19~".to_vec(),
+                    9 => b"\x1b[20~".to_vec(),
+                    10 => b"\x1b[21~".to_vec(),
+                    11 => b"\x1b[23~".to_vec(),
+                    12 => b"\x1b[24~".to_vec(),
+                    _ => return Ok(()),
+                };
+                Some(seq)
+            }
+            _ => None,
+        };
+
+        if let (Some(bytes), Some(ref vs)) = (input_bytes, &self.viewer_state) {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            let msg = crate::pro::collab::protocol::ControlMessage::Input {
+                data: encoded,
+            };
+            if let Ok(json) = serde_json::to_string(&msg) {
+                let _ = vs.control_tx.send(json).await;
+            }
+        }
+
         Ok(())
     }
 
@@ -4658,6 +5465,113 @@ impl App {
     #[cfg(feature = "pro")]
     pub fn viewer_state(&self) -> Option<&ViewerState> {
         self.viewer_state.as_ref()
+    }
+
+    /// Get a relay client by session ID (for rendering viewer info).
+    #[cfg(feature = "pro")]
+    pub fn relay_client(&self, session_id: &str) -> Option<&Arc<crate::pro::collab::client::RelayClient>> {
+        self.relay_clients.get(session_id)
+    }
+
+    /// Check if the user is currently hosting any shared sessions.
+    #[cfg(feature = "pro")]
+    pub fn hosting_session_count(&self) -> usize {
+        self.relay_clients.len()
+    }
+
+    /// Poll all relay clients for pending control requests and show dialog for the first one.
+    #[cfg(feature = "pro")]
+    async fn poll_control_requests(&mut self) {
+        use crate::ui::dialogs::{ControlRequestDialog, Dialog};
+
+        // Collect session IDs to check (avoid borrow issues)
+        let session_ids: Vec<String> = self.relay_clients.keys().cloned().collect();
+
+        for sid in session_ids {
+            if let Some(client) = self.relay_clients.get(&sid) {
+                // Take only one request at a time — remaining stay in the queue
+                if let Some((viewer_id, display_name)) = client.take_one_control_request().await {
+                    // Auto-approve returning viewers who were previously granted RW
+                    if client.is_previously_approved(&display_name) {
+                        client.respond_control(&viewer_id, true).await;
+                        self.toast_notifications.push(ToastNotification {
+                            message: format!("{} auto-approved (returning viewer)", display_name),
+                            created_at: Instant::now(),
+                            color: ratatui::style::Color::Green,
+                        });
+                        continue;
+                    }
+
+                    // Find session title
+                    let title = self.sessions.iter()
+                        .find(|s| s.id == sid)
+                        .map(|s| s.title.clone())
+                        .unwrap_or_else(|| sid.clone());
+
+                    self.dialog = Some(Dialog::ControlRequest(ControlRequestDialog {
+                        session_id: sid,
+                        session_title: title,
+                        viewer_id,
+                        display_name,
+                        created_at: Instant::now(),
+                    }));
+                    self.state = AppState::Dialog;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Detect viewer join/leave by comparing current viewers with last known state.
+    #[cfg(feature = "pro")]
+    fn detect_viewer_changes(&mut self) {
+        let session_ids: Vec<String> = self.relay_clients.keys().cloned().collect();
+
+        for sid in session_ids {
+            let current_viewers: Vec<String> = self.relay_clients.get(&sid)
+                .map(|c| c.viewers().iter().map(|v| v.display_name.clone()).collect())
+                .unwrap_or_default();
+
+            let previous = self.last_known_viewers.entry(sid.clone()).or_default();
+
+            // Detect joins
+            for name in &current_viewers {
+                if !previous.contains(name) {
+                    let session_title = self.sessions.iter()
+                        .find(|s| s.id == sid)
+                        .map(|s| s.title.as_str())
+                        .unwrap_or(&sid);
+                    self.toast_notifications.push(ToastNotification {
+                        message: format!("{} joined {}", name, session_title),
+                        created_at: Instant::now(),
+                        color: ratatui::style::Color::Green,
+                    });
+                }
+            }
+
+            // Detect leaves
+            for name in previous.iter() {
+                if !current_viewers.contains(name) {
+                    let session_title = self.sessions.iter()
+                        .find(|s| s.id == sid)
+                        .map(|s| s.title.as_str())
+                        .unwrap_or(&sid);
+                    self.toast_notifications.push(ToastNotification {
+                        message: format!("{} left {}", name, session_title),
+                        created_at: Instant::now(),
+                        color: ratatui::style::Color::Yellow,
+                    });
+                }
+            }
+
+            *self.last_known_viewers.entry(sid).or_default() = current_viewers;
+        }
+    }
+
+    /// Get active toast notifications (for rendering).
+    #[cfg(feature = "pro")]
+    pub fn toast_notifications(&self) -> &[ToastNotification] {
+        &self.toast_notifications
     }
 
     /// Apply settings from the dialog: update config, save to disk, hot-reload subsystems.
@@ -4779,6 +5693,121 @@ impl App {
         self.dialog = None;
         self.state = AppState::Normal;
         Ok(())
+    }
+
+    /// Open the pack browser dialog and fetch pack list in background.
+    #[cfg(feature = "pro")]
+    async fn open_pack_browser(&mut self) {
+        let mut browser = crate::ui::dialogs::PackBrowserDialog::new();
+
+        // Fetch pack list
+        let relay_url = self.config.sharing.relay_server_url.clone();
+        match crate::pro::notification::registry::fetch_pack_list(relay_url.as_deref()).await {
+            Ok(packs) => {
+                let count = packs.len();
+                let installed = packs.iter().filter(|p| p.installed).count();
+                browser.packs = packs;
+                browser.loading = false;
+                browser.status = format!("{} packs available ({} installed)", count, installed);
+            }
+            Err(e) => {
+                browser.loading = false;
+                browser.status = format!("Failed to load: {}", e);
+            }
+        }
+
+        self.dialog = Some(Dialog::PackBrowser(browser));
+        self.state = AppState::Dialog;
+    }
+
+    /// Install the selected pack from the pack browser.
+    #[cfg(feature = "pro")]
+    async fn install_selected_pack(&mut self) {
+        let Some(Dialog::PackBrowser(ref mut d)) = self.dialog else {
+            return;
+        };
+        let Some(pack) = d.packs.get(d.selected).cloned() else {
+            return;
+        };
+        if pack.installed {
+            d.status = format!("'{}' is already installed", pack.name);
+            return;
+        }
+
+        d.installing = true;
+        d.status = format!("Installing '{}'...", pack.name);
+
+        // We need to drop the mutable borrow before the await
+        let pack_name = pack.name.clone();
+
+        match crate::pro::notification::registry::install_pack(&pack_name, |_| {}).await {
+            Ok(_) => {
+                if let Some(Dialog::PackBrowser(ref mut d)) = self.dialog {
+                    d.installing = false;
+                    // Mark as installed
+                    if let Some(p) = d.packs.get_mut(d.selected) {
+                        p.installed = true;
+                    }
+                    let installed = d.packs.iter().filter(|p| p.installed).count();
+                    d.status = format!(
+                        "Installed '{}' ! ({}/{} installed)",
+                        pack_name,
+                        installed,
+                        d.packs.len()
+                    );
+                }
+            }
+            Err(e) => {
+                if let Some(Dialog::PackBrowser(ref mut d)) = self.dialog {
+                    d.installing = false;
+                    d.status = format!("Install failed: {}", e);
+                }
+            }
+        }
+    }
+
+    /// Test sound playback from settings dialog.
+    #[cfg(feature = "pro")]
+    fn test_notification_sound(&mut self) {
+        let Some(Dialog::Settings(d)) = self.dialog.as_mut() else {
+            return;
+        };
+
+        // Try to load and play from the currently selected pack
+        let pack_name = d.notif_pack_names
+            .get(d.notif_pack_idx)
+            .cloned()
+            .unwrap_or_default();
+
+        if pack_name.is_empty() {
+            d.notif_test_status = Some("✗ No sound pack selected".to_string());
+            return;
+        }
+
+        let pack = crate::pro::notification::SoundPack::load(&pack_name);
+        match pack {
+            None => {
+                d.notif_test_status = Some(format!("✗ Pack '{}' not found", pack_name));
+            }
+            Some(pack) => {
+                // Try task.complete first (most recognizable), fallback to any category
+                let sound = pack.pick_sound("task.complete")
+                    .or_else(|| pack.pick_sound("session.start"))
+                    .or_else(|| pack.pick_sound("input.required"));
+
+                match sound {
+                    Some(path) => {
+                        let vol_text = d.notif_volume.text().to_string();
+                        let volume = vol_text.parse::<f32>().unwrap_or(50.0) / 100.0;
+                        crate::pro::notification::sound::play_async(&path, volume);
+                        d.notif_test_status = Some(format!("✓ Playing from '{}'", pack_name));
+                    }
+                    None => {
+                        d.notif_test_status = Some(format!("✗ No sounds in pack '{}'", pack_name));
+                    }
+                }
+            }
+        }
     }
 
     /// Test AI connection from settings dialog.

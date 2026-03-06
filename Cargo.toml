@@ -1,6 +1,6 @@
 [package]
 name = "agent-hand"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 authors = ["Agent Hand Contributors"]
 description = "Terminal session manager for AI coding agents"
@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-pro = ["dep:tokio-tungstenite", "dep:futures-util", "dep:base64"]
+pro = ["dep:tokio-tungstenite", "dep:futures-util", "dep:base64", "dep:vt100"]
 max = ["pro", "dep:ai_api_provider"]
 
 [dependencies]
@@ -90,6 +90,7 @@ fs2 = "0.4"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
 futures-util = { version = "0.3", optional = true }
 base64 = { version = "0.22", optional = true }
+vt100 = { version = "0.15", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

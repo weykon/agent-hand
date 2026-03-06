@@ -263,6 +263,10 @@ pub enum Dialog {
     NewFromContext(NewFromContextDialog),
     #[cfg(feature = "pro")]
     JoinSession(JoinSessionDialog),
+    #[cfg(feature = "pro")]
+    ControlRequest(ControlRequestDialog),
+    #[cfg(feature = "pro")]
+    PackBrowser(PackBrowserDialog),
 }
 
 /// Dialog for sharing a session remotely (Premium)
@@ -280,6 +284,10 @@ pub struct ShareDialog {
     pub relay_share_url: Option<String>,
     /// Room ID on the relay server.
     pub relay_room_id: Option<String>,
+    /// Inline "Copied!" feedback timestamp (shown for ~2s after pressing 'c').
+    pub copy_feedback_at: Option<std::time::Instant>,
+    /// Selected viewer index in the viewer list (for revoke/management actions).
+    pub selected_viewer: Option<usize>,
 }
 
 /// Dialog for joining a shared session via relay URL (Premium)
@@ -288,10 +296,14 @@ pub struct ShareDialog {
 pub struct JoinSessionDialog {
     /// Share URL input (e.g. https://relay.asymptai.com/share/ROOM_ID?token=TOKEN)
     pub url_input: TextInput,
-    /// Status message shown to user
+    /// Status message shown to user (connection errors, success, etc.)
     pub status: Option<String>,
+    /// Live URL validation hint (shown while typing, separate from connection status)
+    pub validation_hint: Option<String>,
     /// Whether currently connecting
     pub connecting: bool,
+    /// Identity shown to the host (from auth token email, or None if anonymous)
+    pub viewer_identity: Option<String>,
 }
 
 #[cfg(feature = "pro")]
@@ -300,7 +312,9 @@ impl JoinSessionDialog {
         Self {
             url_input: TextInput::new(),
             status: None,
+            validation_hint: None,
             connecting: false,
+            viewer_identity: None,
         }
     }
 
@@ -324,17 +338,32 @@ impl JoinSessionDialog {
             return None;
         }
 
-        // Extract token from query params
+        // Extract token from query params — require non-empty token
         let token = query
             .split('&')
             .find_map(|pair| {
                 let (k, v) = pair.split_once('=')?;
-                if k == "token" { Some(v.to_string()) } else { None }
-            })
-            .unwrap_or_default();
+                if k == "token" && !v.is_empty() { Some(v.to_string()) } else { None }
+            })?;
 
         Some((base_url.to_string(), room_id.to_string(), token))
     }
+}
+
+/// Dialog for a viewer requesting read-write control of a session (Premium)
+#[cfg(feature = "pro")]
+#[derive(Debug, Clone)]
+pub struct ControlRequestDialog {
+    /// Session ID being shared.
+    pub session_id: String,
+    /// Session title for display.
+    pub session_title: String,
+    /// Viewer ID requesting control.
+    pub viewer_id: String,
+    /// Display name of the viewer.
+    pub display_name: String,
+    /// When the dialog was created (for auto-timeout).
+    pub created_at: std::time::Instant,
 }
 
 #[cfg(feature = "pro")]
@@ -526,6 +555,8 @@ pub enum SettingsField {
     #[cfg(feature = "pro")]
     NotifVolume,
     #[cfg(feature = "pro")]
+    NotifTestSound,
+    #[cfg(feature = "pro")]
     NotifPackLink,
     // General tab
     AnalyticsEnabled,
@@ -561,6 +592,7 @@ impl SettingsField {
                 Self::NotifOnInput,
                 Self::NotifOnError,
                 Self::NotifVolume,
+                Self::NotifTestSound,
                 Self::NotifPackLink,
             ],
             SettingsTab::General => vec![
@@ -603,7 +635,9 @@ impl SettingsField {
             #[cfg(feature = "pro")]
             Self::NotifVolume => "Volume",
             #[cfg(feature = "pro")]
-            Self::NotifPackLink => "Browse Packs",
+            Self::NotifTestSound => "Test Sound",
+            #[cfg(feature = "pro")]
+            Self::NotifPackLink => "Install Packs",
             Self::AnalyticsEnabled => "Analytics",
             Self::MouseCapture => "Mouse Capture",
             Self::JumpLines => "Jump Lines",
@@ -685,6 +719,8 @@ pub struct SettingsDialog {
     pub notif_on_error: bool,
     #[cfg(feature = "pro")]
     pub notif_volume: TextInput,
+    #[cfg(feature = "pro")]
+    pub notif_test_status: Option<String>,
     // General
     pub analytics_enabled: bool,
     /// 0=Auto, 1=On, 2=Off
@@ -798,6 +834,8 @@ impl SettingsDialog {
             notif_on_error,
             #[cfg(feature = "pro")]
             notif_volume,
+            #[cfg(feature = "pro")]
+            notif_test_status: None,
             analytics_enabled: cfg.analytics_enabled(),
             mouse_capture_mode: match cfg.mouse_capture() {
                 crate::config::MouseCaptureMode::Auto => 0,
@@ -1187,5 +1225,47 @@ impl NewSessionDialog {
             )));
         }
         Ok(project_path)
+    }
+}
+
+/// Dialog for browsing and installing sound packs from the registry.
+#[cfg(feature = "pro")]
+#[derive(Debug, Clone)]
+pub struct PackBrowserDialog {
+    /// Available packs from the registry.
+    pub packs: Vec<crate::pro::notification::registry::RegistryPack>,
+    /// Currently selected index.
+    pub selected: usize,
+    /// Status message (loading, installing, error).
+    pub status: String,
+    /// Whether we're currently loading the pack list.
+    pub loading: bool,
+    /// Whether we're currently installing a pack.
+    pub installing: bool,
+}
+
+#[cfg(feature = "pro")]
+impl PackBrowserDialog {
+    pub fn new() -> Self {
+        Self {
+            packs: Vec::new(),
+            selected: 0,
+            status: "Loading pack list...".to_string(),
+            loading: true,
+            installing: false,
+        }
+    }
+
+    pub fn move_selection(&mut self, delta: i32) {
+        if self.packs.is_empty() {
+            return;
+        }
+        let len = self.packs.len() as i32;
+        let new_idx = (self.selected as i32 + delta).rem_euclid(len);
+        self.selected = new_idx as usize;
+    }
+
+    pub fn selected_pack(&self) -> Option<&crate::pro::notification::registry::RegistryPack> {
+        self.packs.get(self.selected)
     }
 }
