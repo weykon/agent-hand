@@ -68,129 +68,124 @@ const stats = [
   { value: "Rust", label: "Powered" },
 ];
 
-const faqData = {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: [
-    {
-      "@type": "Question",
-      name: "What is Agent Hand?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Agent Hand is a fast, Rust-based terminal session manager (TUI) for AI coding agents like Claude Code, Gemini CLI, and OpenCode. It uses tmux for isolation, letting you manage 5+ concurrent AI sessions from one dashboard with status detection, priority jump, and fuzzy search.",
-      },
+const faqQuestions = [
+  {
+    "@type": "Question",
+    name: "What is Agent Hand?",
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: "Agent Hand is a fast, Rust-based terminal session manager (TUI) for AI coding agents like Claude Code, Gemini CLI, and OpenCode. It uses tmux for isolation, letting you manage 5+ concurrent AI sessions from one dashboard with status detection, priority jump, and fuzzy search.",
     },
-    {
-      "@type": "Question",
-      name: "How do I install Agent Hand?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Run: curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash — works on macOS, Linux, and WSL. Or build from source with cargo build --release.",
-      },
+  },
+  {
+    "@type": "Question",
+    name: "How do I install Agent Hand?",
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: "Run: curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash — works on macOS, Linux, and WSL. Or build from source with cargo build --release.",
     },
-    {
-      "@type": "Question",
-      name: "Is Agent Hand free?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Yes, the core session manager is free and open source (MIT). There is an optional Pro tier ($19 one-time) for power features and a Max tier ($9/month) for AI summarizer, remote sharing, and session relationships.",
-      },
+  },
+  {
+    "@type": "Question",
+    name: "Is Agent Hand free?",
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: "Yes, the core session manager is free and open source (MIT). There is an optional Pro tier ($19 one-time) for power features and a Max tier ($9/month) for AI summarizer, remote sharing, and session relationships.",
     },
-    {
-      "@type": "Question",
-      name: "Does Agent Hand work with Claude Code?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Yes. Agent Hand was originally built to manage multiple Claude Code sessions. It detects session status (Waiting, Running, Idle), lets you priority-jump to sessions needing input with Ctrl+N, and provides fuzzy search across all sessions with Ctrl+G.",
-      },
+  },
+  {
+    "@type": "Question",
+    name: "Does Agent Hand work with Claude Code?",
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: "Yes. Agent Hand was originally built to manage multiple Claude Code sessions. It detects session status (Waiting, Running, Idle), lets you priority-jump to sessions needing input with Ctrl+N, and provides fuzzy search across all sessions with Ctrl+G.",
     },
-    {
-      "@type": "Question",
-      name: "How is Agent Hand different from tmux?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Agent Hand runs on top of tmux (using a dedicated server so it won't touch your config). It adds AI-agent-specific features: automatic status detection, priority jumping, session grouping, PTY monitoring, and a visual dashboard — things raw tmux doesn't provide.",
-      },
+  },
+  {
+    "@type": "Question",
+    name: "How is Agent Hand different from tmux?",
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: "Agent Hand runs on top of tmux (using a dedicated server so it won't touch your config). It adds AI-agent-specific features: automatic status detection, priority jumping, session grouping, PTY monitoring, and a visual dashboard — things raw tmux doesn't provide.",
     },
-  ],
-};
+  },
+];
 
-const howToData = {
+const allSchemas = {
   "@context": "https://schema.org",
-  "@type": "HowTo",
-  name: "How to Install Agent Hand",
-  description:
-    "Install Agent Hand, a Rust-based terminal session manager for AI coding agents, on macOS, Linux, or WSL in under 30 seconds.",
-  totalTime: "PT30S",
-  tool: [
-    { "@type": "HowToTool", name: "Terminal (macOS Terminal, iTerm2, or any Linux terminal)" },
-    { "@type": "HowToTool", name: "curl" },
-  ],
-  step: [
+  "@graph": [
     {
-      "@type": "HowToStep",
-      position: 1,
-      name: "Run the install script",
-      text: "Open your terminal and run: curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash",
+      "@type": "SoftwareApplication",
+      name: "Agent Hand",
+      url: SITE_URL + "/",
+      image: SITE_URL + "/preview.jpg",
+      description:
+        "Manage 5+ Claude Code, Gemini CLI, and AI agent sessions from one Rust TUI. Priority jump, fuzzy search, tmux isolation — free & open source.",
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: ["Linux", "macOS", "Windows (WSL)"],
+      offers: [
+        { "@type": "Offer", price: "0", priceCurrency: "USD", name: "Free" },
+        { "@type": "Offer", price: "19", priceCurrency: "USD", name: "Pro", description: "One-time license" },
+        { "@type": "Offer", price: "9", priceCurrency: "USD", name: "Max", description: "Monthly subscription — AI Session Summarizer, Remote Sharing, Session Relationships" },
+      ],
+      featureList:
+        "tmux session management, AI agent status tracking, fuzzy search switching, priority jumping with Ctrl+N, groups and labels, dedicated tmux server isolation",
+      softwareVersion: "0.2.13",
+      programmingLanguage: "Rust",
+      downloadUrl: "https://github.com/weykon/agent-hand/releases",
+      codeRepository: "https://github.com/weykon/agent-hand",
     },
     {
-      "@type": "HowToStep",
-      position: 2,
-      name: "Launch Agent Hand",
-      text: "Run 'agent-hand' in your terminal. It will automatically create a dedicated tmux server and show the session dashboard.",
+      "@type": "FAQPage",
+      mainEntity: faqQuestions,
     },
     {
-      "@type": "HowToStep",
-      position: 3,
-      name: "Start managing AI sessions",
-      text: "Press 'n' to create a new session, launch your AI agent (Claude Code, Gemini CLI, etc.), and use Ctrl+N to priority-jump between sessions.",
+      "@type": "HowTo",
+      name: "How to Install Agent Hand",
+      description:
+        "Install Agent Hand, a Rust-based terminal session manager for AI coding agents, on macOS, Linux, or WSL in under 30 seconds.",
+      totalTime: "PT30S",
+      tool: [
+        { "@type": "HowToTool", name: "Terminal (macOS Terminal, iTerm2, or any Linux terminal)" },
+        { "@type": "HowToTool", name: "curl" },
+      ],
+      step: [
+        {
+          "@type": "HowToStep",
+          position: 1,
+          name: "Run the install script",
+          text: "Open your terminal and run: curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash",
+        },
+        {
+          "@type": "HowToStep",
+          position: 2,
+          name: "Launch Agent Hand",
+          text: "Run 'agent-hand' in your terminal. It will automatically create a dedicated tmux server and show the session dashboard.",
+        },
+        {
+          "@type": "HowToStep",
+          position: 3,
+          name: "Start managing AI sessions",
+          text: "Press 'n' to create a new session, launch your AI agent (Claude Code, Gemini CLI, etc.), and use Ctrl+N to priority-jump between sessions.",
+        },
+      ],
+    },
+    {
+      "@type": "Organization",
+      name: "Agent Hand",
+      url: SITE_URL + "/",
+      logo: SITE_URL + "/preview.jpg",
+      sameAs: ["https://github.com/weykon/agent-hand"],
+      description:
+        "Open-source developer tools for AI agent terminal session management. Built in Rust.",
     },
   ],
-};
-
-const orgData = {
-  "@context": "https://schema.org",
-  "@type": "Organization",
-  name: "Agent Hand",
-  url: SITE_URL + "/",
-  logo: SITE_URL + "/preview.jpg",
-  sameAs: [
-    "https://github.com/weykon/agent-hand",
-  ],
-  description:
-    "Open-source developer tools for AI agent terminal session management. Built in Rust.",
-};
-
-const schemaData = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Agent Hand",
-  url: SITE_URL + "/",
-  image: SITE_URL + "/preview.jpg",
-  description:
-    "Manage 5+ Claude Code, Gemini CLI, and AI agent sessions from one Rust TUI. Priority jump, fuzzy search, tmux isolation — free & open source.",
-  applicationCategory: "DeveloperApplication",
-  operatingSystem: ["Linux", "macOS", "Windows (WSL)"],
-  offers: [
-    { "@type": "Offer", price: "0", priceCurrency: "USD", name: "Free" },
-    { "@type": "Offer", price: "19", priceCurrency: "USD", name: "Pro", description: "One-time license" },
-    { "@type": "Offer", price: "9", priceCurrency: "USD", name: "Max", description: "Monthly subscription — AI Session Summarizer, Remote Sharing, Session Relationships" },
-  ],
-  featureList:
-    "tmux session management, AI agent status tracking, fuzzy search switching, priority jumping with Ctrl+N, groups and labels, dedicated tmux server isolation",
-  softwareVersion: "0.2.13",
-  programmingLanguage: "Rust",
-  downloadUrl: "https://github.com/weykon/agent-hand/releases",
-  codeRepository: "https://github.com/weykon/agent-hand",
 };
 
 export default function HomePage() {
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqData) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(howToData) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(orgData) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(allSchemas) }} />
 
       {/* Navbar */}
       <header className="border-b border-[#1e293b]">
@@ -343,7 +338,7 @@ export default function HomePage() {
       <section id="faq" className="bg-[#0f0f1a] px-6 py-20">
         <h2 className="mb-12 text-center text-3xl font-bold">Frequently Asked Questions</h2>
         <div className="mx-auto max-w-3xl space-y-4">
-          {faqData.mainEntity.map((q) => (
+          {faqQuestions.map((q) => (
             <details key={q.name} className="group rounded-xl border border-[#1e293b] bg-[#1a1a2e]">
               <summary className="cursor-pointer select-none px-6 py-4 text-lg font-medium text-[#e2e8f0] group-open:border-b group-open:border-[#1e293b]">
                 {q.name}
