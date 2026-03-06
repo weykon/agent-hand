@@ -115,6 +115,52 @@ const faqData = {
   ],
 };
 
+const howToData = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: "How to Install Agent Hand",
+  description:
+    "Install Agent Hand, a Rust-based terminal session manager for AI coding agents, on macOS, Linux, or WSL in under 30 seconds.",
+  totalTime: "PT30S",
+  tool: [
+    { "@type": "HowToTool", name: "Terminal (macOS Terminal, iTerm2, or any Linux terminal)" },
+    { "@type": "HowToTool", name: "curl" },
+  ],
+  step: [
+    {
+      "@type": "HowToStep",
+      position: 1,
+      name: "Run the install script",
+      text: "Open your terminal and run: curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash",
+    },
+    {
+      "@type": "HowToStep",
+      position: 2,
+      name: "Launch Agent Hand",
+      text: "Run 'agent-hand' in your terminal. It will automatically create a dedicated tmux server and show the session dashboard.",
+    },
+    {
+      "@type": "HowToStep",
+      position: 3,
+      name: "Start managing AI sessions",
+      text: "Press 'n' to create a new session, launch your AI agent (Claude Code, Gemini CLI, etc.), and use Ctrl+N to priority-jump between sessions.",
+    },
+  ],
+};
+
+const orgData = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "Agent Hand",
+  url: SITE_URL + "/",
+  logo: SITE_URL + "/preview.jpg",
+  sameAs: [
+    "https://github.com/weykon/agent-hand",
+  ],
+  description:
+    "Open-source developer tools for AI agent terminal session management. Built in Rust.",
+};
+
 const schemaData = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -143,6 +189,8 @@ export default function HomePage() {
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqData) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(howToData) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(orgData) }} />
 
       {/* Navbar */}
       <header className="border-b border-[#1e293b]">
@@ -167,8 +215,11 @@ export default function HomePage() {
       {/* Hero */}
       <section className="px-6 py-20 text-center">
         <h1 className="mb-4 text-5xl font-bold tracking-tight">Agent Hand</h1>
-        <p className="mx-auto mb-8 max-w-xl text-lg text-[#94a3b8]">
-          A fast tmux-backed terminal session manager for AI coding agents
+        <p className="mx-auto mb-2 max-w-2xl text-lg text-[#94a3b8]">
+          Agent Hand is an open-source Rust TUI that manages multiple AI coding agent sessions — Claude Code, Gemini CLI, OpenCode — from one tmux-backed dashboard with {"<"}50ms startup.
+        </p>
+        <p className="mx-auto mb-8 max-w-xl text-sm text-[#64748b]">
+          Priority jump to urgent sessions, fuzzy search across all agents, real-time status detection, and PTY monitoring. Free and MIT-licensed.
         </p>
         <div className="mx-auto mb-4 flex max-w-lg items-center justify-center rounded-lg border border-[#333] bg-[#1a1a2e] px-4 py-3 font-mono text-sm">
           <code className="text-[#94a3b8]">
