@@ -140,6 +140,9 @@ pub struct App {
     toast_notifications: Vec<ToastNotification>,
     #[cfg(feature = "pro")]
     last_known_viewers: HashMap<String, Vec<String>>,
+    /// Tracks the last-known RW controller per session (for control-change notifications).
+    #[cfg(feature = "pro")]
+    last_known_controller: HashMap<String, Option<String>>,
 
     // AI summarizer (Max tier)
     #[cfg(feature = "max")]
@@ -190,6 +193,16 @@ pub struct ViewerState {
     pub peer_viewers: Arc<std::sync::RwLock<Vec<crate::pro::collab::protocol::ViewerInfo>>>,
     /// Last measured round-trip latency in milliseconds (from Ping/Pong).
     pub latency_ms: Arc<std::sync::atomic::AtomicU32>,
+    /// Bytes received in the last second (for bandwidth display).
+    pub bytes_received_per_sec: Arc<std::sync::atomic::AtomicU64>,
+    /// Bytes sent in the last second (for bandwidth display).
+    pub bytes_sent_per_sec: Arc<std::sync::atomic::AtomicU64>,
+    /// Connection statistics: (min_latency, max_latency, avg_latency, samples).
+    pub connection_stats: Arc<std::sync::Mutex<(u32, u32, u32, u32)>>,
+    /// Timestamp when the viewer first connected (for duration display).
+    pub connected_at: Instant,
+    /// Whether the keyboard shortcut help overlay is visible.
+    pub show_help: bool,
 }
 
 /// A transient toast notification shown briefly in the UI corner.
@@ -381,6 +394,8 @@ impl App {
             toast_notifications: Vec::new(),
             #[cfg(feature = "pro")]
             last_known_viewers: HashMap::new(),
+            #[cfg(feature = "pro")]
+            last_known_controller: HashMap::new(),
             #[cfg(feature = "max")]
             summarizer: {
                 let is_max = crate::auth::AuthToken::load().map_or(false, |t| t.is_max());
@@ -620,6 +635,12 @@ impl App {
                         *vs.status_message.lock().unwrap() = Some(("Control request timed out. Press r to try again.".to_string(), Instant::now()));
                     }
                 }
+            }
+
+            // Warn about poor connection quality (every 30 seconds if latency > 200ms)
+            let latency = vs.latency_ms.load(std::sync::atomic::Ordering::Relaxed);
+            if latency > 200 && self.tick_count % 120 == 0 {
+                *vs.status_message.lock().unwrap() = Some((format!("Poor connection quality ({}ms latency)", latency), Instant::now()));
             }
         }
 
@@ -4953,6 +4974,9 @@ impl App {
         let control_request_time = Arc::new(tokio::sync::Mutex::new(None::<Instant>));
         let peer_viewers = Arc::new(std::sync::RwLock::new(Vec::<crate::pro::collab::protocol::ViewerInfo>::new()));
         let latency_ms = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let bytes_received_per_sec = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let bytes_sent_per_sec = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let connection_stats = Arc::new(std::sync::Mutex::new((0u32, 0u32, 0u32, 0u32))); // (min, max, avg, samples)
 
         // Clone Arcs for the spawned task
         let content_clone = terminal_content.clone();
@@ -4967,6 +4991,9 @@ impl App {
         let control_req_time_clone = control_request_time.clone();
         let peers_clone = peer_viewers.clone();
         let latency_clone = latency_ms.clone();
+        let bytes_rx_clone = bytes_received_per_sec.clone();
+        let bytes_tx_clone = bytes_sent_per_sec.clone();
+        let conn_stats_clone = connection_stats.clone();
         let token = viewer_token.to_string();
         let viewer_display_name_for_task = viewer_display_name.clone();
         let viewer_user_token_for_task = viewer_user_token;
@@ -4994,25 +5021,32 @@ impl App {
                     Ok(s) => s,
                     Err(e) => {
                         let err_str = e.to_string();
-                        let detail = if err_str.contains("timed out") || err_str.contains("Timed out") {
-                            "timed out"
+                        let (detail, hint) = if err_str.contains("timed out") || err_str.contains("Timed out") {
+                            ("timed out", "Check your network connection")
                         } else if err_str.contains("Connection refused") {
-                            "relay unreachable"
+                            ("relay unreachable", "Relay server may be down")
                         } else if err_str.contains("404") || err_str.contains("not found") {
-                            "session not found"
+                            ("session not found", "Session may have expired")
                         } else if err_str.contains("401") || err_str.contains("403") {
-                            "access denied"
+                            ("access denied", "Check your access token")
                         } else {
-                            "connection error"
+                            ("connection error", "Retrying...")
                         };
-                        tracing::warn!("Viewer WS connect failed: {}", e);
+                        tracing::warn!("Viewer WS connect failed: {} ({})", e, hint);
                         attempt += 1;
                         if attempt > MAX_RECONNECT_ATTEMPTS {
                             *status_msg_clone.lock().unwrap() = Some((
-                                format!("Connection lost ({}). Press Esc to return.", detail),
+                                format!("Connection lost: {}. {}. Press Esc to return.", detail, hint),
                                 Instant::now()
                             ));
                             break;
+                        }
+                        // Show transient error message during reconnection
+                        if attempt > 1 {
+                            *status_msg_clone.lock().unwrap() = Some((
+                                format!("{} - {}. Retrying...", detail, hint),
+                                Instant::now()
+                            ));
                         }
                         continue;
                     }
@@ -5092,11 +5126,25 @@ impl App {
                 let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(25));
                 ping_interval.tick().await; // consume the immediate first tick
 
+                // Bandwidth tracking: accumulate bytes per second
+                let mut bw_interval = tokio::time::interval(std::time::Duration::from_secs(1));
+                bw_interval.tick().await;
+                let mut rx_bytes_accum: u64 = 0;
+                let mut tx_bytes_accum: u64 = 0;
+
                 loop {
                     tokio::select! {
+                        // Bandwidth counter reset every second
+                        _ = bw_interval.tick() => {
+                            bytes_rx_clone.store(rx_bytes_accum, std::sync::atomic::Ordering::Relaxed);
+                            bytes_tx_clone.store(tx_bytes_accum, std::sync::atomic::Ordering::Relaxed);
+                            rx_bytes_accum = 0;
+                            tx_bytes_accum = 0;
+                        }
                         ws_msg = ws_read.next() => {
                             match ws_msg {
                                 Some(Ok(tokio_tungstenite::tungstenite::Message::Binary(data))) => {
+                                    rx_bytes_accum += data.len() as u64;
                                     let mut buf = content_clone.lock().unwrap();
                                     buf.extend_from_slice(&data);
                                     const MAX_VIEWER_BUF: usize = 2 * 1024 * 1024;
@@ -5106,6 +5154,7 @@ impl App {
                                     }
                                 }
                                 Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
+                                    rx_bytes_accum += text.len() as u64;
                                     match serde_json::from_str::<ControlMessage>(&text) {
                                         Ok(ControlMessage::Snapshot { cols, rows, data }) => {
                                             if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
@@ -5144,7 +5193,13 @@ impl App {
                                                     existing.display_name = display_name;
                                                     existing.permission = permission;
                                                 } else {
-                                                    list.push(crate::pro::collab::protocol::ViewerInfo { viewer_id, display_name, permission });
+                                                    list.push(crate::pro::collab::protocol::ViewerInfo {
+                                                        viewer_id,
+                                                        display_name,
+                                                        permission,
+                                                        joined_at: Some(Instant::now()),
+                                                        last_activity: Some(Instant::now()),
+                                                    });
                                                 }
                                             }
                                         }
@@ -5157,6 +5212,19 @@ impl App {
                                             let now_ms = chrono::Utc::now().timestamp_millis();
                                             let rtt = (now_ms - ts).max(0) as u32;
                                             latency_clone.store(rtt, std::sync::atomic::Ordering::Relaxed);
+                                            // Update connection statistics
+                                            if let Ok(mut stats) = conn_stats_clone.lock() {
+                                                let (min, max, avg, samples) = *stats;
+                                                if samples == 0 {
+                                                    *stats = (rtt, rtt, rtt, 1);
+                                                } else {
+                                                    let new_min = min.min(rtt);
+                                                    let new_max = max.max(rtt);
+                                                    // Running average
+                                                    let new_avg = (avg as u64 * samples as u64 + rtt as u64) / (samples as u64 + 1);
+                                                    *stats = (new_min, new_max, new_avg as u32, samples + 1);
+                                                }
+                                            }
                                         }
                                         Ok(ControlMessage::RoomClosed { .. }) => {
                                             connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -5180,6 +5248,7 @@ impl App {
                                 connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                                 return; // Exit entirely, no reconnect
                             }
+                            tx_bytes_accum += ctrl_json.len() as u64;
                             let msg = tokio_tungstenite::tungstenite::Message::Text(ctrl_json.into());
                             if ws_write.send(msg).await.is_err() {
                                 connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -5190,6 +5259,7 @@ impl App {
                             let ts = chrono::Utc::now().timestamp_millis();
                             let ping = ControlMessage::Ping { ts };
                             if let Ok(json) = serde_json::to_string(&ping) {
+                                tx_bytes_accum += json.len() as u64;
                                 let msg = tokio_tungstenite::tungstenite::Message::Text(json.into());
                                 if ws_write.send(msg).await.is_err() {
                                     connected_clone.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -5236,6 +5306,11 @@ impl App {
             control_request_time,
             peer_viewers,
             latency_ms,
+            bytes_received_per_sec,
+            bytes_sent_per_sec,
+            connection_stats,
+            connected_at: Instant::now(),
+            show_help: false,
         });
 
         self.state = AppState::ViewerMode;
@@ -5378,6 +5453,11 @@ impl App {
                         vs.scroll_offset = 0;
                     }
                 }
+                KeyCode::Char('?') => {
+                    if let Some(ref mut vs) = self.viewer_state {
+                        vs.show_help = !vs.show_help;
+                    }
+                }
                 KeyCode::Char(_) | KeyCode::Enter | KeyCode::Backspace | KeyCode::Tab => {
                     // Viewer typed something in RO mode — hint to request control
                     if let Some(ref vs) = self.viewer_state {
@@ -5392,6 +5472,14 @@ impl App {
                     }
                 }
                 _ => {}
+            }
+            return Ok(());
+        }
+
+        // Help overlay toggle (available in both RO and RW modes)
+        if key == KeyCode::Char('?') && !modifiers.contains(KeyModifiers::CONTROL) {
+            if let Some(ref mut vs) = self.viewer_state {
+                vs.show_help = !vs.show_help;
             }
             return Ok(());
         }
@@ -5564,7 +5652,47 @@ impl App {
                 }
             }
 
-            *self.last_known_viewers.entry(sid).or_default() = current_viewers;
+            *self.last_known_viewers.entry(sid.clone()).or_default() = current_viewers;
+
+            // Detect RW controller changes
+            let current_controller: Option<String> = self.relay_clients.get(&sid)
+                .map(|c| c.viewers().iter()
+                    .find(|v| v.permission == "rw")
+                    .map(|v| v.display_name.clone()))
+                .unwrap_or(None);
+
+            let prev_controller = self.last_known_controller.get(&sid).cloned().flatten();
+            if prev_controller != current_controller {
+                let session_title = self.sessions.iter()
+                    .find(|s| s.id == sid)
+                    .map(|s| s.title.as_str())
+                    .unwrap_or(&sid);
+                match (&prev_controller, &current_controller) {
+                    (None, Some(name)) => {
+                        self.toast_notifications.push(ToastNotification {
+                            message: format!("{} now controls {}", name, session_title),
+                            created_at: Instant::now(),
+                            color: ratatui::style::Color::Cyan,
+                        });
+                    }
+                    (Some(prev), None) => {
+                        self.toast_notifications.push(ToastNotification {
+                            message: format!("{} released control of {}", prev, session_title),
+                            created_at: Instant::now(),
+                            color: ratatui::style::Color::DarkGray,
+                        });
+                    }
+                    (Some(prev), Some(name)) if prev != name => {
+                        self.toast_notifications.push(ToastNotification {
+                            message: format!("Control of {} passed to {}", session_title, name),
+                            created_at: Instant::now(),
+                            color: ratatui::style::Color::Cyan,
+                        });
+                    }
+                    _ => {}
+                }
+                self.last_known_controller.insert(sid, current_controller);
+            }
         }
     }
 

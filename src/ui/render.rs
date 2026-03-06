@@ -24,6 +24,37 @@ fn waiting_anim(tick: u64) -> &'static str {
     FRAMES[(tick as usize) % FRAMES.len()]
 }
 
+#[cfg(feature = "pro")]
+fn connection_pulse(tick: u64) -> &'static str {
+    // Subtle pulse for active connections
+    const FRAMES: [&str; 4] = ["◉", "◉", "○", "○"];
+    FRAMES[(tick as usize) % FRAMES.len()]
+}
+
+#[cfg(feature = "pro")]
+fn connection_quality_icon(latency_ms: u32) -> &'static str {
+    // Quality indicator: excellent/good/poor
+    if latency_ms < 50 {
+        "●" // Excellent
+    } else if latency_ms < 150 {
+        "◐" // Good
+    } else {
+        "○" // Poor
+    }
+}
+
+#[cfg(feature = "pro")]
+fn format_bandwidth(bytes_per_sec: u64) -> String {
+    // Format bandwidth: B/s, KB/s, MB/s
+    if bytes_per_sec < 1024 {
+        format!("{}B/s", bytes_per_sec)
+    } else if bytes_per_sec < 1024 * 1024 {
+        format!("{:.1}KB/s", bytes_per_sec as f64 / 1024.0)
+    } else {
+        format!("{:.1}MB/s", bytes_per_sec as f64 / (1024.0 * 1024.0))
+    }
+}
+
 /// Minimum visible width for input fields (in characters)
 const INPUT_MIN_WIDTH: usize = 30;
 
@@ -219,11 +250,49 @@ fn render_active_panel(f: &mut Frame, area: Rect, app: &App, active: &[&crate::s
                 }
             };
 
-            let line = Line::from(vec![
+            let mut spans = vec![
                 Span::styled(status_icon, Style::default().fg(status_color)),
                 Span::raw(" "),
                 Span::styled(s.title.clone(), base.add_modifier(Modifier::BOLD)),
-            ]);
+            ];
+
+            // Show sharing indicator with viewer count
+            #[cfg(feature = "pro")]
+            if let Some(ref sharing) = s.sharing {
+                if sharing.active {
+                    if let Some(relay) = app.relay_client(&s.id) {
+                        let vc = relay.viewer_count();
+                        if vc > 0 {
+                            let viewers = relay.viewers();
+                            let rw_viewer = viewers.iter().find(|v| v.permission == "rw");
+                            if let Some(rw) = rw_viewer {
+                                let name = truncate_name(&rw.display_name, 8);
+                                spans.push(Span::styled(
+                                    format!(" {}v {}", vc, name),
+                                    if is_selected { base } else { Style::default().fg(Color::Cyan) },
+                                ));
+                            } else {
+                                spans.push(Span::styled(
+                                    format!(" {}v", vc),
+                                    if is_selected { base } else { Style::default().fg(Color::Green) },
+                                ));
+                            }
+                        } else {
+                            spans.push(Span::styled(
+                                " shared",
+                                if is_selected { base } else { Style::default().fg(Color::DarkGray) },
+                            ));
+                        }
+                    } else {
+                        spans.push(Span::styled(
+                            " shared",
+                            if is_selected { base } else { Style::default().fg(Color::DarkGray) },
+                        ));
+                    }
+                }
+            }
+
+            let line = Line::from(spans);
             ListItem::new(line)
         })
         .collect();
@@ -411,29 +480,62 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
                                         let viewers = relay.viewers();
                                         let perm = &sharing.default_permission;
                                         if vc > 0 {
+                                            // Add connection pulse indicator
                                             spans.push(Span::styled(
-                                                format!("[{} {}v", perm, vc),
+                                                connection_pulse(app.tick_count()),
                                                 Style::default().fg(Color::Green),
                                             ));
-                                            // Show viewer names (truncated)
-                                            let names: Vec<&str> = viewers.iter()
-                                                .take(3)
-                                                .map(|v| v.display_name.as_str())
-                                                .collect();
+                                            // Show RW controller first (if any), then RO viewers
                                             let rw_viewer = viewers.iter().find(|v| v.permission == "rw");
+                                            let ro_viewers: Vec<_> = viewers.iter().filter(|v| v.permission != "rw").collect();
+
                                             if let Some(rw) = rw_viewer {
-                                                let name = truncate_name(&rw.display_name, 10);
+                                                let name = truncate_name(&rw.display_name, 12);
                                                 spans.push(Span::styled(
-                                                    format!(" {}(rw)", name),
-                                                    Style::default().fg(Color::Cyan),
+                                                    format!("[{} {}v ctrl:", perm, vc),
+                                                    Style::default().fg(Color::Green),
                                                 ));
-                                            } else if !names.is_empty() {
-                                                let display = names.join(",");
-                                                let display = truncate_name(&display, 20);
                                                 spans.push(Span::styled(
-                                                    format!(" {}", display),
-                                                    Style::default().fg(Color::DarkGray),
+                                                    format!("{}", name),
+                                                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                                                 ));
+                                                // Show RO viewers after controller
+                                                let max_ro = 2;
+                                                for (vi, v) in ro_viewers.iter().take(max_ro).enumerate() {
+                                                    let sep = if vi == 0 { " +" } else { "," };
+                                                    let name = truncate_name(&v.display_name, 8);
+                                                    spans.push(Span::styled(
+                                                        format!("{}{}", sep, name),
+                                                        Style::default().fg(Color::DarkGray),
+                                                    ));
+                                                }
+                                                if ro_viewers.len() > max_ro {
+                                                    spans.push(Span::styled(
+                                                        format!(" +{}", ro_viewers.len() - max_ro),
+                                                        Style::default().fg(Color::DarkGray),
+                                                    ));
+                                                }
+                                            } else {
+                                                spans.push(Span::styled(
+                                                    format!("[{} {}v", perm, vc),
+                                                    Style::default().fg(Color::Green),
+                                                ));
+                                                // No RW controller — show viewers normally
+                                                let max_show = 3;
+                                                for (vi, v) in viewers.iter().take(max_show).enumerate() {
+                                                    let sep = if vi == 0 { " " } else { "," };
+                                                    let name = truncate_name(&v.display_name, 10);
+                                                    spans.push(Span::styled(
+                                                        format!("{}{}", sep, name),
+                                                        Style::default().fg(Color::DarkGray),
+                                                    ));
+                                                }
+                                                if viewers.len() > max_show {
+                                                    spans.push(Span::styled(
+                                                        format!(" +{}", viewers.len() - max_show),
+                                                        Style::default().fg(Color::DarkGray),
+                                                    ));
+                                                }
                                             }
                                             spans.push(Span::styled("]", Style::default().fg(Color::Green)));
                                         } else {
@@ -1885,6 +1987,7 @@ fn render_settings_dialog(
     f.render_widget(p, popup_area);
 }
 
+#[cfg(feature = "pro")]
 fn truncate_name(name: &str, max: usize) -> String {
     if name.chars().count() <= max {
         name.to_string()
@@ -2599,12 +2702,21 @@ fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSess
         ])
         .split(inner);
 
-    // Show identity if logged in
+    // Show identity (logged in or anonymous)
     if let Some(ref identity) = d.viewer_identity {
         f.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled("Joining as: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(identity.as_str(), Style::default().fg(Color::Cyan)),
+            ])),
+            chunks[0],
+        );
+    } else {
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("Joining as: ", Style::default().fg(Color::DarkGray)),
+                Span::styled("anonymous", Style::default().fg(Color::Yellow)),
+                Span::styled(" (login for identity)", Style::default().fg(Color::DarkGray)),
             ])),
             chunks[0],
         );
@@ -2656,7 +2768,7 @@ fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSess
     }
 
     let hint_text = if d.connecting {
-        "Connecting... please wait"
+        "Connecting... (Esc to cancel)"
     } else {
         "Enter: connect  |  Esc: cancel"
     };
@@ -2813,12 +2925,11 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
                 )));
                 break;
             }
-            let perm_style = if v.permission == "rw" {
-                Style::default().fg(Color::Green)
+            let (perm_label, perm_style) = if v.permission == "rw" {
+                (" RW ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD))
             } else {
-                Style::default().fg(Color::DarkGray)
+                (" RO ", Style::default().fg(Color::White).bg(Color::DarkGray))
             };
-            let rw_marker = if v.permission == "rw" { "  \u{2605}" } else { "" };
             let is_selected = d.selected_viewer == Some(i);
             let prefix = if is_selected { "> " } else { "  " };
             let name_style = if is_selected {
@@ -2828,11 +2939,37 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
             };
             let mut spans = vec![
                 Span::raw(prefix),
+                Span::styled(perm_label, perm_style),
+                Span::raw(" "),
                 Span::styled(&v.display_name, name_style),
-                Span::raw("  "),
-                Span::styled(&v.permission, perm_style),
-                Span::styled(rw_marker, Style::default().fg(Color::Yellow)),
             ];
+
+            // Show connection duration if available
+            if let Some(joined) = v.joined_at {
+                let elapsed = joined.elapsed();
+                let duration_str = if elapsed.as_secs() < 60 {
+                    format!(" ({}s)", elapsed.as_secs())
+                } else if elapsed.as_secs() < 3600 {
+                    format!(" ({}m)", elapsed.as_secs() / 60)
+                } else {
+                    format!(" ({}h{}m)", elapsed.as_secs() / 3600, (elapsed.as_secs() % 3600) / 60)
+                };
+                spans.push(Span::styled(duration_str, Style::default().fg(Color::DarkGray)));
+            }
+
+            // Show idle indicator if viewer has been inactive for >5 minutes
+            if let Some(last_activity) = v.last_activity {
+                let idle_secs = last_activity.elapsed().as_secs();
+                if idle_secs > 300 {
+                    let idle_str = if idle_secs < 3600 {
+                        format!(" [idle {}m]", idle_secs / 60)
+                    } else {
+                        format!(" [idle {}h]", idle_secs / 3600)
+                    };
+                    spans.push(Span::styled(idle_str, Style::default().fg(Color::Yellow)));
+                }
+            }
+
             if is_selected && v.permission == "rw" {
                 spans.push(Span::styled("  [d: revoke]", Style::default().fg(Color::Red)));
             }
@@ -2862,8 +2999,8 @@ fn render_control_request_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Contr
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow))
-        .title("Control Request");
+        .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .title("⚠ Control Request ⚠");
 
     let inner_area = outer.inner(popup_area);
     f.render_widget(outer, popup_area);
@@ -2889,7 +3026,7 @@ fn render_control_request_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Contr
             "{} requests read-write control",
             requester
         ))
-        .style(Style::default().fg(Color::White))
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
         .alignment(Alignment::Center),
         chunks[1],
     );
@@ -3348,7 +3485,8 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         };
         drop(peers);
         let viewers_part = format!(
-            "  {}{}  |  {} viewer{}{}",
+            "  {}  {}{}  |  {} viewer{}{}",
+            connection_pulse(app.tick_count()),
             vs.session_name,
             identity_part,
             viewer_count,
@@ -3369,11 +3507,56 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
 
         let latency = vs.latency_ms.load(std::sync::atomic::Ordering::Relaxed);
         let latency_part = if latency > 0 {
-            format!("  |  {}ms", latency)
+            format!("  |  {} {}ms", connection_quality_icon(latency), latency)
         } else {
             String::new()
         };
-        format!("{}{}{}  |  Esc: disconnect", viewers_part, control_part, latency_part)
+
+        // Bandwidth display
+        let bytes_rx = vs.bytes_received_per_sec.load(std::sync::atomic::Ordering::Relaxed);
+        let bytes_tx = vs.bytes_sent_per_sec.load(std::sync::atomic::Ordering::Relaxed);
+        let bandwidth_part = if bytes_rx > 0 || bytes_tx > 0 {
+            format!("  |  ↓{} ↑{}", format_bandwidth(bytes_rx), format_bandwidth(bytes_tx))
+        } else {
+            String::new()
+        };
+
+        let elapsed = vs.connected_at.elapsed().as_secs();
+        let duration_part = if elapsed >= 3600 {
+            format!("  |  {}h{}m", elapsed / 3600, (elapsed % 3600) / 60)
+        } else if elapsed >= 60 {
+            format!("  |  {}m", elapsed / 60)
+        } else {
+            format!("  |  {}s", elapsed)
+        };
+        // Build status bar with width-aware truncation
+        // Use char count (not byte length) for better Unicode width estimation
+        let esc_part = "  |  Esc: disconnect";
+        let available = area.width as usize;
+
+        // Priority order: viewers + control (essential), latency (important), bandwidth (nice-to-have), duration (nice-to-have)
+        let essential = format!("{}{}{}", viewers_part, control_part, esc_part);
+        if essential.chars().count() >= available {
+            // Ultra-narrow: just show session name + control
+            format!("  {}{}  |  Esc", vs.session_name, control_part)
+        } else {
+            let with_latency = format!("{}{}{}{}", viewers_part, control_part, latency_part, esc_part);
+            if with_latency.chars().count() >= available {
+                essential
+            } else {
+                let with_bw = format!("{}{}{}{}{}", viewers_part, control_part, latency_part, bandwidth_part, esc_part);
+                if with_bw.chars().count() >= available {
+                    with_latency
+                } else {
+                    let full = format!("{}{}{}{}{}{}", viewers_part, control_part, latency_part, bandwidth_part, duration_part, esc_part);
+                    if full.chars().count() >= available {
+                        with_bw
+                    } else {
+                        full
+                    }
+                }
+            }
+        }
     } else {
         format!("  Disconnected from {}  |  Press Esc to return", vs.session_name)
     };
@@ -3395,6 +3578,156 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         .style(Style::default().fg(Color::White).bg(status_color));
 
     f.render_widget(presence_bar, chunks[2]);
+
+    // Help overlay (toggled with '?')
+    if vs.show_help {
+        let help_lines = vec![
+            Line::from(Span::styled("Keyboard Shortcuts", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  r       ", Style::default().fg(Color::Cyan)),
+                Span::raw("Request read-write control"),
+            ]),
+            Line::from(vec![
+                Span::styled("  Esc     ", Style::default().fg(Color::Cyan)),
+                Span::raw(if has_rw { "Relinquish RW control" } else { "Disconnect" }),
+            ]),
+            Line::from(vec![
+                Span::styled("  q       ", Style::default().fg(Color::Cyan)),
+                Span::raw("Disconnect (RO mode)"),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("Scroll", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(vec![
+                Span::styled("  Up/k    ", Style::default().fg(Color::Cyan)),
+                Span::raw("Scroll up"),
+            ]),
+            Line::from(vec![
+                Span::styled("  Down/j  ", Style::default().fg(Color::Cyan)),
+                Span::raw("Scroll down"),
+            ]),
+            Line::from(vec![
+                Span::styled("  PgUp    ", Style::default().fg(Color::Cyan)),
+                Span::raw("Page up"),
+            ]),
+            Line::from(vec![
+                Span::styled("  PgDn    ", Style::default().fg(Color::Cyan)),
+                Span::raw("Page down"),
+            ]),
+            Line::from(vec![
+                Span::styled("  Home    ", Style::default().fg(Color::Cyan)),
+                Span::raw("Scroll to top"),
+            ]),
+            Line::from(vec![
+                Span::styled("  End/G   ", Style::default().fg(Color::Cyan)),
+                Span::raw("Scroll to bottom"),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("Connection Stats", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        ];
+        // Add connection stats
+        let mut help_lines = help_lines;
+        if let Ok(stats) = vs.connection_stats.lock() {
+            let (min, max, avg, samples) = *stats;
+            if samples > 0 {
+                help_lines.push(Line::from(vec![
+                    Span::styled("  Latency ", Style::default().fg(Color::Cyan)),
+                    Span::raw(format!("avg {}ms  min {}ms  max {}ms", avg, min, max)),
+                ]));
+                help_lines.push(Line::from(vec![
+                    Span::styled("  Samples ", Style::default().fg(Color::Cyan)),
+                    Span::raw(format!("{}", samples)),
+                ]));
+            } else {
+                help_lines.push(Line::from(Span::styled("  No data yet", Style::default().fg(Color::DarkGray))));
+            }
+        }
+        let elapsed = vs.connected_at.elapsed().as_secs();
+        let uptime_str = if elapsed >= 3600 {
+            format!("{}h {}m", elapsed / 3600, (elapsed % 3600) / 60)
+        } else if elapsed >= 60 {
+            format!("{}m {}s", elapsed / 60, elapsed % 60)
+        } else {
+            format!("{}s", elapsed)
+        };
+        help_lines.push(Line::from(vec![
+            Span::styled("  Uptime  ", Style::default().fg(Color::Cyan)),
+            Span::raw(uptime_str),
+        ]));
+
+        // Peer viewers section
+        let peers = vs.peer_viewers.read().unwrap_or_else(|e| e.into_inner());
+        if !peers.is_empty() {
+            help_lines.push(Line::from(""));
+            help_lines.push(Line::from(Span::styled(
+                format!("Peers ({})", peers.len()),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )));
+            for v in peers.iter().take(5) {
+                let (perm_label, perm_style) = if v.permission == "rw" {
+                    ("RW", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                } else {
+                    ("RO", Style::default().fg(Color::DarkGray))
+                };
+                let mut spans = vec![
+                    Span::raw("  "),
+                    Span::styled(perm_label, perm_style),
+                    Span::raw(" "),
+                    Span::styled(v.display_name.as_str(), Style::default().fg(Color::White)),
+                ];
+                // Show how long this peer has been connected
+                if let Some(joined) = v.joined_at {
+                    let secs = joined.elapsed().as_secs();
+                    let dur = if secs >= 3600 {
+                        format!(" {}h", secs / 3600)
+                    } else if secs >= 60 {
+                        format!(" {}m", secs / 60)
+                    } else {
+                        format!(" {}s", secs)
+                    };
+                    spans.push(Span::styled(dur, Style::default().fg(Color::DarkGray)));
+                }
+                help_lines.push(Line::from(spans));
+            }
+            if peers.len() > 5 {
+                help_lines.push(Line::from(Span::styled(
+                    format!("  ... and {} more", peers.len() - 5),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+        }
+        drop(peers);
+
+        help_lines.push(Line::from(""));
+        help_lines.push(Line::from(Span::styled("  ?       ", Style::default().fg(Color::DarkGray))));
+        // Last line: close hint
+        if let Some(last) = help_lines.last_mut() {
+            *last = Line::from(vec![
+                Span::styled("  ?       ", Style::default().fg(Color::DarkGray)),
+                Span::raw("Close this help"),
+            ]);
+        }
+
+        let help_height = help_lines.len() as u16 + 2; // +2 for borders
+        let help_width = 48;
+        let popup = centered_rect_fixed(help_width, help_height, area);
+        f.render_widget(Clear, popup);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(" Help ");
+        let inner = block.inner(popup);
+        f.render_widget(block, popup);
+        f.render_widget(Paragraph::new(help_lines), inner);
+    }
+}
+
+/// Create a centered rectangle with fixed width and height.
+#[cfg(feature = "pro")]
+fn centered_rect_fixed(width: u16, height: u16, r: Rect) -> Rect {
+    let x = r.x + r.width.saturating_sub(width) / 2;
+    let y = r.y + r.height.saturating_sub(height) / 2;
+    Rect::new(x, y, width.min(r.width), height.min(r.height))
 }
 
 /// Convert a vt100 cell's attributes to a ratatui Style.
