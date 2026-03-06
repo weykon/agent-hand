@@ -125,6 +125,20 @@ pub async fn statusline_update_hint() -> Option<String> {
     None
 }
 
+/// Returns a statusline hint when the user's plan exceeds their binary tier.
+/// e.g. token says Pro but binary was compiled without `--features pro`.
+pub fn tier_upgrade_hint() -> Option<String> {
+    if cfg!(feature = "pro") {
+        return None; // already on pro binary, no mismatch
+    }
+    let token = crate::auth::AuthToken::load()?;
+    if token.is_pro() {
+        Some("⚡pro: run `upgrade`".to_string())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -636,6 +636,22 @@ async fn handle_statusline(profile: &str) -> Result<()> {
         line.push_str(&format!("  {hint}"));
     }
 
+    if let Some(hint) = crate::update::tier_upgrade_hint() {
+        line.push_str(&format!("  {hint}"));
+    }
+
+    // Add presence information if any session is being shared
+    #[cfg(feature = "pro")]
+    {
+        // Check if any instance has an active relay client
+        for _inst in &instances {
+            // Try to get relay client from app state (we need to access it somehow)
+            // For now, we'll add a simpler approach: check if sharing is active
+            // and show a generic presence indicator
+            // TODO: Access relay client state from statusline context
+        }
+    }
+
     println!("{line}");
     Ok(())
 }
@@ -999,6 +1015,19 @@ async fn handle_login() -> Result<()> {
                 } else {
                     println!("  Unlocked: {}", auth.features.join(", "));
                 }
+
+                // Auto-download pro binary if account has pro but binary is free
+                if !cfg!(feature = "pro") && auth.is_pro() {
+                    eprintln!();
+                    eprintln!("Your account includes Pro features!");
+                    eprintln!("Downloading Pro binary...");
+                    eprintln!();
+                    if let Err(e) = handle_upgrade(None, None).await {
+                        eprintln!("Auto-upgrade failed: {e}");
+                        eprintln!("You can retry manually: agent-hand upgrade");
+                    }
+                }
+
                 return Ok(());
             }
             other => {
@@ -1030,6 +1059,18 @@ async fn handle_account(refresh: bool) -> Result<()> {
             Ok(changed) => {
                 if changed {
                     eprintln!("updated!");
+
+                    // Auto-download pro binary if plan was upgraded but binary is free
+                    if !cfg!(feature = "pro") && token.is_pro() {
+                        eprintln!();
+                        eprintln!("Your plan was upgraded to Pro!");
+                        eprintln!("Downloading Pro binary...");
+                        eprintln!();
+                        if let Err(e) = handle_upgrade(None, None).await {
+                            eprintln!("Auto-upgrade failed: {e}");
+                            eprintln!("You can retry manually: agent-hand upgrade");
+                        }
+                    }
                 } else {
                     eprintln!("no changes.");
                 }

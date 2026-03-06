@@ -31,6 +31,19 @@ fn connection_pulse(tick: u64) -> &'static str {
     FRAMES[(tick as usize) % FRAMES.len()]
 }
 
+/// Parse hex color string (e.g., "#3b82f6") to ratatui Color.
+#[cfg(feature = "pro")]
+fn parse_hex_color(hex: &str) -> Option<Color> {
+    let hex = hex.trim_start_matches('#');
+    if hex.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some(Color::Rgb(r, g, b))
+}
+
 #[cfg(feature = "pro")]
 fn connection_quality_icon(latency_ms: u32) -> &'static str {
     // Quality indicator: excellent/good/poor
@@ -2917,6 +2930,17 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             )),
         ];
+
+        // Get presence data for all viewers
+        #[cfg(feature = "pro")]
+        let presence_map: std::collections::HashMap<String, crate::pro::collab::protocol::PresenceUpdate> = {
+            if let Some(client) = app.relay_client(&d.session_id) {
+                client.presence().into_iter().map(|p| (p.viewer_id.clone(), p)).collect()
+            } else {
+                std::collections::HashMap::new()
+            }
+        };
+
         for (i, v) in viewers.iter().enumerate() {
             if i >= max_viewer_display {
                 viewer_lines.push(Line::from(Span::styled(
@@ -2943,6 +2967,36 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
                 Span::raw(" "),
                 Span::styled(&v.display_name, name_style),
             ];
+
+            // Add presence indicator (colored dot + mode + position)
+            #[cfg(feature = "pro")]
+            if let Some(presence) = presence_map.get(&v.viewer_id) {
+                if presence.visible {
+                    // Parse color hex to ratatui Color
+                    let color = parse_hex_color(&presence.color).unwrap_or(Color::Gray);
+                    spans.push(Span::styled(" ●", Style::default().fg(color)));
+
+                    // Show mode (LIVE/SCROLL)
+                    let mode_str = match presence.mode.as_str() {
+                        "LIVE" => " 🔴",
+                        "SCROLL" => " 📜",
+                        _ => "",
+                    };
+                    if !mode_str.is_empty() {
+                        spans.push(Span::styled(mode_str, Style::default().fg(Color::DarkGray)));
+                    }
+
+                    // Show scroll position if in SCROLL mode
+                    if presence.mode == "SCROLL" {
+                        if let (Some(top), Some(bottom)) = (presence.top_seq, presence.bottom_seq) {
+                            let pos_str = format!(" [{}..{}]", top, bottom);
+                            spans.push(Span::styled(pos_str, Style::default().fg(Color::DarkGray)));
+                        }
+                    }
+                } else {
+                    spans.push(Span::styled(" 👁️‍🗨️", Style::default().fg(Color::DarkGray)));
+                }
+            }
 
             // Show connection duration if available
             if let Some(joined) = v.joined_at {
@@ -3696,7 +3750,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
                 )));
             }
         }
-        drop(peers);
+        // peers guard is automatically dropped here
 
         help_lines.push(Line::from(""));
         help_lines.push(Line::from(Span::styled("  ?       ", Style::default().fg(Color::DarkGray))));
