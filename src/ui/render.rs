@@ -200,17 +200,46 @@ fn render_session_list(f: &mut Frame, area: Rect, app: &App) {
     {
         let is_pro = app.auth_token().map_or(false, |t| t.is_pro());
         let active = app.active_sessions();
+        let has_viewer_sessions = !app.viewer_sessions().is_empty();
 
-        if is_pro && !active.is_empty() {
-            // 2 border rows + 1 row per session, capped at 40% of available height
+        if is_pro && (!active.is_empty() || has_viewer_sessions) {
+            // Calculate heights for active panel and viewer sessions panel
             let max_h = (area.height * 2 / 5).max(8);
-            let panel_h = (active.len() as u16 + 2).min(max_h);
+            let active_panel_h = if !active.is_empty() {
+                (active.len() as u16 + 2).min(max_h)
+            } else {
+                0
+            };
+            let viewer_panel_h = if has_viewer_sessions {
+                (app.viewer_sessions().len() as u16 + 2).min(max_h)
+            } else {
+                0
+            };
+
+            let mut constraints = vec![];
+            if active_panel_h > 0 {
+                constraints.push(Constraint::Length(active_panel_h));
+            }
+            if viewer_panel_h > 0 {
+                constraints.push(Constraint::Length(viewer_panel_h));
+            }
+            constraints.push(Constraint::Min(0));
+
             let rows = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Length(panel_h), Constraint::Min(0)])
+                .constraints(constraints)
                 .split(area);
-            render_active_panel(f, rows[0], app, &active);
-            render_session_tree(f, rows[1], app);
+
+            let mut row_idx = 0;
+            if active_panel_h > 0 {
+                render_active_panel(f, rows[row_idx], app, &active);
+                row_idx += 1;
+            }
+            if viewer_panel_h > 0 {
+                render_viewer_sessions_panel(f, rows[row_idx], app);
+                row_idx += 1;
+            }
+            render_session_tree(f, rows[row_idx], app);
         } else {
             render_session_tree(f, area, app);
         }
@@ -332,6 +361,69 @@ fn render_active_panel(f: &mut Frame, area: Rect, app: &App, active: &[&crate::s
         ListState::default()
     };
     f.render_stateful_widget(list, area, &mut state);
+}
+
+/// Render the viewer sessions panel (premium feature)
+#[cfg(feature = "pro")]
+fn render_viewer_sessions_panel(f: &mut Frame, area: Rect, app: &App) {
+    let sessions = app.viewer_sessions();
+
+    let items: Vec<ListItem> = sessions
+        .iter()
+        .map(|(room_id, info)| {
+            let status_icon = match info.status {
+                crate::ui::app::ViewerSessionStatus::Connecting => "⟳",
+                crate::ui::app::ViewerSessionStatus::Connected => "●",
+                crate::ui::app::ViewerSessionStatus::Disconnected => "○",
+                crate::ui::app::ViewerSessionStatus::Reconnecting => "⟳",
+            };
+
+            let status_color = match info.status {
+                crate::ui::app::ViewerSessionStatus::Connected => Color::Green,
+                crate::ui::app::ViewerSessionStatus::Connecting |
+                crate::ui::app::ViewerSessionStatus::Reconnecting => Color::Yellow,
+                crate::ui::app::ViewerSessionStatus::Disconnected => Color::Red,
+            };
+
+            // Truncate room_id for display
+            let display_room = if room_id.len() > 12 {
+                format!("{}...", &room_id[..12])
+            } else {
+                room_id.clone()
+            };
+
+            // Truncate relay_url for display
+            let relay_display = info.relay_url
+                .replace("https://", "")
+                .replace("http://", "");
+            let relay_display = if relay_display.len() > 30 {
+                format!("{}...", &relay_display[..30])
+            } else {
+                relay_display
+            };
+
+            let line = Line::from(vec![
+                Span::styled(status_icon, Style::default().fg(status_color)),
+                Span::raw(" "),
+                Span::styled(display_room, Style::default().fg(Color::Cyan)),
+                Span::raw(" - "),
+                Span::styled(relay_display, Style::default().fg(Color::DarkGray)),
+            ]);
+
+            ListItem::new(line)
+        })
+        .collect();
+
+    let title = format!("🔭 Remote Viewers ({})", sessions.len());
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+
+    f.render_widget(list, area);
 }
 
 /// Render the full session tree (groups + sessions)

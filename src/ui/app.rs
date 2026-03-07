@@ -5012,6 +5012,11 @@ impl App {
             .collect()
     }
 
+    #[cfg(feature = "pro")]
+    pub fn viewer_sessions(&self) -> &HashMap<String, ViewerSessionInfo> {
+        &self.viewer_sessions
+    }
+
     pub fn relationships(&self) -> &[Relationship] {
         &self.relationships
     }
