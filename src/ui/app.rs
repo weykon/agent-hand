@@ -223,7 +223,10 @@ pub struct ViewerState {
     pub control_request_time: Arc<tokio::sync::Mutex<Option<Instant>>>,
     /// Other viewers in the same room (updated via ViewerJoined/ViewerLeft).
     /// Uses std::sync::RwLock so it can be read from synchronous render context.
+    #[cfg(feature = "pro")]
     pub peer_viewers: Arc<std::sync::RwLock<Vec<crate::pro::collab::protocol::ViewerInfo>>>,
+    #[cfg(not(feature = "pro"))]
+    pub peer_viewers: Arc<std::sync::RwLock<Vec<String>>>,
     /// Last measured round-trip latency in milliseconds (from Ping/Pong).
     pub latency_ms: Arc<std::sync::atomic::AtomicU32>,
     /// Bytes received in the last second (for bandwidth display).
@@ -5231,7 +5234,10 @@ impl App {
         let reconnect_attempt = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let has_rw_control = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let control_request_time = Arc::new(tokio::sync::Mutex::new(None::<Instant>));
+        #[cfg(feature = "pro")]
         let peer_viewers = Arc::new(std::sync::RwLock::new(Vec::<crate::pro::collab::protocol::ViewerInfo>::new()));
+        #[cfg(not(feature = "pro"))]
+        let peer_viewers = Arc::new(std::sync::RwLock::new(Vec::<String>::new()));
         let latency_ms = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let bytes_received_per_sec = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let bytes_sent_per_sec = Arc::new(std::sync::atomic::AtomicU64::new(0));

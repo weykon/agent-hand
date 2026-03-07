@@ -4048,7 +4048,10 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         let peer_names: String = if peers.is_empty() {
             String::new()
         } else {
+            #[cfg(feature = "pro")]
             let names: Vec<&str> = peers.iter().take(3).map(|v| v.display_name.as_str()).collect();
+            #[cfg(not(feature = "pro"))]
+            let names: Vec<&str> = peers.iter().take(3).map(|v| v.as_str()).collect();
             let suffix = if peers.len() > 3 { format!(" +{}", peers.len() - 3) } else { String::new() };
             format!(" ({}{})", names.join(", "), suffix)
         };
@@ -4255,6 +4258,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
                 if is_zh { format!("对等方 ({})", peers.len()) } else { format!("Peers ({})", peers.len()) },
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             )));
+            #[cfg(feature = "pro")]
             for v in peers.iter().take(5) {
                 let (perm_label, perm_style) = if v.permission == "rw" {
                     ("RW", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
@@ -4280,6 +4284,13 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
                     spans.push(Span::styled(dur, Style::default().fg(Color::DarkGray)));
                 }
                 help_lines.push(Line::from(spans));
+            }
+            #[cfg(not(feature = "pro"))]
+            for v in peers.iter().take(5) {
+                help_lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(v.as_str(), Style::default().fg(Color::White)),
+                ]));
             }
             if peers.len() > 5 {
                 help_lines.push(Line::from(Span::styled(
