@@ -163,6 +163,7 @@ pub struct App {
 pub struct ViewerSessionInfo {
     pub room_id: String,
     pub relay_url: String,
+    pub viewer_token: String,
     pub connected_at: std::time::SystemTime,
     pub status: ViewerSessionStatus,
 }
@@ -5032,6 +5033,7 @@ impl App {
         let session_info = ViewerSessionInfo {
             room_id: room_id.to_string(),
             relay_url: relay_url.to_string(),
+            viewer_token: viewer_token.to_string(),
             connected_at: std::time::SystemTime::now(),
             status: ViewerSessionStatus::Connecting,
         };
@@ -5493,6 +5495,23 @@ impl App {
         if delete_session {
             self.viewer_sessions.remove(room_id);
         }
+    }
+
+    /// Reconnect to a viewer session by room_id.
+    #[cfg(feature = "pro")]
+    pub async fn reconnect_viewer(&mut self, room_id: &str) -> Result<()> {
+        // Get session info
+        let session_info = self.viewer_sessions.get(room_id)
+            .ok_or_else(|| crate::error::Error::Other("Session not found".to_string()))?
+            .clone();
+
+        // Update status to Reconnecting
+        if let Some(session) = self.viewer_sessions.get_mut(room_id) {
+            session.status = ViewerSessionStatus::Reconnecting;
+        }
+
+        // Reuse connect_viewer logic
+        self.connect_viewer(&session_info.relay_url, &session_info.room_id, &session_info.viewer_token).await
     }
 
     /// Handle key events in viewer mode.
