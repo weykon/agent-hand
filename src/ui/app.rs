@@ -55,10 +55,18 @@ pub struct App {
     active_panel_focused: bool,
     active_panel_selected: usize,
 
+    // Viewer sessions panel (premium)
+    #[cfg(feature = "pro")]
+    viewer_panel_focused: bool,
+    #[cfg(feature = "pro")]
+    viewer_panel_selected: usize,
+
     // UI state
     help_visible: bool,
     preview: String,
     preview_cache: HashMap<String, String>,
+    language: crate::i18n::Language,
+    show_onboarding: bool,
 
     // Search state
     search_query: String,
@@ -368,9 +376,17 @@ impl App {
             selected_index: 0,
             active_panel_focused: false,
             active_panel_selected: 0,
+            #[cfg(feature = "pro")]
+            viewer_panel_focused: false,
+            #[cfg(feature = "pro")]
+            viewer_panel_selected: 0,
             help_visible: false,
             preview: String::new(),
             preview_cache: HashMap::new(),
+            language: config.language.as_ref()
+                .map(|s| crate::i18n::Language::from_str(s))
+                .unwrap_or_default(),
+            show_onboarding: config.first_launch.unwrap_or(true),
             search_query: String::new(),
             search_results: Vec::new(),
             search_selected: 0,
@@ -1104,6 +1120,19 @@ impl App {
 
     /// Handle keys in normal mode
     async fn handle_normal_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> Result<()> {
+        // Handle onboarding welcome screen
+        if self.show_onboarding {
+            if key == KeyCode::Enter && modifiers == KeyModifiers::NONE {
+                self.dismiss_onboarding();
+                // Save first_launch = false to config
+                self.config.first_launch = Some(false);
+                let _ = self.config.save();
+                return Ok(());
+            }
+            // Block all other keys while onboarding is shown
+            return Ok(());
+        }
+
         if self.keybindings.matches("quit", &key, modifiers) {
             self.dialog = Some(Dialog::QuitConfirm);
             self.state = AppState::Dialog;
@@ -1116,27 +1145,48 @@ impl App {
             return Ok(());
         }
 
-        // Tab: toggle active panel focus (premium gate)
+        // Tab: toggle panel focus (premium gate): active → viewer → tree
         #[cfg(feature = "pro")]
         if key == KeyCode::Tab && modifiers == KeyModifiers::NONE {
             let is_pro = self.auth_token.as_ref().map_or(false, |t| t.is_pro());
             let active_count = self.active_sessions().len();
-            if is_pro && active_count > 0 {
+            let viewer_count = self.viewer_sessions.len();
+
+            if is_pro && (active_count > 0 || viewer_count > 0) {
                 if self.active_panel_focused {
-                    // Switching TO tree — sync tree selection to active panel session
-                    let active = self.active_sessions();
-                    if let Some(session) = active.get(self.active_panel_selected) {
-                        let id = session.id.clone();
+                    // active → viewer (if has viewers) or tree
+                    if viewer_count > 0 {
                         self.active_panel_focused = false;
-                        self.focus_tree_on_session_id(&id);
+                        self.viewer_panel_focused = true;
+                        if self.viewer_panel_selected >= viewer_count {
+                            self.viewer_panel_selected = viewer_count.saturating_sub(1);
+                        }
                     } else {
-                        self.active_panel_focused = false;
+                        // No viewers, go to tree
+                        let active = self.active_sessions();
+                        if let Some(session) = active.get(self.active_panel_selected) {
+                            let id = session.id.clone();
+                            self.active_panel_focused = false;
+                            self.focus_tree_on_session_id(&id);
+                        } else {
+                            self.active_panel_focused = false;
+                        }
                     }
+                } else if self.viewer_panel_focused {
+                    // viewer → tree
+                    self.viewer_panel_focused = false;
                 } else {
-                    // Switching TO active panel
-                    self.active_panel_focused = true;
-                    if self.active_panel_selected >= active_count {
-                        self.active_panel_selected = active_count.saturating_sub(1);
+                    // tree → active (if has active) or viewer
+                    if active_count > 0 {
+                        self.active_panel_focused = true;
+                        if self.active_panel_selected >= active_count {
+                            self.active_panel_selected = active_count.saturating_sub(1);
+                        }
+                    } else if viewer_count > 0 {
+                        self.viewer_panel_focused = true;
+                        if self.viewer_panel_selected >= viewer_count {
+                            self.viewer_panel_selected = viewer_count.saturating_sub(1);
+                        }
                     }
                 }
                 return Ok(());
@@ -1191,6 +1241,71 @@ impl App {
                     }
                     KeyCode::Esc | KeyCode::Tab if modifiers == KeyModifiers::NONE => {
                         self.active_panel_focused = false;
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                // Swallow all other keys while panel is focused
+                return Ok(());
+            }
+        }
+
+        // When viewer panel is focused, intercept navigation keys
+        #[cfg(feature = "pro")]
+        if self.viewer_panel_focused {
+            let viewer_count = self.viewer_sessions.len();
+
+            // If no viewer sessions remain, defocus the panel
+            if viewer_count == 0 {
+                self.viewer_panel_focused = false;
+            } else {
+                match key {
+                    KeyCode::Up | KeyCode::Char('k') if modifiers == KeyModifiers::NONE => {
+                        if self.viewer_panel_selected > 0 {
+                            self.viewer_panel_selected -= 1;
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Down | KeyCode::Char('j') if modifiers == KeyModifiers::NONE => {
+                        let max = viewer_count.saturating_sub(1);
+                        if self.viewer_panel_selected < max {
+                            self.viewer_panel_selected += 1;
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Char('d') if modifiers == KeyModifiers::NONE => {
+                        if let Some(room_id) = self.get_selected_viewer_session() {
+                            if let Some(session_info) = self.viewer_sessions.get(&room_id) {
+                                let dialog = crate::ui::dialogs::DisconnectViewerDialog::new(
+                                    session_info.room_id.clone(),
+                                    session_info.relay_url.clone(),
+                                );
+                                self.dialog = Some(Dialog::DisconnectViewer(dialog));
+                                self.state = AppState::Dialog;
+                            }
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Enter if modifiers == KeyModifiers::NONE => {
+                        if let Some(room_id) = self.get_selected_viewer_session() {
+                            if let Some(session_info) = self.viewer_sessions.get(&room_id) {
+                                match session_info.status {
+                                    ViewerSessionStatus::Connected => {
+                                        self.state = AppState::ViewerMode;
+                                    }
+                                    ViewerSessionStatus::Disconnected => {
+                                        if let Err(e) = self.reconnect_viewer(&room_id).await {
+                                            eprintln!("Reconnect failed: {}", e);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Esc | KeyCode::Tab if modifiers == KeyModifiers::NONE => {
+                        self.viewer_panel_focused = false;
                         return Ok(());
                     }
                     _ => {}
@@ -3370,6 +3485,10 @@ impl App {
                                     d.mouse_capture_mode = (d.mouse_capture_mode + 2) % 3; // cycle backward
                                     d.dirty = true;
                                 }
+                                SettingsField::Language => {
+                                    d.language_idx = (d.language_idx + 1) % 2; // cycle backward (0<->1)
+                                    d.dirty = true;
+                                }
                                 #[cfg(feature = "pro")]
                                 SettingsField::NotifAutoRegister => {
                                     d.hook_auto_register = !d.hook_auto_register;
@@ -3408,6 +3527,10 @@ impl App {
                                 }
                                 SettingsField::MouseCapture => {
                                     d.mouse_capture_mode = (d.mouse_capture_mode + 1) % 3; // cycle forward
+                                    d.dirty = true;
+                                }
+                                SettingsField::Language => {
+                                    d.language_idx = (d.language_idx + 1) % 2; // cycle forward (0<->1)
                                     d.dirty = true;
                                 }
                                 #[cfg(feature = "pro")]
@@ -4954,6 +5077,22 @@ impl App {
         }
     }
 
+    pub fn language(&self) -> crate::i18n::Language {
+        self.language
+    }
+
+    pub fn set_language(&mut self, lang: crate::i18n::Language) {
+        self.language = lang;
+    }
+
+    pub fn show_onboarding(&self) -> bool {
+        self.show_onboarding
+    }
+
+    pub fn dismiss_onboarding(&mut self) {
+        self.show_onboarding = false;
+    }
+
     #[cfg(feature = "pro")]
     pub fn new_from_context_dialog(&self) -> Option<&crate::ui::NewFromContextDialog> {
         match self.dialog.as_ref() {
@@ -5012,6 +5151,16 @@ impl App {
         self.active_panel_selected
     }
 
+    #[cfg(feature = "pro")]
+    pub fn viewer_panel_focused(&self) -> bool {
+        self.viewer_panel_focused
+    }
+
+    #[cfg(feature = "pro")]
+    pub fn viewer_panel_selected(&self) -> usize {
+        self.viewer_panel_selected
+    }
+
     /// Sessions that deserve attention: actively working OR recently finished (✓ ready).
     pub fn active_sessions(&self) -> Vec<&Instance> {
         self.sessions
@@ -5023,6 +5172,13 @@ impl App {
     #[cfg(feature = "pro")]
     pub fn viewer_sessions(&self) -> &HashMap<String, ViewerSessionInfo> {
         &self.viewer_sessions
+    }
+
+    #[cfg(feature = "pro")]
+    pub fn get_selected_viewer_session(&self) -> Option<String> {
+        self.viewer_sessions.keys()
+            .nth(self.viewer_panel_selected)
+            .cloned()
     }
 
     pub fn relationships(&self) -> &[Relationship] {
@@ -5536,6 +5692,12 @@ impl App {
             .map(|vs| vs.has_rw_control.load(std::sync::atomic::Ordering::Relaxed))
             .unwrap_or(false);
 
+        // Ctrl+Q: return to Dashboard without disconnecting
+        if key == KeyCode::Char('q') && modifiers.contains(KeyModifiers::CONTROL) {
+            self.state = AppState::Normal;
+            return Ok(());
+        }
+
         // Esc: if RW, first relinquish control (→ RO); if RO, disconnect
         if key == KeyCode::Esc {
             if has_rw {
@@ -5966,6 +6128,14 @@ impl App {
         };
         self.config.mouse_capture = Some(mouse_str.to_string());
         self.mouse_capture_changed = true;
+
+        // Update language config
+        let lang = match d.language_idx {
+            1 => crate::i18n::Language::Chinese,
+            _ => crate::i18n::Language::English,
+        };
+        self.language = lang;
+        self.config.language = Some(lang.to_str().to_string());
 
         // Save to disk
         self.config.save()?;

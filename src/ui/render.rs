@@ -133,7 +133,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         .split(f.area());
 
     // Render title
-    render_title(f, chunks[0]);
+    render_title(f, chunks[0], app.language());
 
     // Always render main content (dashboard stays visible behind modal)
     #[cfg(feature = "pro")]
@@ -154,7 +154,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     // Help modal overlays on top when visible
     if app.help_visible() {
-        render_help_modal(f, f.area());
+        render_help_modal(f, f.area(), app.language());
     }
 
     if app.state() == crate::ui::AppState::Dialog {
@@ -168,16 +168,39 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Toast notifications overlay (top-right corner)
     #[cfg(feature = "pro")]
     render_toast_notifications(f, f.area(), app);
+
+    // Onboarding welcome message
+    if app.show_onboarding() {
+        render_onboarding_welcome(f, f.area(), app.language());
+    }
 }
 
 /// Render title bar
-fn render_title(f: &mut Frame, area: Rect) {
-    let title = Paragraph::new("🦀 Agent Deck (Rust) Agent Hand")
-        .style(
+fn render_title(f: &mut Frame, area: Rect, lang: crate::i18n::Language) {
+    use crate::i18n::{Translate, Language};
+
+    let title_text = match lang {
+        Language::Chinese => "🦀 Agent Deck (Rust) 智能助手",
+        Language::English => "🦀 Agent Deck (Rust) Agent Hand",
+    };
+    let help_hint = crate::i18n::ui::HelpHint.t(lang);
+
+    let title_line = Line::from(vec![
+        Span::styled(
+            title_text.to_string(),
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
-        )
+        ),
+        Span::styled(
+            format!("  {help_hint}"),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::DIM),
+        ),
+    ]);
+
+    let title = Paragraph::new(title_line)
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
 
@@ -345,7 +368,10 @@ fn render_active_panel(f: &mut Frame, area: Rect, app: &App, active: &[&crate::s
         Style::default().fg(Color::DarkGray)
     };
 
-    let title = format!("⚡ Active ({})", active.len());
+    let title = match app.language() {
+        crate::i18n::Language::Chinese => format!("⚡ 活跃会话 ({})", active.len()),
+        crate::i18n::Language::English => format!("⚡ Active ({})", active.len()),
+    };
     let list = List::new(items)
         .scroll_padding(app.scroll_padding())
         .block(
@@ -367,10 +393,20 @@ fn render_active_panel(f: &mut Frame, area: Rect, app: &App, active: &[&crate::s
 #[cfg(feature = "pro")]
 fn render_viewer_sessions_panel(f: &mut Frame, area: Rect, app: &App) {
     let sessions = app.viewer_sessions();
+    let focused = app.viewer_panel_focused();
+    let selected = app.viewer_panel_selected();
 
     let items: Vec<ListItem> = sessions
         .iter()
-        .map(|(room_id, info)| {
+        .enumerate()
+        .map(|(i, (room_id, info))| {
+            let is_selected = focused && i == selected;
+            let base = if is_selected {
+                Style::default().fg(Color::Black).bg(Color::Yellow)
+            } else {
+                Style::default()
+            };
+
             let status_icon = match info.status {
                 crate::ui::app::ViewerSessionStatus::Connecting => "⟳",
                 crate::ui::app::ViewerSessionStatus::Connected => "●",
@@ -403,38 +439,62 @@ fn render_viewer_sessions_panel(f: &mut Frame, area: Rect, app: &App) {
             };
 
             let line = Line::from(vec![
-                Span::styled(status_icon, Style::default().fg(status_color)),
+                Span::styled(status_icon, if is_selected { base } else { Style::default().fg(status_color) }),
                 Span::raw(" "),
-                Span::styled(display_room, Style::default().fg(Color::Cyan)),
+                Span::styled(display_room, if is_selected { base } else { Style::default().fg(Color::Cyan) }),
                 Span::raw(" - "),
-                Span::styled(relay_display, Style::default().fg(Color::DarkGray)),
+                Span::styled(relay_display, if is_selected { base } else { Style::default().fg(Color::DarkGray) }),
             ]);
 
             ListItem::new(line)
         })
         .collect();
 
-    let title = format!("🔭 Remote Viewers ({})", sessions.len());
+    let border_style = if focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let title = match app.language() {
+        crate::i18n::Language::Chinese => format!("🔭 远程观察者 ({})", sessions.len()),
+        crate::i18n::Language::English => format!("🔭 Remote Viewers ({})", sessions.len()),
+    };
     let list = List::new(items)
+        .scroll_padding(app.scroll_padding())
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(title)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(border_style),
         );
 
-    f.render_widget(list, area);
+    let mut state = if focused {
+        ListState::default().with_selected(Some(selected))
+    } else {
+        ListState::default()
+    };
+    f.render_stateful_widget(list, area, &mut state);
 }
 
 /// Render the full session tree (groups + sessions)
 fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
     let tree = app.tree();
 
+    let is_zh = matches!(app.language(), crate::i18n::Language::Chinese);
+
     if tree.is_empty() {
-        let empty = Paragraph::new("No sessions found.\n\nUse: agent-hand add ...\nPress 'n' to create.\nPress '?' for help.")
+        let empty_msg = if is_zh {
+            "未找到会话。\n\n使用: agent-hand add ...\n按 'n' 创建新会话。\n按 '?' 查看帮助。"
+        } else {
+            "No sessions found.\n\nUse: agent-hand add ...\nPress 'n' to create.\nPress '?' for help."
+        };
+        let empty = Paragraph::new(empty_msg)
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL).title("Sessions"));
+            .block(Block::default().borders(Borders::ALL).title(
+                if is_zh { "会话" } else { "Sessions" }
+            ));
 
         f.render_widget(empty, area);
         return;
@@ -736,13 +796,17 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_preview(f: &mut Frame, area: Rect, app: &App) {
+    let preview_label = match app.language() {
+        crate::i18n::Language::Chinese => "预览",
+        crate::i18n::Language::English => "Preview",
+    };
     let title = match app.selected_item() {
         Some(TreeItem::Session { id, .. }) => app
             .session_by_id(id)
-            .map(|s| format!("Preview • {}", s.title))
-            .unwrap_or_else(|| "Preview".to_string()),
-        Some(TreeItem::Group { name, .. }) => format!("Preview • {}", name),
-        _ => "Preview".to_string(),
+            .map(|s| format!("{preview_label} • {}", s.title))
+            .unwrap_or_else(|| preview_label.to_string()),
+        Some(TreeItem::Group { name, .. }) => format!("{preview_label} • {}", name),
+        _ => preview_label.to_string(),
     };
 
     let p = Paragraph::new(app.preview())
@@ -753,82 +817,85 @@ fn render_preview(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
+    let lang = app.language();
+    let is_zh = matches!(lang, crate::i18n::Language::Chinese);
+
     if app.quit_confirm_dialog() {
-        render_quit_confirm_dialog(f, area);
+        render_quit_confirm_dialog(f, area, is_zh);
         return;
     }
 
     if let Some(d) = app.new_session_dialog() {
-        render_new_session_dialog(f, area, d);
+        render_new_session_dialog(f, area, d, is_zh);
         return;
     }
 
     if let Some(d) = app.delete_confirm_dialog() {
-        render_delete_confirm_dialog(f, area, d);
+        render_delete_confirm_dialog(f, area, d, is_zh);
         return;
     }
 
     if let Some(d) = app.delete_group_dialog() {
-        render_delete_group_dialog(f, area, d);
+        render_delete_group_dialog(f, area, d, is_zh);
         return;
     }
 
     if let Some(d) = app.fork_dialog() {
-        render_fork_dialog(f, area, d);
+        render_fork_dialog(f, area, d, is_zh);
         return;
     }
 
     if let Some(d) = app.create_group_dialog() {
-        render_create_group_dialog(f, area, d);
+        render_create_group_dialog(f, area, d, is_zh);
         return;
     }
 
     if let Some(d) = app.move_group_dialog() {
-        render_move_group_dialog(f, area, d);
+        render_move_group_dialog(f, area, d, is_zh);
         return;
     }
 
     if let Some(d) = app.rename_session_dialog() {
-        render_rename_session_dialog(f, area, d);
+        render_rename_session_dialog(f, area, d, is_zh);
         return;
     }
 
     if let Some(d) = app.tag_picker_dialog() {
-        render_tag_picker_dialog(f, area, d);
+        render_tag_picker_dialog(f, area, d, is_zh);
         return;
     }
 
     if let Some(d) = app.rename_group_dialog() {
-        render_rename_group_dialog(f, area, d);
+        render_rename_group_dialog(f, area, d, is_zh);
         return;
     }
 
     if let Some(d) = app.settings_dialog() {
-        render_settings_dialog(f, area, d);
+        render_settings_dialog(f, area, d, is_zh);
         return;
     }
 
     #[cfg(feature = "pro")]
     if let Some(d) = app.control_request_dialog() {
-        render_control_request_dialog(f, area, d);
+        render_control_request_dialog(f, area, d, is_zh);
         return;
     }
 
     #[cfg(feature = "pro")]
     if let Some(d) = app.pack_browser_dialog() {
-        render_pack_browser_dialog(f, area, d);
+        render_pack_browser_dialog(f, area, d, is_zh);
         return;
     }
 
     #[cfg(feature = "pro")]
     if let Some(d) = app.join_session_dialog() {
-        render_join_session_dialog(f, area, d);
+        render_join_session_dialog(f, area, d, is_zh);
         return;
     }
 
     #[cfg(feature = "pro")]
     if let Some(d) = app.disconnect_viewer_dialog() {
-        render_disconnect_viewer_dialog(f, area, d);
+        render_disconnect_viewer_dialog(f, area, d, is_zh);
         return;
     }
 
@@ -840,23 +907,23 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
 
     #[cfg(feature = "pro")]
     if let Some(d) = app.create_relationship_dialog() {
-        render_create_relationship_dialog(f, area, d);
+        render_create_relationship_dialog(f, area, d, is_zh);
         return;
     }
 
     #[cfg(feature = "pro")]
     if let Some(d) = app.annotate_dialog() {
-        render_annotate_dialog(f, area, d);
+        render_annotate_dialog(f, area, d, is_zh);
         return;
     }
 
     #[cfg(feature = "pro")]
     if let Some(d) = app.new_from_context_dialog() {
-        render_new_from_context_dialog(f, area, d);
+        render_new_from_context_dialog(f, area, d, is_zh);
     }
 }
 
-fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessionDialog) {
+fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessionDialog, is_zh: bool) {
     let popup_area = centered_rect(75, 60, area);
     f.render_widget(Clear, popup_area);
 
@@ -865,13 +932,13 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
     let is_title_active = d.field == crate::ui::NewSessionField::Title;
     let is_group_active = d.field == crate::ui::NewSessionField::Group;
 
-    let mut path_spans = vec![Span::raw("Path:   ")];
+    let mut path_spans = vec![Span::raw(if is_zh { "路径:   " } else { "Path:   " })];
     path_spans.extend(render_text_input(&d.path, is_path_active, base_style));
 
-    let mut title_spans = vec![Span::raw("Title:  ")];
+    let mut title_spans = vec![Span::raw(if is_zh { "标题:   " } else { "Title:  " })];
     title_spans.extend(render_text_input(&d.title, is_title_active, base_style));
 
-    let mut group_spans = vec![Span::raw("Group:  ")];
+    let mut group_spans = vec![Span::raw(if is_zh { "分组:   " } else { "Group:  " })];
     group_spans.extend(render_text_input(
         &d.group_path,
         is_group_active,
@@ -880,7 +947,7 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
 
     let mut lines = vec![
         Line::from(Span::styled(
-            "New Session",
+            if is_zh { "新建会话" } else { "New Session" },
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -893,7 +960,7 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
         lines.push(Line::from(vec![
             Span::raw("        "),
             Span::styled(
-                "(not found; will create directory)",
+                if is_zh { "(未找到; 将创建目录)" } else { "(not found; will create directory)" },
                 Style::default().fg(Color::DarkGray),
             ),
         ]));
@@ -902,7 +969,7 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
     if d.path_suggestions_visible && !d.path_suggestions.is_empty() {
         lines.push(Line::from(vec![
             Span::raw("        "),
-            Span::styled("Suggestions:", Style::default().fg(Color::DarkGray)),
+            Span::styled(if is_zh { "建议:" } else { "Suggestions:" }, Style::default().fg(Color::DarkGray)),
         ]));
         let max_show = 8usize;
         let len = d.path_suggestions.len();
@@ -939,13 +1006,13 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
     if d.field == crate::ui::NewSessionField::Group {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "Groups (↑/↓ to select):",
+            if is_zh { "分组 (↑/↓ 选择):" } else { "Groups (↑/↓ to select):" },
             Style::default().fg(Color::DarkGray),
         )));
 
         if d.group_matches.is_empty() {
             lines.push(Line::from(Span::styled(
-                "(no matches)",
+                if is_zh { "(无匹配)" } else { "(no matches)" },
                 Style::default().fg(Color::DarkGray),
             )));
         } else {
@@ -967,7 +1034,7 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
                 .skip(start)
                 .take(max_show)
             {
-                let label = if g.is_empty() { "(none)" } else { g.as_str() };
+                let label = if g.is_empty() { if is_zh { "(无)" } else { "(none)" } } else { g.as_str() };
                 let style = if i == d.group_selected {
                     Style::default().fg(Color::Black).bg(Color::Cyan)
                 } else {
@@ -983,18 +1050,18 @@ fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::NewSessio
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Tab: complete path • ↑↓: pick • Enter: next/submit • Esc/Ctrl+C: cancel",
+        if is_zh { "Tab: 补全路径 • ↑↓: 选择 • 回车: 下一个/提交 • Esc/Ctrl+C: 取消" } else { "Tab: complete path • ↑↓: pick • Enter: next/submit • Esc/Ctrl+C: cancel" },
         Style::default().fg(Color::DarkGray),
     )));
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("New"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "新建" } else { "New" }));
 
     f.render_widget(p, popup_area);
 }
 
-fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
+fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog, is_zh: bool) {
     let popup_area = centered_rect(70, 40, area);
     f.render_widget(Clear, popup_area);
 
@@ -1002,10 +1069,10 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
     let is_title_active = d.field == crate::ui::ForkField::Title;
     let is_group_active = d.field == crate::ui::ForkField::Group;
 
-    let mut title_spans = vec![Span::raw("Title: ")];
+    let mut title_spans = vec![Span::raw(if is_zh { "标题: " } else { "Title: " })];
     title_spans.extend(render_text_input(&d.title, is_title_active, base_style));
 
-    let mut group_spans = vec![Span::raw("Group: ")];
+    let mut group_spans = vec![Span::raw(if is_zh { "分组: " } else { "Group: " })];
     group_spans.extend(render_text_input(
         &d.group_path,
         is_group_active,
@@ -1014,7 +1081,7 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
 
     let lines = vec![
         Line::from(Span::styled(
-            "Fork Session",
+            if is_zh { "复制会话" } else { "Fork Session" },
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -1024,29 +1091,29 @@ fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkDialog) {
         Line::from(group_spans),
         Line::from(""),
         Line::from(Span::styled(
-            "Tab: switch field • Enter: next/submit • Esc/Ctrl+C: cancel",
+            if is_zh { "Tab: 切换字段 • 回车: 下一个/提交 • Esc/Ctrl+C: 取消" } else { "Tab: switch field • Enter: next/submit • Esc/Ctrl+C: cancel" },
             Style::default().fg(Color::DarkGray),
         )),
     ];
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Fork"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "复制" } else { "Fork" }));
 
     f.render_widget(p, popup_area);
 }
 
-fn render_create_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::CreateGroupDialog) {
+fn render_create_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::CreateGroupDialog, is_zh: bool) {
     let popup_area = centered_rect(75, 60, area);
     f.render_widget(Clear, popup_area);
 
     let base_style = Style::default();
-    let mut input_spans = vec![Span::raw("Name:   ")];
+    let mut input_spans = vec![Span::raw(if is_zh { "名称:   " } else { "Name:   " })];
     input_spans.extend(render_text_input(&d.input, true, base_style));
 
     let mut lines = vec![
         Line::from(Span::styled(
-            "Create Group",
+            if is_zh { "创建分组" } else { "Create Group" },
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -1055,14 +1122,14 @@ fn render_create_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::CreateGr
         Line::from(input_spans),
         Line::from(""),
         Line::from(Span::styled(
-            "Existing (↑/↓ to select):",
+            if is_zh { "已有分组 (↑/↓ 选择):" } else { "Existing (↑/↓ to select):" },
             Style::default().fg(Color::DarkGray),
         )),
     ];
 
     if d.matches.is_empty() {
         lines.push(Line::from(Span::styled(
-            "(no matches)",
+            if is_zh { "(无匹配)" } else { "(no matches)" },
             Style::default().fg(Color::DarkGray),
         )));
     } else {
@@ -1092,35 +1159,35 @@ fn render_create_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::CreateGr
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Type to filter/name • Enter: create • Esc/Ctrl+C: cancel",
+        if is_zh { "输入过滤/命名 • 回车: 创建 • Esc/Ctrl+C: 取消" } else { "Type to filter/name • Enter: create • Esc/Ctrl+C: cancel" },
         Style::default().fg(Color::DarkGray),
     )));
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Group"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "分组" } else { "Group" }));
 
     f.render_widget(p, popup_area);
 }
 
-fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupDialog) {
+fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupDialog, is_zh: bool) {
     let popup_area = centered_rect(75, 60, area);
     f.render_widget(Clear, popup_area);
 
     let base_style = Style::default();
-    let mut input_spans = vec![Span::raw("Filter: ")];
+    let mut input_spans = vec![Span::raw(if is_zh { "过滤: " } else { "Filter: " })];
     input_spans.extend(render_text_input(&d.input, true, base_style));
 
     let mut lines = vec![
         Line::from(Span::styled(
-            "Move Session to Group",
+            if is_zh { "移动会话到分组" } else { "Move Session to Group" },
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::raw("Title:  "),
+            Span::raw(if is_zh { "标题:  " } else { "Title:  " }),
             Span::styled(
                 d.title.clone(),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -1129,14 +1196,14 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
         Line::from(input_spans),
         Line::from(""),
         Line::from(Span::styled(
-            "Groups (↑/↓ to select):",
+            if is_zh { "分组 (↑/↓ 选择):" } else { "Groups (↑/↓ to select):" },
             Style::default().fg(Color::DarkGray),
         )),
     ];
 
     if d.matches.is_empty() {
         lines.push(Line::from(Span::styled(
-            "(no matches)",
+            if is_zh { "(无匹配)" } else { "(no matches)" },
             Style::default().fg(Color::DarkGray),
         )));
     } else {
@@ -1152,7 +1219,7 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
         };
 
         for (i, g) in d.matches.iter().enumerate().skip(start).take(max_show) {
-            let label = if g.is_empty() { "(none)" } else { g.as_str() };
+            let label = if g.is_empty() { if is_zh { "(无)" } else { "(none)" } } else { g.as_str() };
             let style = if i == d.selected {
                 Style::default().fg(Color::Black).bg(Color::Cyan)
             } else {
@@ -1167,18 +1234,18 @@ fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::MoveGroupD
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Type to filter • Enter: apply • Esc/Ctrl+C: cancel",
+        if is_zh { "输入过滤 • 回车: 应用 • Esc/Ctrl+C: 取消" } else { "Type to filter • Enter: apply • Esc/Ctrl+C: cancel" },
         Style::default().fg(Color::DarkGray),
     )));
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Group"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "分组" } else { "Group" }));
 
     f.render_widget(p, popup_area);
 }
 
-fn render_tag_picker_dialog(f: &mut Frame, area: Rect, d: &crate::ui::TagPickerDialog) {
+fn render_tag_picker_dialog(f: &mut Frame, area: Rect, d: &crate::ui::TagPickerDialog, is_zh: bool) {
     let popup_area = centered_rect(60, 50, area);
     f.render_widget(Clear, popup_area);
 
@@ -1189,11 +1256,11 @@ fn render_tag_picker_dialog(f: &mut Frame, area: Rect, d: &crate::ui::TagPickerD
 
     if d.tags.is_empty() {
         let empty = Paragraph::new(
-            "(no tags found)\n\nTip: edit a session label first (r), then reuse it here.",
+            if is_zh { "(未找到标签)\n\n提示: 先编辑会话标签 (r), 然后在此处复用。" } else { "(no tags found)\n\nTip: edit a session label first (r), then reuse it here." },
         )
         .style(Style::default().fg(Color::DarkGray))
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).title("Tag"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "标签" } else { "Tag" }));
         f.render_widget(empty, chunks[0]);
     } else {
         let items: Vec<ListItem> = d
@@ -1227,19 +1294,19 @@ fn render_tag_picker_dialog(f: &mut Frame, area: Rect, d: &crate::ui::TagPickerD
             })
             .collect();
 
-        let list = List::new(items).block(Block::default().borders(Borders::ALL).title("Tag"));
+        let list = List::new(items).block(Block::default().borders(Borders::ALL).title(if is_zh { "标签" } else { "Tag" }));
         let mut state = ListState::default().with_selected(Some(d.selected));
         f.render_stateful_widget(list, chunks[0], &mut state);
     }
 
-    let hint = Paragraph::new("↑/↓: select • Enter: apply • Esc: cancel")
+    let hint = Paragraph::new(if is_zh { "↑/↓: 选择 • 回车: 应用 • Esc: 取消" } else { "↑/↓: select • Enter: apply • Esc: cancel" })
         .style(Style::default().fg(Color::DarkGray))
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(hint, chunks[1]);
 }
 
-fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameSessionDialog) {
+fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameSessionDialog, is_zh: bool) {
     let popup_area = centered_rect(70, 40, area);
     f.render_widget(Clear, popup_area);
 
@@ -1247,10 +1314,10 @@ fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Rename
     let is_title_active = d.field == crate::ui::SessionEditField::Title;
     let is_label_active = d.field == crate::ui::SessionEditField::Label;
 
-    let mut title_spans = vec![Span::raw("Title:  ")];
+    let mut title_spans = vec![Span::raw(if is_zh { "标题:  " } else { "Title:  " })];
     title_spans.extend(render_text_input(&d.new_title, is_title_active, base_style));
 
-    let mut label_spans = vec![Span::raw("Label:  ")];
+    let mut label_spans = vec![Span::raw(if is_zh { "标签:  " } else { "Label:  " })];
     label_spans.extend(render_text_input(&d.label, is_label_active, base_style));
 
     let (color_name, color_fg) = match d.label_color {
@@ -1274,7 +1341,7 @@ fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Rename
 
     let lines = vec![
         Line::from(Span::styled(
-            "Edit Session",
+            if is_zh { "编辑会话" } else { "Edit Session" },
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -1283,7 +1350,7 @@ fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Rename
         Line::from(title_spans),
         Line::from(label_spans),
         Line::from(vec![
-            Span::raw("Color:  "),
+            Span::raw(if is_zh { "颜色:  " } else { "Color:  " }),
             Span::styled(
                 format!("{color_name}"),
                 color_style.fg(color_fg).add_modifier(Modifier::BOLD),
@@ -1292,91 +1359,93 @@ fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Rename
         Line::from(""),
         Line::from(vec![
             Span::styled("Tab", Style::default().fg(Color::Yellow)),
-            Span::raw(":next field  "),
+            Span::raw(if is_zh { ":下一字段  " } else { ":next field  " }),
             Span::styled("Enter", Style::default().fg(Color::Green)),
-            Span::raw(":next/apply  "),
+            Span::raw(if is_zh { ":下一个/应用  " } else { ":next/apply  " }),
             Span::styled("←/→", Style::default().fg(Color::Yellow)),
-            Span::raw(":color  "),
+            Span::raw(if is_zh { ":颜色  " } else { ":color  " }),
             Span::styled("Esc", Style::default().fg(Color::DarkGray)),
-            Span::raw(":cancel"),
+            Span::raw(if is_zh { ":取消" } else { ":cancel" }),
         ]),
     ];
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Session"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "会话" } else { "Session" }));
 
     f.render_widget(p, popup_area);
 }
 
-fn render_rename_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameGroupDialog) {
+fn render_rename_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::RenameGroupDialog, is_zh: bool) {
     let popup_area = centered_rect(70, 35, area);
     f.render_widget(Clear, popup_area);
 
     let base_style = Style::default();
-    let mut new_path_spans = vec![Span::raw("To:    ")];
+    let mut new_path_spans = vec![Span::raw(if is_zh { "到:    " } else { "To:    " })];
     new_path_spans.extend(render_text_input(&d.new_path, true, base_style));
 
     let lines = vec![
         Line::from(Span::styled(
-            "Rename Group",
+            if is_zh { "重命名分组" } else { "Rename Group" },
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::raw("From:  "),
+            Span::raw(if is_zh { "从:    " } else { "From:  " }),
             Span::styled(d.old_path.clone(), Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(new_path_spans),
         Line::from(""),
         Line::from(Span::styled(
-            "Enter: apply • Esc/Ctrl+C: cancel",
+            if is_zh { "回车: 应用 • Esc/Ctrl+C: 取消" } else { "Enter: apply • Esc/Ctrl+C: cancel" },
             Style::default().fg(Color::DarkGray),
         )),
     ];
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Group"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "分组" } else { "Group" }));
 
     f.render_widget(p, popup_area);
 }
 
-fn render_quit_confirm_dialog(f: &mut Frame, area: Rect) {
+fn render_quit_confirm_dialog(f: &mut Frame, area: Rect, is_zh: bool) {
     let popup_area = centered_rect(40, 20, area);
     f.render_widget(Clear, popup_area);
 
     let lines = vec![
         Line::from(Span::styled(
-            "Quit Agent Hand?",
+            if is_zh { "退出 Agent Hand？" } else { "Quit Agent Hand?" },
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from("Press q again to quit."),
-        Line::from("Any other key to cancel."),
+        Line::from(if is_zh { "再按 q 退出。" } else { "Press q again to quit." }),
+        Line::from(if is_zh { "按其他键取消。" } else { "Any other key to cancel." }),
     ];
 
     let p = Paragraph::new(lines)
         .alignment(ratatui::layout::Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).title("Confirm Quit"));
+        .block(Block::default().borders(Borders::ALL).title(
+            if is_zh { "确认退出" } else { "Confirm Quit" }
+        ));
 
     f.render_widget(p, popup_area);
 }
 
-fn render_delete_confirm_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DeleteConfirmDialog) {
+fn render_delete_confirm_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DeleteConfirmDialog, is_zh: bool) {
     let popup_area = centered_rect(60, 30, area);
     f.render_widget(Clear, popup_area);
 
     let lines = vec![
         Line::from(Span::styled(
-            "Delete session?",
+            if is_zh { "删除会话？" } else { "Delete session?" },
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::raw("Title: "),
+            Span::raw(if is_zh { "标题: " } else { "Title: " }),
             Span::styled(
                 d.title.clone(),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -1388,9 +1457,9 @@ fn render_delete_confirm_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Delete
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::raw("Kill tmux session: "),
+            Span::raw(if is_zh { "终止 tmux 会话: " } else { "Kill tmux session: " }),
             Span::styled(
-                if d.kill_tmux { "YES" } else { "NO" },
+                if is_zh { if d.kill_tmux { "是" } else { "否" } } else { if d.kill_tmux { "YES" } else { "NO" } },
                 if d.kill_tmux {
                     Style::default()
                         .fg(Color::Green)
@@ -1401,23 +1470,23 @@ fn render_delete_confirm_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Delete
                         .add_modifier(Modifier::BOLD)
                 },
             ),
-            Span::raw("  (press 't' to toggle)"),
+            Span::raw(if is_zh { "  (按 't' 切换)" } else { "  (press 't' to toggle)" }),
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "y/Enter: confirm • n/Esc/Ctrl+C: cancel",
+            if is_zh { "y/回车: 确认 • n/Esc/Ctrl+C: 取消" } else { "y/Enter: confirm • n/Esc/Ctrl+C: cancel" },
             Style::default().fg(Color::DarkGray),
         )),
     ];
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Confirm"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "确认" } else { "Confirm" }));
 
     f.render_widget(p, popup_area);
 }
 
-fn render_delete_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DeleteGroupDialog) {
+fn render_delete_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DeleteGroupDialog, is_zh: bool) {
     let popup_area = centered_rect(70, 35, area);
     f.render_widget(Clear, popup_area);
 
@@ -1441,19 +1510,19 @@ fn render_delete_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DeleteGr
 
     let lines = vec![
         Line::from(Span::styled(
-            "Delete group?",
+            if is_zh { "删除分组？" } else { "Delete group?" },
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::raw("Group: "),
+            Span::raw(if is_zh { "分组: " } else { "Group: " }),
             Span::styled(
                 d.group_path.clone(),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::raw("Sessions: "),
+            Span::raw(if is_zh { "会话数: " } else { "Sessions: " }),
             Span::styled(
                 d.session_count.to_string(),
                 Style::default()
@@ -1465,45 +1534,47 @@ fn render_delete_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DeleteGr
         Line::from(vec![
             Span::styled("1", Style::default().fg(Color::Yellow)),
             Span::raw(" "),
-            Span::styled("Delete group only (keep sessions)", opt1_style),
+            Span::styled(if is_zh { "仅删除分组 (保留会话)" } else { "Delete group only (keep sessions)" }, opt1_style),
         ]),
         Line::from(vec![
             Span::styled("2", Style::default().fg(Color::Yellow)),
             Span::raw(" "),
-            Span::styled("Cancel", opt2_style),
+            Span::styled(if is_zh { "取消" } else { "Cancel" }, opt2_style),
         ]),
         Line::from(vec![
             Span::styled("3", Style::default().fg(Color::Yellow)),
             Span::raw(" "),
-            Span::styled("Delete group + sessions", opt3_style),
+            Span::styled(if is_zh { "删除分组和会话" } else { "Delete group + sessions" }, opt3_style),
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "1/2/3 or ↑/↓ • Enter: confirm • Esc/Ctrl+C: cancel",
+            if is_zh { "1/2/3 或 ↑/↓ • 回车: 确认 • Esc/Ctrl+C: 取消" } else { "1/2/3 or ↑/↓ • Enter: confirm • Esc/Ctrl+C: cancel" },
             Style::default().fg(Color::DarkGray),
         )),
     ];
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Confirm"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "确认" } else { "Confirm" }));
 
     f.render_widget(p, popup_area);
 }
 
 fn render_search_popup(f: &mut Frame, area: Rect, app: &App) {
+    let is_zh = matches!(app.language(), crate::i18n::Language::Chinese);
     let popup_area = centered_rect(80, 60, area);
     f.render_widget(Clear, popup_area);
 
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(Span::styled(
-        "Search",
+        if is_zh { "搜索" } else { "Search" },
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(Span::raw(format!(
-        "Query: {}",
+        "{}: {}",
+        if is_zh { "查询" } else { "Query" },
         app.search_query()
     ))));
     lines.push(Line::from(""));
@@ -1549,7 +1620,7 @@ fn render_search_popup(f: &mut Frame, area: Rect, app: &App) {
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Search"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "搜索" } else { "Search" }));
 
     f.render_widget(p, popup_area);
 }
@@ -1558,6 +1629,7 @@ fn render_settings_dialog(
     f: &mut Frame,
     area: Rect,
     d: &crate::ui::SettingsDialog,
+    is_zh: bool,
 ) {
     use crate::ui::{SettingsField, SettingsTab};
 
@@ -1572,7 +1644,7 @@ fn render_settings_dialog(
 
     // Title
     lines.push(Line::from(Span::styled(
-        " Settings",
+        if is_zh { " 设置" } else { " Settings" },
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
@@ -1587,7 +1659,18 @@ fn render_settings_dialog(
         if i > 0 {
             tab_spans.push(Span::styled("  ", dim_style));
         }
-        let label = format!(" {} ", tab.label());
+        let tab_label = if is_zh {
+            match tab {
+                SettingsTab::AI => "AI",
+                SettingsTab::Sharing => "共享",
+                #[cfg(feature = "pro")]
+                SettingsTab::Notification => "音效",
+                SettingsTab::General => "通用",
+            }
+        } else {
+            tab.label()
+        };
+        let label = format!(" {} ", tab_label);
         if *tab == d.tab {
             tab_spans.push(Span::styled(
                 label,
@@ -1611,7 +1694,50 @@ fn render_settings_dialog(
     let fields = SettingsField::fields_for_tab(d.tab);
     for field in &fields {
         let is_active = *field == d.field;
-        let label = format!("  {:<16}", field.label());
+        let field_label = if is_zh {
+            match field {
+                SettingsField::AiProvider => "AI 提供商",
+                SettingsField::AiApiKey => "API 密钥",
+                SettingsField::AiModel => "模型",
+                SettingsField::AiBaseUrl => "Base URL",
+                SettingsField::AiSummaryLines => "摘要行数",
+                SettingsField::AiTest => "测试连接",
+                SettingsField::RelayServerUrl => "中继服务器",
+                SettingsField::TmateHost => "tmate 主机",
+                SettingsField::TmatePort => "tmate 端口",
+                SettingsField::DefaultPermission => "默认权限",
+                SettingsField::AutoExpire => "自动过期 (分)",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifHookStatus => "Hook 状态",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifAutoRegister => "自动注册",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifEnabled => "启用",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifSoundPack => "音效包",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifOnComplete => "完成时",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifOnInput => "输入时",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifOnError => "错误时",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifVolume => "音量",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifTestSound => "测试音效",
+                #[cfg(feature = "pro")]
+                SettingsField::NotifPackLink => "安装音效包",
+                SettingsField::AnalyticsEnabled => "分析",
+                SettingsField::MouseCapture => "鼠标捕获",
+                SettingsField::JumpLines => "跳转行数",
+                SettingsField::ScrollPadding => "滚动边距",
+                SettingsField::ReadyTtl => "就绪 TTL (分)",
+                SettingsField::Language => "语言",
+            }
+        } else {
+            field.label()
+        };
+        let label = format!("  {:<16}", field_label);
         let label_style = if is_active { active_style } else { base_style };
 
         let mut spans: Vec<Span<'static>> = vec![Span::styled(label, label_style)];
@@ -2028,6 +2154,27 @@ fn render_settings_dialog(
                     ));
                 }
             }
+            SettingsField::Language => {
+                let is_editing_this = d.editing && is_active;
+                let labels = ["English", "中文"];
+                if is_editing_this {
+                    let sel = Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                    let unsel = Style::default().fg(Color::DarkGray);
+                    for (i, label) in labels.iter().enumerate() {
+                        if i > 0 {
+                            spans.push(Span::raw(" "));
+                        }
+                        let style = if d.language_idx == i { sel } else { unsel };
+                        spans.push(Span::styled(format!(" {label} "), style));
+                    }
+                } else {
+                    let val = labels[d.language_idx % 2];
+                    spans.push(Span::styled(format!("▸ {val}"), if is_active { active_style } else { base_style }));
+                    if is_active {
+                        spans.push(Span::styled("  (Enter to select)", dim_style));
+                    }
+                }
+            }
             // Text input fields: relay_url, auto_expire, jump_lines, scroll_padding, ready_ttl
             _ => {
                 let input = match field {
@@ -2060,7 +2207,7 @@ fn render_settings_dialog(
     // Dirty indicator
     if d.dirty {
         lines.push(Line::from(Span::styled(
-            "  ● Unsaved changes",
+            if is_zh { "  ● 未保存的更改" } else { "  ● Unsaved changes" },
             Style::default().fg(Color::Yellow),
         )));
     }
@@ -2072,28 +2219,38 @@ fn render_settings_dialog(
         let is_selector = d.field.is_selector();
         if is_selector {
             lines.push(Line::from(Span::styled(
-                "  ←/→:choose  Enter/Esc:done",
+                if is_zh { "  ←/→:选择  回车/Esc:完成" } else { "  ←/→:choose  Enter/Esc:done" },
                 hint_style,
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "  type to edit  Enter/Esc:done",
+                if is_zh { "  输入编辑  回车/Esc:完成" } else { "  type to edit  Enter/Esc:done" },
                 hint_style,
             )));
         }
     } else {
-        lines.push(Line::from(vec![
-            Span::styled("  ←/→:tab  ", hint_style),
-            Span::styled("j/k:field  ", hint_style),
-            Span::styled("Enter:edit  ", hint_style),
-            Span::styled("Ctrl+S:save  ", hint_style),
-            Span::styled("Esc:close", hint_style),
-        ]));
+        if is_zh {
+            lines.push(Line::from(vec![
+                Span::styled("  ←/→:切换标签  ", hint_style),
+                Span::styled("j/k:选择字段  ", hint_style),
+                Span::styled("回车:编辑  ", hint_style),
+                Span::styled("Ctrl+S:保存  ", hint_style),
+                Span::styled("Esc:关闭", hint_style),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("  ←/→:tab  ", hint_style),
+                Span::styled("j/k:field  ", hint_style),
+                Span::styled("Enter:edit  ", hint_style),
+                Span::styled("Ctrl+S:save  ", hint_style),
+                Span::styled("Esc:close", hint_style),
+            ]));
+        }
     }
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Settings"));
+        .block(Block::default().borders(Borders::ALL).title(if is_zh { "设置" } else { "Settings" }));
 
     f.render_widget(p, popup_area);
 }
@@ -2133,7 +2290,99 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 /// Render help as a centered modal overlay
-fn render_help_modal(f: &mut Frame, area: Rect) {
+fn render_onboarding_welcome(f: &mut Frame, area: Rect, lang: crate::i18n::Language) {
+    use crate::i18n::Language;
+
+    let modal_area = centered_rect(70, 60, area);
+    f.render_widget(Clear, modal_area);
+
+    let (title_str, welcome_title, desc, features_title, f1, f2, f3, f4,
+         start_title, s1, s2, s3, s4, continue_str) = match lang {
+        Language::Chinese => (
+            " 欢迎 ",
+            "欢迎使用 Agent Deck！",
+            "Agent Deck 帮助您高效管理多个 AI 智能体会话。",
+            "主要功能：",
+            "  • 分组管理会话",
+            "  • 启动、停止和连接会话",
+            "  • 实时协作（Pro）",
+            "  • 会话分享和观察者模式（Pro）",
+            "快速开始：",
+            "  • 按 's' 创建新会话",
+            "  • 使用 ↑/↓ 或 j/k 导航",
+            "  • 按 Enter 连接到会话",
+            "  • 随时按 '?' 查看帮助",
+            "按 Enter 继续...",
+        ),
+        Language::English => (
+            " Welcome ",
+            "Welcome to Agent Deck!",
+            "Agent Deck helps you manage multiple AI agent sessions efficiently.",
+            "Key Features:",
+            "  • Organize sessions in groups",
+            "  • Start, stop, and attach to sessions",
+            "  • Real-time collaboration (Pro)",
+            "  • Session sharing and viewer mode (Pro)",
+            "Quick Start:",
+            "  • Press 's' to start a new session",
+            "  • Use ↑/↓ or j/k to navigate",
+            "  • Press Enter to attach to a session",
+            "  • Press '?' anytime for help",
+            "Press Enter to continue...",
+        ),
+    };
+
+    let welcome_text = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            welcome_title,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(desc),
+        Line::from(""),
+        Line::from(Span::styled(
+            features_title,
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(f1),
+        Line::from(f2),
+        Line::from(f3),
+        Line::from(f4),
+        Line::from(""),
+        Line::from(Span::styled(
+            start_title,
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(s1),
+        Line::from(s2),
+        Line::from(s3),
+        Line::from(s4),
+        Line::from(""),
+        Line::from(Span::styled(
+            continue_str,
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let paragraph = Paragraph::new(welcome_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(title_str),
+        )
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false });
+
+    f.render_widget(paragraph, modal_area);
+}
+
+fn render_help_modal(f: &mut Frame, area: Rect, lang: crate::i18n::Language) {
+    use crate::i18n::Language;
+
     let modal_area = centered_rect(80, 85, area);
     f.render_widget(Clear, modal_area);
 
@@ -2162,81 +2411,104 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
         ])
     };
 
+    let hint = |text: &str| -> Line<'static> {
+        Line::from(Span::styled(
+            format!("  {text}"),
+            Style::default().fg(Color::DarkGray),
+        ))
+    };
+
+    let is_zh = matches!(lang, Language::Chinese);
+
     let help_text: Vec<Line<'static>> = vec![
         Line::from(""),
-        section("Navigation"),
-        key("↑/k", "Move up"),
-        key("↓/j", "Move down"),
-        key("←/→", "Toggle group"),
-        key("/", "Search"),
+        section(if is_zh { "导航" } else { "Navigation" }),
+        hint(if is_zh { "在树形视图中浏览会话和分组" } else { "Browse sessions and groups in the tree view" }),
+        key("↑/k", if is_zh { "向上移动" } else { "Move up" }),
+        key("↓/j", if is_zh { "向下移动" } else { "Move down" }),
+        key("←/→", if is_zh { "展开/折叠分组" } else { "Expand/collapse group" }),
+        key("/", if is_zh { "按名称搜索会话" } else { "Search sessions by name" }),
+        key("Tab", if is_zh { "切换面板焦点：活跃→观察→树 (Pro)" } else { "Cycle focus: Active → Viewer → Tree (Pro)" }),
         Line::from(""),
-        section("Session Actions"),
-        key("Enter", "Attach"),
-        key("s", "Start"),
-        key("x", "Stop"),
-        key("r", "Edit"),
-        key("R", "Restart"),
-        key("m", "Move to group"),
-        key("f", "Fork"),
-        key("d", "Delete"),
-        key("b", "Boost active"),
+        section(if is_zh { "会话操作" } else { "Session Actions" }),
+        hint(if is_zh { "在树形视图中管理单个会话" } else { "Manage individual sessions from the tree view" }),
+        key("Enter", if is_zh { "连接到所选会话的终端" } else { "Attach to the selected session's terminal" }),
+        key("s", if is_zh { "启动已停止的会话" } else { "Start a stopped session" }),
+        key("x", if is_zh { "停止正在运行的会话" } else { "Stop a running session" }),
+        key("r", if is_zh { "编辑会话名称或配置" } else { "Edit session name or configuration" }),
+        key("R", if is_zh { "重启：先停止再启动会话" } else { "Restart: stop then start a session" }),
+        key("m", if is_zh { "将会话移动到其他分组" } else { "Move session to a different group" }),
+        key("f", if is_zh { "复制：创建会话副本" } else { "Fork: create a copy of the session" }),
+        key("d", if is_zh { "永久删除会话" } else { "Delete session permanently" }),
+        key("b", if is_zh { "提升：将会话置顶到活跃面板" } else { "Boost: bring session to active panel" }),
         #[cfg(feature = "max")]
-        key("A", "AI summary (Max)"),
+        key("A", if is_zh { "AI 总结会话输出 (Max)" } else { "AI summary of session output (Max)" }),
         Line::from(""),
-        section("Group Actions"),
-        key("Enter", "Toggle"),
-        key("r", "Rename"),
-        key("d", "Delete"),
+        section(if is_zh { "分组操作" } else { "Group Actions" }),
+        hint(if is_zh { "将会话整理到可折叠的分组中" } else { "Organize sessions into collapsible groups" }),
+        key("Enter", if is_zh { "展开/折叠分组" } else { "Toggle group expand/collapse" }),
+        key("r", if is_zh { "重命名分组" } else { "Rename group" }),
+        key("d", if is_zh { "删除分组（会话保留）" } else { "Delete group (sessions are unlinked)" }),
         Line::from(""),
-        section("Global"),
-        key("n", "New session"),
-        key("g", "Create group"),
-        key("p", "Preview snapshot"),
-        key("Ctrl+r", "Refresh"),
-        key("Ctrl+e", "Relationships"),
-        key("Shift+S", "Share (Pro)"),
-        key("Shift+J", "Join session (Pro)"),
-        key("Tab", "Active panel (Pro)"),
-        key(",", "Settings"),
-        key("?", "Help"),
-        key("q", "Quit"),
+        section(if is_zh { "全局" } else { "Global" }),
+        hint(if is_zh { "在任何界面均可使用" } else { "Available from any screen" }),
+        key("n", if is_zh { "创建新会话" } else { "Create a new session" }),
+        key("g", if is_zh { "创建新分组" } else { "Create a new group" }),
+        key("p", if is_zh { "预览最近的会话快照" } else { "Preview latest session snapshot" }),
+        key("Ctrl+r", if is_zh { "强制刷新所有会话状态" } else { "Force refresh all session statuses" }),
+        key("Ctrl+e", if is_zh { "查看会话关系图" } else { "View session relationships graph" }),
+        key("Shift+S", if is_zh { "通过中继分享会话 (Pro)" } else { "Share session via relay (Pro)" }),
+        key("Shift+J", if is_zh { "通过 URL 加入共享会话 (Pro)" } else { "Join a shared session by URL (Pro)" }),
+        key(",", if is_zh { "打开设置" } else { "Open settings" }),
+        key("?", if is_zh { "切换帮助界面" } else { "Toggle this help screen" }),
+        key("q", if is_zh { "退出 Agent Deck" } else { "Quit Agent Deck" }),
         Line::from(""),
-        section("Viewer Mode (Pro)"),
-        key("Up/Down", "Scroll (RO) / Input (RW)"),
-        key("Shift+Up/Dn", "Scroll (in RW mode)"),
-        key("PgUp/PgDn", "Scroll (RO) / Input (RW)"),
-        key("Home/End", "Scroll top/follow (RO)"),
-        key("F1-F12", "Forwarded in RW mode"),
-        key("r", "Request RW control"),
-        key("Esc", "RW: relinquish control / RO: disconnect"),
-        key("q", "Disconnect (RO only)"),
-        key("Ctrl+V", "Paste URL (join dialog)"),
+        section(if is_zh { "观察者会话面板 (Pro)" } else { "Viewer Sessions Panel (Pro)" }),
+        hint(if is_zh { "管理已连接的共享会话" } else { "Manage shared sessions you've connected to" }),
+        key("↑/↓", if is_zh { "浏览观察者会话列表" } else { "Navigate viewer sessions list" }),
+        key("Enter", if is_zh { "切换到或重新连接观察者会话" } else { "Switch to or reconnect a viewer session" }),
+        key("d", if is_zh { "打开断开连接对话框" } else { "Open disconnect dialog for session" }),
+        key("Ctrl+Q", if is_zh { "从观察模式返回仪表盘" } else { "Return to Dashboard from viewer mode" }),
         Line::from(""),
-        section("Status Indicators"),
+        section(if is_zh { "观察者模式 (Pro)" } else { "Viewer Mode (Pro)" }),
+        hint(if is_zh { "观看或控制共享的远程会话" } else { "Watch or control a shared remote session" }),
+        key("Up/Down", if is_zh { "滚动(只读) / 发送输入(读写)" } else { "Scroll (RO) / Send input (RW)" }),
+        key("Shift+Up/Dn", if is_zh { "读写模式下滚动" } else { "Scroll while in RW mode" }),
+        key("PgUp/PgDn", if is_zh { "翻页(只读) / 发送输入(读写)" } else { "Page scroll (RO) / Send input (RW)" }),
+        key("Home/End", if is_zh { "跳到顶部 / 跟随最新输出" } else { "Jump to top / Follow latest output" }),
+        key("F1-F12", if is_zh { "读写模式下转发到会话" } else { "Forwarded to session in RW mode" }),
+        key("r", if is_zh { "请求读写控制权" } else { "Request read-write control" }),
+        key("Esc", if is_zh { "读写：释放控制 / 只读：断开" } else { "RW: relinquish control / RO: disconnect" }),
+        key("q", if is_zh { "断开观察者会话连接(只读)" } else { "Disconnect from viewer session (RO)" }),
+        key("Ctrl+V", if is_zh { "在加入对话框粘贴 URL" } else { "Paste URL in join dialog" }),
+        Line::from(""),
+        section(if is_zh { "状态指示器" } else { "Status Indicators" }),
+        hint(if is_zh { "树形视图中的会话状态图标" } else { "Session status icons in the tree view" }),
         Line::from(vec![
             Span::styled("  !  ", Style::default().fg(Color::Blue)),
-            Span::raw("WAITING"),
+            Span::raw(if is_zh { "等待中" } else { "WAITING" }),
             Span::raw("    "),
             Span::styled("✓  ", Style::default().fg(Color::Cyan)),
-            Span::raw("READY"),
+            Span::raw(if is_zh { "就绪" } else { "READY" }),
             Span::raw("     "),
             Span::styled("●  ", Style::default().fg(Color::Yellow)),
-            Span::raw("RUNNING"),
+            Span::raw(if is_zh { "运行中" } else { "RUNNING" }),
         ]),
         Line::from(vec![
             Span::styled("  ○  ", Style::default().fg(Color::DarkGray)),
-            Span::raw("IDLE"),
+            Span::raw(if is_zh { "空闲" } else { "IDLE" }),
             Span::raw("       "),
             Span::styled("✕  ", Style::default().fg(Color::Red)),
-            Span::raw("ERROR"),
+            Span::raw(if is_zh { "错误" } else { "ERROR" }),
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "          Press ? or Esc to close",
+            if is_zh { "          按 ? 或 Esc 关闭" } else { "          Press ? or Esc to close" },
             Style::default().fg(Color::DarkGray),
         )),
     ];
 
+    let help_title = if is_zh { " ⌨ 命令与快捷键 " } else { " ⌨ Commands & Shortcuts " };
     let help = Paragraph::new(help_text)
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: false })
@@ -2244,7 +2516,7 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(Span::styled(
-                    " ⌨ Commands & Shortcuts ",
+                    help_title,
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
@@ -2258,36 +2530,37 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
 /// Render status bar
 /// Render keyboard hint spans for normal item selection (shared by free and pro builds)
 fn render_item_hints(spans: &mut Vec<Span<'static>>, app: &App) {
+    let is_zh = matches!(app.language(), crate::i18n::Language::Chinese);
     match app.selected_item() {
         Some(TreeItem::Group { .. }) => {
             spans.push(Span::styled("Enter", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":toggle  "));
+            spans.push(Span::raw(if is_zh { ":切换  " } else { ":toggle  " }));
             spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
-            spans.push(Span::raw(":rename  "));
+            spans.push(Span::raw(if is_zh { ":重命名  " } else { ":rename  " }));
             spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":del  "));
+            spans.push(Span::raw(if is_zh { ":删除  " } else { ":del  " }));
             spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":group+  "));
+            spans.push(Span::raw(if is_zh { ":新分组  " } else { ":group+  " }));
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":new  "));
+            spans.push(Span::raw(if is_zh { ":新建  " } else { ":new  " }));
         }
         Some(TreeItem::Session { .. }) => {
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":new  "));
+            spans.push(Span::raw(if is_zh { ":新建  " } else { ":new  " }));
             spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":group+  "));
+            spans.push(Span::raw(if is_zh { ":新分组  " } else { ":group+  " }));
             spans.push(Span::styled("r", Style::default().fg(Color::Yellow)));
-            spans.push(Span::raw(":rename  "));
+            spans.push(Span::raw(if is_zh { ":重命名  " } else { ":rename  " }));
             spans.push(Span::styled("R", Style::default().fg(Color::Yellow)));
-            spans.push(Span::raw(":restart  "));
+            spans.push(Span::raw(if is_zh { ":重启  " } else { ":restart  " }));
             spans.push(Span::styled("d", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":del  "));
+            spans.push(Span::raw(if is_zh { ":删除  " } else { ":del  " }));
             spans.push(Span::styled("f", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":fork  "));
+            spans.push(Span::raw(if is_zh { ":复制  " } else { ":fork  " }));
             spans.push(Span::styled("m", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":move  "));
+            spans.push(Span::raw(if is_zh { ":移动  " } else { ":move  " }));
             spans.push(Span::styled("b", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":boost  "));
+            spans.push(Span::raw(if is_zh { ":置顶  " } else { ":boost  " }));
             #[cfg(feature = "max")]
             {
                 spans.push(Span::styled("A", Style::default().fg(Color::Magenta)));
@@ -2296,30 +2569,34 @@ fn render_item_hints(spans: &mut Vec<Span<'static>>, app: &App) {
         }
         _ => {
             spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":new  "));
+            spans.push(Span::raw(if is_zh { ":新建  " } else { ":new  " }));
             spans.push(Span::styled("g", Style::default().fg(Color::Cyan)));
-            spans.push(Span::raw(":group+  "));
+            spans.push(Span::raw(if is_zh { ":新分组  " } else { ":group+  " }));
         }
     }
 }
 
 fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
+    let is_zh = matches!(app.language(), crate::i18n::Language::Chinese);
+
     // Viewer mode has its own presence bar — skip the normal status bar
     #[cfg(feature = "pro")]
     if app.state() == crate::ui::AppState::ViewerMode {
         let mut spans = vec![
             Span::raw("  "),
             Span::styled("?", Style::default().fg(Color::Magenta)),
-            Span::raw(":help  "),
+            Span::raw(if is_zh { ":帮助  " } else { ":help  " }),
         ];
         // Show hosting indicator if user has active shared sessions
         let hosting = app.hosting_session_count();
         if hosting > 0 {
             spans.push(Span::styled("|  ", Style::default().fg(Color::DarkGray)));
-            spans.push(Span::styled(
-                format!("Hosting {} session{}", hosting, if hosting == 1 { "" } else { "s" }),
-                Style::default().fg(Color::Yellow),
-            ));
+            let hosting_msg = if is_zh {
+                format!("正在共享 {} 个会话", hosting)
+            } else {
+                format!("Hosting {} session{}", hosting, if hosting == 1 { "" } else { "s" })
+            };
+            spans.push(Span::styled(hosting_msg, Style::default().fg(Color::Yellow)));
             spans.push(Span::raw("  "));
         }
         let bar = Paragraph::new(Line::from(spans))
@@ -2399,23 +2676,26 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
             select_hint,
             Style::default().fg(Color::DarkGray),
         ));
-        spans.push(Span::styled(":select text  ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            if is_zh { ":选择文本  " } else { ":select text  " },
+            Style::default().fg(Color::DarkGray),
+        ));
     }
 
     #[cfg(feature = "pro")]
     if app.state() == crate::ui::AppState::Relationships {
         spans.push(Span::styled("n", Style::default().fg(Color::Cyan)));
-        spans.push(Span::raw(":new  "));
+        spans.push(Span::raw(if is_zh { ":新建  " } else { ":new  " }));
         spans.push(Span::styled("d", Style::default().fg(Color::Red)));
-        spans.push(Span::raw(":del  "));
+        spans.push(Span::raw(if is_zh { ":删除  " } else { ":del  " }));
         spans.push(Span::styled("c", Style::default().fg(Color::Cyan)));
-        spans.push(Span::raw(":capture  "));
+        spans.push(Span::raw(if is_zh { ":捕获  " } else { ":capture  " }));
         spans.push(Span::styled("a", Style::default().fg(Color::Cyan)));
-        spans.push(Span::raw(":annotate  "));
+        spans.push(Span::raw(if is_zh { ":注释  " } else { ":annotate  " }));
         spans.push(Span::styled("^N", Style::default().fg(Color::Cyan)));
-        spans.push(Span::raw(":from-ctx  "));
+        spans.push(Span::raw(if is_zh { ":从上下文  " } else { ":from-ctx  " }));
         spans.push(Span::styled("Esc", Style::default().fg(Color::Yellow)));
-        spans.push(Span::raw(":back"));
+        spans.push(Span::raw(if is_zh { ":返回" } else { ":back" }));
     } else {
         render_item_hints(&mut spans, app);
     }
@@ -2423,23 +2703,23 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
     render_item_hints(&mut spans, app);
 
     spans.push(Span::styled("/", Style::default().fg(Color::Cyan)));
-    spans.push(Span::raw(":search  "));
+    spans.push(Span::raw(if is_zh { ":搜索  " } else { ":search  " }));
     #[cfg(feature = "pro")]
     {
         spans.push(Span::styled("^E", Style::default().fg(Color::Cyan)));
-        spans.push(Span::raw(":rels  "));
+        spans.push(Span::raw(if is_zh { ":关系  " } else { ":rels  " }));
     }
     spans.push(Span::styled("p", Style::default().fg(Color::Cyan)));
-    spans.push(Span::raw(":preview  "));
+    spans.push(Span::raw(if is_zh { ":预览  " } else { ":preview  " }));
     spans.push(Span::styled("?", Style::default().fg(Color::Magenta)));
-    spans.push(Span::raw(":help  "));
+    spans.push(Span::raw(if is_zh { ":帮助  " } else { ":help  " }));
     spans.push(Span::styled("q", Style::default().fg(Color::Red)));
-    spans.push(Span::raw(":quit"));
+    spans.push(Span::raw(if is_zh { ":退出" } else { ":quit" }));
 
     if app.state() == crate::ui::AppState::Search {
         spans.push(Span::raw("  |  "));
         spans.push(Span::styled(
-            "Search: ",
+            if is_zh { "搜索: " } else { "Search: " },
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -2456,7 +2736,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         if is_pro && has_active {
             spans.push(Span::raw("  |  "));
             spans.push(Span::styled("Tab", Style::default().fg(Color::Yellow)));
-            spans.push(Span::raw(":active-panel"));
+            spans.push(Span::raw(if is_zh { ":活跃面板" } else { ":active-panel" }));
         }
     }
 
@@ -2488,7 +2768,10 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
         let email_display = token.email.split('@').next().unwrap_or(&token.email);
         spans.push(Span::raw(format!(" {}", email_display)));
     } else {
-        spans.push(Span::styled("not logged in", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            if is_zh { "未登录" } else { "not logged in" },
+            Style::default().fg(Color::DarkGray),
+        ));
     }
 
     let status_line = Line::from(spans);
@@ -2501,6 +2784,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
 /// Render the Relationships view (Premium)
 #[cfg(feature = "pro")]
 fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
+    let is_zh = matches!(app.language(), crate::i18n::Language::Chinese);
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -2512,7 +2796,7 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
     // Left panel: relationship list with selection
     let items: Vec<ListItem> = if relationships.is_empty() {
         vec![ListItem::new(Line::from(vec![Span::styled(
-            "  No relationships yet. Press 'n' to create one.",
+            if is_zh { "  暂无关系。按 'n' 新建。" } else { "  No relationships yet. Press 'n' to create one." },
             Style::default().fg(Color::DarkGray),
         )]))]
     } else {
@@ -2560,7 +2844,7 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
                             .session_by_id(&rel.session_a_id)
                             .is_some_and(|s| matches!(s.status, crate::session::Status::Idle));
                         if source_idle {
-                            Span::styled(" ✓ ready", Style::default().fg(Color::Green))
+                            Span::styled(if is_zh { " ✓ 就绪" } else { " ✓ ready" }, Style::default().fg(Color::Green))
                         } else {
                             Span::styled(" ⏳", Style::default().fg(Color::Yellow))
                         }
@@ -2585,19 +2869,29 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(format!("Relationships ({})", relationships.len())),
+            .title(if is_zh { format!("关系 ({})", relationships.len()) } else { format!("Relationships ({})", relationships.len()) }),
     );
     f.render_stateful_widget(list, chunks[0], &mut list_state);
 
     // Right panel: context preview
     let preview_text = if relationships.is_empty() {
-        "Select a relationship to see context.\n\n\
-         Ctrl+E: back to sessions\n\
-         n: new relationship\n\
-         d: delete relationship\n\
-         c: capture context\n\
-         a: annotate"
-            .to_string()
+        if is_zh {
+            "选择一个关系以查看上下文。\n\n\
+             Ctrl+E: 返回会话\n\
+             n: 新建关系\n\
+             d: 删除关系\n\
+             c: 捕获上下文\n\
+             a: 标注"
+                .to_string()
+        } else {
+            "Select a relationship to see context.\n\n\
+             Ctrl+E: back to sessions\n\
+             n: new relationship\n\
+             d: delete relationship\n\
+             c: capture context\n\
+             a: annotate"
+                .to_string()
+        }
     } else if let Some(rel) = relationships.get(selected) {
         let a_title = app
             .session_by_id(&rel.session_a_id)
@@ -2627,9 +2921,17 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
                 .session_by_id(&rel.session_a_id)
                 .is_some_and(|s| matches!(s.status, crate::session::Status::Idle));
             if source_idle {
-                "\n✓ Dependency satisfied — source session is idle.\n  Output may be ready for consumption.\n".to_string()
+                if is_zh {
+                    "\n✓ 依赖已满足 — 源会话空闲。\n  输出可能已准备好。\n".to_string()
+                } else {
+                    "\n✓ Dependency satisfied — source session is idle.\n  Output may be ready for consumption.\n".to_string()
+                }
             } else {
-                "\n⏳ Dependency pending — source session still active.\n".to_string()
+                if is_zh {
+                    "\n⏳ 依赖等待中 — 源会话仍在活跃。\n".to_string()
+                } else {
+                    "\n⏳ Dependency pending — source session still active.\n".to_string()
+                }
             }
         } else {
             String::new()
@@ -2637,41 +2939,65 @@ fn render_relationships(f: &mut Frame, area: Rect, app: &App) {
 
         let snap_count = app.snapshot_count(&rel.id);
         let snap_info = if snap_count > 0 {
-            format!("\nSnapshots: {}\n", snap_count)
+            if is_zh { format!("\n快照: {}\n", snap_count) } else { format!("\nSnapshots: {}\n", snap_count) }
         } else {
-            "\nNo snapshots captured yet.\n".to_string()
+            if is_zh { "\n尚未捕获快照。\n".to_string() } else { "\nNo snapshots captured yet.\n".to_string() }
         };
 
-        format!(
-            "=== {} ===\n\
-             Type: {}\n\
-             {}\n\
-             Session A: \"{}\"\n\
-             Status: {}\n\n\
-             Session B: \"{}\"\n\
-             Status: {}\n\
-             {}{}\n\
-             [c] Capture  [a] Annotate  [Ctrl+N] New from ctx\n\
-             [d] Delete   [Esc] Back",
-            rel.direction_indicator(),
-            rel.relation_type,
-            label_line,
-            a_title,
-            a_status,
-            b_title,
-            b_status,
-            dep_info,
-            snap_info,
-        )
+        if is_zh {
+            format!(
+                "=== {} ===\n\
+                 类型: {}\n\
+                 {}\n\
+                 会话 A: \"{}\"\n\
+                 状态: {}\n\n\
+                 会话 B: \"{}\"\n\
+                 状态: {}\n\
+                 {}{}\n\
+                 [c] 捕获  [a] 标注  [Ctrl+N] 从上下文新建\n\
+                 [d] 删除   [Esc] 返回",
+                rel.direction_indicator(),
+                rel.relation_type,
+                label_line,
+                a_title,
+                a_status,
+                b_title,
+                b_status,
+                dep_info,
+                snap_info,
+            )
+        } else {
+            format!(
+                "=== {} ===\n\
+                 Type: {}\n\
+                 {}\n\
+                 Session A: \"{}\"\n\
+                 Status: {}\n\n\
+                 Session B: \"{}\"\n\
+                 Status: {}\n\
+                 {}{}\n\
+                 [c] Capture  [a] Annotate  [Ctrl+N] New from ctx\n\
+                 [d] Delete   [Esc] Back",
+                rel.direction_indicator(),
+                rel.relation_type,
+                label_line,
+                a_title,
+                a_status,
+                b_title,
+                b_status,
+                dep_info,
+                snap_info,
+            )
+        }
     } else {
-        "No relationship selected.".to_string()
+        if is_zh { "未选择关系。".to_string() } else { "No relationship selected.".to_string() }
     };
 
     let preview = Paragraph::new(preview_text)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Context Preview"),
+                .title(if is_zh { "上下文预览" } else { "Context Preview" }),
         )
         .wrap(Wrap { trim: false });
     f.render_widget(preview, chunks[1]);
@@ -2682,6 +3008,7 @@ fn render_pack_browser_dialog(
     f: &mut Frame,
     area: Rect,
     d: &crate::ui::dialogs::PackBrowserDialog,
+    is_zh: bool,
 ) {
     use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 
@@ -2689,7 +3016,7 @@ fn render_pack_browser_dialog(
     f.render_widget(Clear, popup_area);
 
     let block = Block::default()
-        .title(" Install Sound Packs ")
+        .title(if is_zh { " 安装音效包 " } else { " Install Sound Packs " })
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(popup_area);
@@ -2718,11 +3045,11 @@ fn render_pack_browser_dialog(
 
     // Pack list
     if d.loading {
-        let loading = Paragraph::new("  Loading...")
+        let loading = Paragraph::new(if is_zh { "  加载中..." } else { "  Loading..." })
             .style(Style::default().fg(Color::DarkGray));
         f.render_widget(loading, chunks[1]);
     } else if d.packs.is_empty() {
-        let empty = Paragraph::new("  No packs found")
+        let empty = Paragraph::new(if is_zh { "  未找到音效包" } else { "  No packs found" })
             .style(Style::default().fg(Color::DarkGray));
         f.render_widget(empty, chunks[1]);
     } else {
@@ -2741,7 +3068,7 @@ fn render_pack_browser_dialog(
             .skip(scroll_offset)
             .take(visible_height)
             .map(|(i, pack)| {
-                let marker = if pack.installed { " [installed]" } else { "" };
+                let marker = if pack.installed { if is_zh { " [已安装]" } else { " [installed]" } } else { "" };
                 let text = format!("  {}{}", pack.name, marker);
                 let style = if i == d.selected {
                     if pack.installed {
@@ -2769,10 +3096,18 @@ fn render_pack_browser_dialog(
     }
 
     // Hints
-    let hint = if d.installing {
-        " Installing... please wait".to_string()
+    let hint = if is_zh {
+        if d.installing {
+            " 安装中... 请稍候".to_string()
+        } else {
+            " 回车: 安装  |  j/k: 浏览  |  Esc: 关闭\n 来源: github.com/PeonPing/og-packs".to_string()
+        }
     } else {
-        " Enter: Install  |  j/k: Navigate  |  Esc: Close\n Source: github.com/PeonPing/og-packs".to_string()
+        if d.installing {
+            " Installing... please wait".to_string()
+        } else {
+            " Enter: Install  |  j/k: Navigate  |  Esc: Close\n Source: github.com/PeonPing/og-packs".to_string()
+        }
     };
     let hints = Paragraph::new(hint)
         .style(Style::default().fg(Color::DarkGray));
@@ -2780,7 +3115,7 @@ fn render_pack_browser_dialog(
 }
 
 #[cfg(feature = "pro")]
-fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSessionDialog) {
+fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSessionDialog, is_zh: bool) {
     let popup_area = centered_rect(65, 35, area);
     f.render_widget(Clear, popup_area);
 
@@ -2793,7 +3128,7 @@ fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSess
     };
 
     let block = Block::default()
-        .title(" Join Shared Session ")
+        .title(if is_zh { " 加入共享会话 " } else { " Join Shared Session " })
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(Color::Rgb(20, 20, 35)));
@@ -2817,7 +3152,7 @@ fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSess
     if let Some(ref identity) = d.viewer_identity {
         f.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled("Joining as: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(if is_zh { "加入身份: " } else { "Joining as: " }, Style::default().fg(Color::DarkGray)),
                 Span::styled(identity.as_str(), Style::default().fg(Color::Cyan)),
             ])),
             chunks[0],
@@ -2825,17 +3160,17 @@ fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSess
     } else {
         f.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled("Joining as: ", Style::default().fg(Color::DarkGray)),
-                Span::styled("anonymous", Style::default().fg(Color::Yellow)),
-                Span::styled(" (login for identity)", Style::default().fg(Color::DarkGray)),
+                Span::styled(if is_zh { "加入身份: " } else { "Joining as: " }, Style::default().fg(Color::DarkGray)),
+                Span::styled(if is_zh { "匿名" } else { "anonymous" }, Style::default().fg(Color::Yellow)),
+                Span::styled(if is_zh { " (登录以获取身份)" } else { " (login for identity)" }, Style::default().fg(Color::DarkGray)),
             ])),
             chunks[0],
         );
     }
 
     let label = Paragraph::new(Line::from(vec![
-        Span::styled("Paste share URL ", Style::default().fg(Color::Gray)),
-        Span::styled("(e.g. https://relay.../share/abc?token=...)", Style::default().fg(Color::DarkGray)),
+        Span::styled(if is_zh { "粘贴共享链接 " } else { "Paste share URL " }, Style::default().fg(Color::Gray)),
+        Span::styled(if is_zh { "(例如 https://relay.../share/abc?token=...)" } else { "(e.g. https://relay.../share/abc?token=...)" }, Style::default().fg(Color::DarkGray)),
     ]));
     f.render_widget(label, chunks[1]);
 
@@ -2878,10 +3213,10 @@ fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSess
         f.render_widget(status_line, chunks[4]);
     }
 
-    let hint_text = if d.connecting {
-        "Connecting... (Esc to cancel)"
+    let hint_text = if is_zh {
+        if d.connecting { "连接中... (Esc 取消)" } else { "回车: 连接  |  Esc: 取消" }
     } else {
-        "Enter: connect  |  Esc: cancel"
+        if d.connecting { "Connecting... (Esc to cancel)" } else { "Enter: connect  |  Esc: cancel" }
     };
     f.render_widget(
         Paragraph::new(hint_text).style(Style::default().fg(Color::DarkGray)),
@@ -2890,52 +3225,52 @@ fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSess
 }
 
 #[cfg(feature = "pro")]
-fn render_disconnect_viewer_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DisconnectViewerDialog) {
+fn render_disconnect_viewer_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DisconnectViewerDialog, is_zh: bool) {
     let popup_area = centered_rect(60, 50, area);
     f.render_widget(Clear, popup_area);
 
     let text = vec![
         Line::from(""),
         Line::from(vec![
-            Span::raw("Room: "),
+            Span::raw(if is_zh { "房间: " } else { "Room: " }),
             Span::styled(&d.room_id, Style::default().fg(Color::Cyan)),
         ]),
         Line::from(vec![
-            Span::raw("Relay: "),
+            Span::raw(if is_zh { "中继: " } else { "Relay: " }),
             Span::styled(&d.relay_url, Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(""),
-        Line::from("What would you like to do?"),
+        Line::from(if is_zh { "您想执行什么操作？" } else { "What would you like to do?" }),
         Line::from(""),
         Line::from(vec![
             if d.selected_option == 0 {
-                Span::styled("> Disconnect (keep session)", Style::default().fg(Color::Yellow))
+                Span::styled(if is_zh { "> 断开连接 (保留会话)" } else { "> Disconnect (keep session)" }, Style::default().fg(Color::Yellow))
             } else {
-                Span::raw("  Disconnect (keep session)")
+                Span::raw(if is_zh { "  断开连接 (保留会话)" } else { "  Disconnect (keep session)" })
             },
         ]),
         Line::from(vec![
             if d.selected_option == 1 {
-                Span::styled("> Disconnect and delete session", Style::default().fg(Color::Red))
+                Span::styled(if is_zh { "> 断开并删除会话" } else { "> Disconnect and delete session" }, Style::default().fg(Color::Red))
             } else {
-                Span::raw("  Disconnect and delete session")
+                Span::raw(if is_zh { "  断开并删除会话" } else { "  Disconnect and delete session" })
             },
         ]),
         Line::from(vec![
             if d.selected_option == 2 {
-                Span::styled("> Cancel", Style::default().fg(Color::Green))
+                Span::styled(if is_zh { "> 取消" } else { "> Cancel" }, Style::default().fg(Color::Green))
             } else {
-                Span::raw("  Cancel")
+                Span::raw(if is_zh { "  取消" } else { "  Cancel" })
             },
         ]),
         Line::from(""),
-        Line::from("Use ↑/↓ to select, Enter to confirm"),
+        Line::from(if is_zh { "使用 ↑/↓ 选择，回车确认" } else { "Use ↑/↓ to select, Enter to confirm" }),
     ];
 
     let paragraph = Paragraph::new(text)
         .block(Block::default()
             .borders(Borders::ALL)
-            .title(" Disconnect Viewer Session ")
+            .title(if is_zh { " 断开观察者会话 " } else { " Disconnect Viewer Session " })
             .border_style(Style::default().fg(Color::Yellow)))
         .wrap(Wrap { trim: true });
 
@@ -2944,6 +3279,7 @@ fn render_disconnect_viewer_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Dis
 
 #[cfg(feature = "pro")]
 fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, app: &App) {
+    let is_zh = matches!(app.language(), crate::i18n::Language::Chinese);
     let popup_area = centered_rect(65, 55, area);
     f.render_widget(Clear, popup_area);
 
@@ -2952,10 +3288,18 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
         .map(|c| c.viewers())
         .unwrap_or_default();
 
-    let title = if d.already_sharing && !viewers.is_empty() {
-        format!("Share: {} ({} viewer{})", d.session_title, viewers.len(), if viewers.len() == 1 { "" } else { "s" })
+    let title = if is_zh {
+        if d.already_sharing && !viewers.is_empty() {
+            format!("共享: {} ({} 位观察者)", d.session_title, viewers.len())
+        } else {
+            format!("共享: {}", d.session_title)
+        }
     } else {
-        format!("Share: {}", d.session_title)
+        if d.already_sharing && !viewers.is_empty() {
+            format!("Share: {} ({} viewer{})", d.session_title, viewers.len(), if viewers.len() == 1 { "" } else { "s" })
+        } else {
+            format!("Share: {}", d.session_title)
+        }
     };
     let outer = Block::default()
         .borders(Borders::ALL)
@@ -2987,9 +3331,9 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
 
     // Permission line
     let perm_text = if d.already_sharing {
-        format!("Permission: {}", d.permission)
+        format!("{}{}", if is_zh { "权限: " } else { "Permission: " }, d.permission)
     } else {
-        format!("Permission: {} (Tab to toggle)", d.permission)
+        format!("{}{}{}", if is_zh { "权限: " } else { "Permission: " }, d.permission, if is_zh { " (Tab 切换)" } else { " (Tab to toggle)" })
     };
     f.render_widget(
         Paragraph::new(perm_text).style(Style::default().fg(Color::White)),
@@ -2999,12 +3343,12 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
     // Status
     let status = if d.already_sharing {
         Span::styled(
-            "● Sharing active",
+            if is_zh { "● 共享中" } else { "● Sharing active" },
             Style::default().fg(Color::Green),
         )
     } else {
         Span::styled(
-            "○ Not sharing — press Enter to start",
+            if is_zh { "○ 未共享 — 按回车开始" } else { "○ Not sharing — press Enter to start" },
             Style::default().fg(Color::DarkGray),
         )
     };
@@ -3030,7 +3374,7 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
             chunks[2],
         );
         f.render_widget(
-            Paragraph::new("Mode: WebSocket relay")
+            Paragraph::new(if is_zh { "模式: WebSocket 中继" } else { "Mode: WebSocket relay" })
                 .style(Style::default().fg(Color::DarkGray)),
             chunks[3],
         );
@@ -3063,21 +3407,21 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
     }
 
     // Expire minutes input
-    let mut expire_spans = vec![Span::raw("Expire (min): ")];
+    let mut expire_spans = vec![Span::raw(if is_zh { "过期 (分钟): " } else { "Expire (min): " })];
     expire_spans.extend(render_text_input(&d.expire_minutes, true, Style::default()));
     f.render_widget(Paragraph::new(Line::from(expire_spans)), chunks[4]);
 
     // Viewers list
     if viewers.is_empty() && d.already_sharing {
         f.render_widget(
-            Paragraph::new("  No viewers connected yet.")
+            Paragraph::new(if is_zh { "  尚无观察者连接。" } else { "  No viewers connected yet." })
                 .style(Style::default().fg(Color::DarkGray)),
             chunks[5],
         );
     } else if !viewers.is_empty() {
         let mut viewer_lines = vec![
             Line::from(Span::styled(
-                format!("Viewers ({}):", viewers.len()),
+                if is_zh { format!("观察者 ({}):", viewers.len()) } else { format!("Viewers ({}):", viewers.len()) },
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             )),
         ];
@@ -3095,7 +3439,7 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
         for (i, v) in viewers.iter().enumerate() {
             if i >= max_viewer_display {
                 viewer_lines.push(Line::from(Span::styled(
-                    format!("  ... and {} more", viewers.len() - max_viewer_display),
+                    if is_zh { format!("  ... 还有 {} 个", viewers.len() - max_viewer_display) } else { format!("  ... and {} more", viewers.len() - max_viewer_display) },
                     Style::default().fg(Color::DarkGray),
                 )));
                 break;
@@ -3184,10 +3528,18 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
     }
 
     // Actions hint
-    let action = if d.already_sharing {
-        "Enter: Stop  |  c: Copy URL  |  Up/Down: viewers  |  Esc: Close"
+    let action = if is_zh {
+        if d.already_sharing {
+            "回车: 停止  |  c: 复制链接  |  ↑/↓: 观察者  |  Esc: 关闭"
+        } else {
+            "回车: 开始共享  |  Esc: 关闭"
+        }
     } else {
-        "Enter: Start sharing  |  Esc: Close"
+        if d.already_sharing {
+            "Enter: Stop  |  c: Copy URL  |  Up/Down: viewers  |  Esc: Close"
+        } else {
+            "Enter: Start sharing  |  Esc: Close"
+        }
     };
     f.render_widget(
         Paragraph::new(action)
@@ -3198,14 +3550,14 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
 }
 
 #[cfg(feature = "pro")]
-fn render_control_request_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ControlRequestDialog) {
+fn render_control_request_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ControlRequestDialog, is_zh: bool) {
     let popup_area = centered_rect(50, 30, area);
     f.render_widget(Clear, popup_area);
 
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-        .title("⚠ Control Request ⚠");
+        .title(if is_zh { "⚠ 控制请求 ⚠" } else { "⚠ Control Request ⚠" });
 
     let inner_area = outer.inner(popup_area);
     f.render_widget(outer, popup_area);
@@ -3222,29 +3574,30 @@ fn render_control_request_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Contr
         .split(inner_area);
 
     let requester = if d.display_name.is_empty() {
-        "An anonymous viewer".to_string()
+        if is_zh { "匿名观察者".to_string() } else { "An anonymous viewer".to_string() }
     } else {
         format!("\"{}\"", d.display_name)
     };
     f.render_widget(
-        Paragraph::new(format!(
-            "{} requests read-write control",
-            requester
-        ))
+        Paragraph::new(if is_zh {
+            format!("{} 请求读写控制", requester)
+        } else {
+            format!("{} requests read-write control", requester)
+        })
         .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
         .alignment(Alignment::Center),
         chunks[1],
     );
 
     f.render_widget(
-        Paragraph::new(format!("of session \"{}\"", d.session_title))
+        Paragraph::new(if is_zh { format!("会话 \"{}\"", d.session_title) } else { format!("of session \"{}\"", d.session_title) })
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center),
         chunks[2],
     );
 
     f.render_widget(
-        Paragraph::new("[Y] Approve    [N] Deny")
+        Paragraph::new(if is_zh { "[Y] 批准    [N] 拒绝" } else { "[Y] Approve    [N] Deny" })
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center),
         chunks[4],
@@ -3256,13 +3609,14 @@ fn render_create_relationship_dialog(
     f: &mut Frame,
     area: Rect,
     d: &crate::ui::CreateRelationshipDialog,
+    is_zh: bool,
 ) {
     let popup_area = centered_rect(65, 55, area);
     f.render_widget(Clear, popup_area);
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .title("New Relationship");
+        .title(if is_zh { "新建关系" } else { "New Relationship" });
     let inner_area = outer.inner(popup_area);
     f.render_widget(outer, popup_area);
 
@@ -3282,20 +3636,20 @@ fn render_create_relationship_dialog(
 
     // From session
     f.render_widget(
-        Paragraph::new(format!("From: {}", d.session_a_title))
+        Paragraph::new(format!("{}{}", if is_zh { "来自: " } else { "From: " }, d.session_a_title))
             .style(Style::default().fg(Color::Cyan)),
         chunks[0],
     );
 
     // Relation type
     f.render_widget(
-        Paragraph::new(format!("Type: {} (Tab to cycle)", d.relation_type))
+        Paragraph::new(format!("{}{}{}", if is_zh { "类型: " } else { "Type: " }, d.relation_type, if is_zh { " (Tab 切换)" } else { " (Tab to cycle)" }))
             .style(Style::default().fg(Color::Yellow)),
         chunks[1],
     );
 
     // Search input
-    let mut search_spans = vec![Span::raw("Search: ")];
+    let mut search_spans = vec![Span::raw(if is_zh { "搜索: " } else { "Search: " })];
     search_spans.extend(render_text_input(
         &d.search_input,
         is_search,
@@ -3303,10 +3657,10 @@ fn render_create_relationship_dialog(
     ));
     f.render_widget(
         Paragraph::new(Line::from(search_spans))
-            .block(Block::default().borders(Borders::ALL).title(if is_search {
-                "Search (active)"
+            .block(Block::default().borders(Borders::ALL).title(if is_zh {
+                if is_search { "搜索 (活跃)" } else { "搜索" }
             } else {
-                "Search"
+                if is_search { "Search (active)" } else { "Search" }
             })),
         chunks[2],
     );
@@ -3314,7 +3668,7 @@ fn render_create_relationship_dialog(
     // Session matches
     let items: Vec<ListItem> = if d.matches.is_empty() {
         vec![ListItem::new(Span::styled(
-            "  No matching sessions",
+            if is_zh { "  没有匹配的会话" } else { "  No matching sessions" },
             Style::default().fg(Color::DarkGray),
         ))]
     } else {
@@ -3338,12 +3692,12 @@ fn render_create_relationship_dialog(
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title("Select Target Session"),
+            .title(if is_zh { "选择目标会话" } else { "Select Target Session" }),
     );
     f.render_widget(list, chunks[3]);
 
     // Label input
-    let mut label_spans = vec![Span::raw("Label: ")];
+    let mut label_spans = vec![Span::raw(if is_zh { "标签: " } else { "Label: " })];
     label_spans.extend(render_text_input(
         &d.label,
         !is_search,
@@ -3351,10 +3705,10 @@ fn render_create_relationship_dialog(
     ));
     f.render_widget(
         Paragraph::new(Line::from(label_spans)).block(
-            Block::default().borders(Borders::ALL).title(if !is_search {
-                "Label (active)"
+            Block::default().borders(Borders::ALL).title(if is_zh {
+                if !is_search { "标签 (活跃)" } else { "标签 (可选)" }
             } else {
-                "Label (optional)"
+                if !is_search { "Label (active)" } else { "Label (optional)" }
             }),
         ),
         chunks[4],
@@ -3362,7 +3716,7 @@ fn render_create_relationship_dialog(
 
     // Actions
     f.render_widget(
-        Paragraph::new("Enter: Create  |  Tab: Cycle type  |  Shift+Tab: Switch field  |  Esc: Cancel")
+        Paragraph::new(if is_zh { "回车: 创建  |  Tab: 切换类型  |  Shift+Tab: 切换字段  |  Esc: 取消" } else { "Enter: Create  |  Tab: Cycle type  |  Shift+Tab: Switch field  |  Esc: Cancel" })
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center),
         chunks[5],
@@ -3370,13 +3724,13 @@ fn render_create_relationship_dialog(
 }
 
 #[cfg(feature = "pro")]
-fn render_annotate_dialog(f: &mut Frame, area: Rect, d: &crate::ui::AnnotateDialog) {
+fn render_annotate_dialog(f: &mut Frame, area: Rect, d: &crate::ui::AnnotateDialog, is_zh: bool) {
     let popup_area = centered_rect(60, 30, area);
     f.render_widget(Clear, popup_area);
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .title("Annotate Relationship");
+        .title(if is_zh { "标注关系" } else { "Annotate Relationship" });
     let inner_area = outer.inner(popup_area);
     f.render_widget(outer, popup_area);
 
@@ -3390,7 +3744,7 @@ fn render_annotate_dialog(f: &mut Frame, area: Rect, d: &crate::ui::AnnotateDial
         .split(inner_area);
 
     f.render_widget(
-        Paragraph::new("Add a note to this relationship:")
+        Paragraph::new(if is_zh { "为此关系添加备注：" } else { "Add a note to this relationship:" })
             .style(Style::default().fg(Color::White)),
         chunks[0],
     );
@@ -3398,12 +3752,12 @@ fn render_annotate_dialog(f: &mut Frame, area: Rect, d: &crate::ui::AnnotateDial
     let note_spans = render_text_input(&d.note, true, Style::default());
     f.render_widget(
         Paragraph::new(Line::from(note_spans))
-            .block(Block::default().borders(Borders::ALL).title("Note")),
+            .block(Block::default().borders(Borders::ALL).title(if is_zh { "备注" } else { "Note" })),
         chunks[1],
     );
 
     f.render_widget(
-        Paragraph::new("Enter: Save  |  Esc: Cancel")
+        Paragraph::new(if is_zh { "回车: 保存  |  Esc: 取消" } else { "Enter: Save  |  Esc: Cancel" })
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center),
         chunks[2],
@@ -3415,13 +3769,14 @@ fn render_new_from_context_dialog(
     f: &mut Frame,
     area: Rect,
     d: &crate::ui::NewFromContextDialog,
+    is_zh: bool,
 ) {
     let popup_area = centered_rect(70, 60, area);
     f.render_widget(Clear, popup_area);
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .title("New Session from Context");
+        .title(if is_zh { "从上下文新建会话" } else { "New Session from Context" });
     let inner_area = outer.inner(popup_area);
     f.render_widget(outer, popup_area);
 
@@ -3439,13 +3794,13 @@ fn render_new_from_context_dialog(
     let title_spans = render_text_input(&d.title, true, Style::default());
     f.render_widget(
         Paragraph::new(Line::from(title_spans))
-            .block(Block::default().borders(Borders::ALL).title("Session Title")),
+            .block(Block::default().borders(Borders::ALL).title(if is_zh { "会话标题" } else { "Session Title" })),
         chunks[0],
     );
 
     // Injection method
     f.render_widget(
-        Paragraph::new(format!("Injection: {} (Tab to cycle)", d.injection_method))
+        Paragraph::new(format!("{}{}{}", if is_zh { "注入方式: " } else { "Injection: " }, d.injection_method, if is_zh { " (Tab 切换)" } else { " (Tab to cycle)" }))
             .style(Style::default().fg(Color::Yellow)),
         chunks[1],
     );
@@ -3456,7 +3811,7 @@ fn render_new_from_context_dialog(
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("Context Preview"),
+                    .title(if is_zh { "上下文预览" } else { "Context Preview" }),
             )
             .wrap(Wrap { trim: false }),
         chunks[2],
@@ -3464,7 +3819,7 @@ fn render_new_from_context_dialog(
 
     // Actions
     f.render_widget(
-        Paragraph::new("Enter: Create  |  Tab: Cycle method  |  Esc: Cancel")
+        Paragraph::new(if is_zh { "回车: 创建  |  Tab: 切换方式  |  Esc: 取消" } else { "Enter: Create  |  Tab: Cycle method  |  Esc: Cancel" })
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center),
         chunks[3],
@@ -3504,8 +3859,9 @@ fn render_toast_notifications(f: &mut Frame, area: Rect, app: &App) {
 /// Render the viewer mode — displays a shared terminal session received via relay.
 #[cfg(feature = "pro")]
 fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
+    let is_zh = matches!(app.language(), crate::i18n::Language::Chinese);
     let Some(vs) = app.viewer_state() else {
-        let msg = Paragraph::new("Not connected to any shared session.")
+        let msg = Paragraph::new(if is_zh { "未连接到任何共享会话。" } else { "Not connected to any shared session." })
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center);
         f.render_widget(msg, area);
@@ -3671,14 +4027,22 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         let spinner = ['|', '/', '-', '\\'];
         let spin_char = spinner[app.tick_count() as usize / 2 % spinner.len()];
         if reconnect_num > 0 {
-            format!("  {} Reconnecting to {} (attempt {}/10)  |  Esc: disconnect", spin_char, vs.session_name, reconnect_num)
+            if is_zh {
+                format!("  {} 重连 {} (尝试 {}/10)  |  Esc: 断开", spin_char, vs.session_name, reconnect_num)
+            } else {
+                format!("  {} Reconnecting to {} (attempt {}/10)  |  Esc: disconnect", spin_char, vs.session_name, reconnect_num)
+            }
         } else {
-            format!("  {} Reconnecting to {}...  |  Esc: disconnect", spin_char, vs.session_name)
+            if is_zh {
+                format!("  {} 重连 {}...  |  Esc: 断开", spin_char, vs.session_name)
+            } else {
+                format!("  {} Reconnecting to {}...  |  Esc: disconnect", spin_char, vs.session_name)
+            }
         }
     } else if connected {
         let identity_part = match &vs.viewer_identity {
             Some(name) => format!(" ({})", name),
-            None => " (anonymous)".to_string(),
+            None => if is_zh { " (匿名)".to_string() } else { " (anonymous)".to_string() },
         };
         let peers = vs.peer_viewers.read().unwrap_or_else(|e| e.into_inner());
         let peer_names: String = if peers.is_empty() {
@@ -3689,25 +4053,44 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
             format!(" ({}{})", names.join(", "), suffix)
         };
         drop(peers);
-        let viewers_part = format!(
-            "  {}  {}{}  |  {} viewer{}{}",
-            connection_pulse(app.tick_count()),
-            vs.session_name,
-            identity_part,
-            viewer_count,
-            if viewer_count == 1 { "" } else { "s" },
-            peer_names,
-        );
+        let viewers_part = if is_zh {
+            format!(
+                "  {}  {}{}  |  {} 位观察者{}",
+                connection_pulse(app.tick_count()),
+                vs.session_name,
+                identity_part,
+                viewer_count,
+                peer_names,
+            )
+        } else {
+            format!(
+                "  {}  {}{}  |  {} viewer{}{}",
+                connection_pulse(app.tick_count()),
+                vs.session_name,
+                identity_part,
+                viewer_count,
+                if viewer_count == 1 { "" } else { "s" },
+                peer_names,
+            )
+        };
 
         let control_part = if has_rw {
-            "  |  RW active  |  Esc: relinquish  |  Shift+Arrows/PgUp/PgDn: scroll".to_string()
+            if is_zh {
+                "  |  读写中  |  Esc: 释放  |  Shift+方向键/PgUp/PgDn: 滚动".to_string()
+            } else {
+                "  |  RW active  |  Esc: relinquish  |  Shift+Arrows/PgUp/PgDn: scroll".to_string()
+            }
         } else if let Some(ref msg) = status_msg {
             format!("  |  {}", msg)
         } else if control_pending {
             let dots = ".".repeat((app.tick_count() as usize / 2 % 3) + 1);
-            format!("  |  control requested{}", dots)
+            if is_zh {
+                format!("  |  已请求控制{}", dots)
+            } else {
+                format!("  |  control requested{}", dots)
+            }
         } else {
-            "  |  r: request control".to_string()
+            if is_zh { "  |  r: 请求控制".to_string() } else { "  |  r: request control".to_string() }
         };
 
         let latency = vs.latency_ms.load(std::sync::atomic::Ordering::Relaxed);
@@ -3736,7 +4119,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         };
         // Build status bar with width-aware truncation
         // Use char count (not byte length) for better Unicode width estimation
-        let esc_part = "  |  Esc: disconnect";
+        let esc_part = if is_zh { "  |  Esc: 断开" } else { "  |  Esc: disconnect" };
         let available = area.width as usize;
 
         // Priority order: viewers + control (essential), latency (important), bandwidth (nice-to-have), duration (nice-to-have)
@@ -3763,7 +4146,11 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
             }
         }
     } else {
-        format!("  Disconnected from {}  |  Press Esc to return", vs.session_name)
+        if is_zh {
+            format!("  已断开 {}  |  按 Esc 返回", vs.session_name)
+        } else {
+            format!("  Disconnected from {}  |  Press Esc to return", vs.session_name)
+        }
     };
 
     let status_color = if reconnecting {
@@ -3787,48 +4174,48 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
     // Help overlay (toggled with '?')
     if vs.show_help {
         let help_lines = vec![
-            Line::from(Span::styled("Keyboard Shortcuts", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(if is_zh { "键盘快捷键" } else { "Keyboard Shortcuts" }, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
             Line::from(""),
             Line::from(vec![
                 Span::styled("  r       ", Style::default().fg(Color::Cyan)),
-                Span::raw("Request read-write control"),
+                Span::raw(if is_zh { "请求读写控制" } else { "Request read-write control" }),
             ]),
             Line::from(vec![
                 Span::styled("  Esc     ", Style::default().fg(Color::Cyan)),
-                Span::raw(if has_rw { "Relinquish RW control" } else { "Disconnect" }),
+                Span::raw(if is_zh { if has_rw { "放弃读写控制" } else { "断开连接" } } else { if has_rw { "Relinquish RW control" } else { "Disconnect" } }),
             ]),
             Line::from(vec![
                 Span::styled("  q       ", Style::default().fg(Color::Cyan)),
-                Span::raw("Disconnect (RO mode)"),
+                Span::raw(if is_zh { "断开连接 (只读模式)" } else { "Disconnect (RO mode)" }),
             ]),
             Line::from(""),
-            Line::from(Span::styled("Scroll", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(if is_zh { "滚动" } else { "Scroll" }, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
             Line::from(vec![
                 Span::styled("  Up/k    ", Style::default().fg(Color::Cyan)),
-                Span::raw("Scroll up"),
+                Span::raw(if is_zh { "向上滚动" } else { "Scroll up" }),
             ]),
             Line::from(vec![
                 Span::styled("  Down/j  ", Style::default().fg(Color::Cyan)),
-                Span::raw("Scroll down"),
+                Span::raw(if is_zh { "向下滚动" } else { "Scroll down" }),
             ]),
             Line::from(vec![
                 Span::styled("  PgUp    ", Style::default().fg(Color::Cyan)),
-                Span::raw("Page up"),
+                Span::raw(if is_zh { "向上翻页" } else { "Page up" }),
             ]),
             Line::from(vec![
                 Span::styled("  PgDn    ", Style::default().fg(Color::Cyan)),
-                Span::raw("Page down"),
+                Span::raw(if is_zh { "向下翻页" } else { "Page down" }),
             ]),
             Line::from(vec![
                 Span::styled("  Home    ", Style::default().fg(Color::Cyan)),
-                Span::raw("Scroll to top"),
+                Span::raw(if is_zh { "滚动到顶部" } else { "Scroll to top" }),
             ]),
             Line::from(vec![
                 Span::styled("  End/G   ", Style::default().fg(Color::Cyan)),
-                Span::raw("Scroll to bottom"),
+                Span::raw(if is_zh { "滚动到底部" } else { "Scroll to bottom" }),
             ]),
             Line::from(""),
-            Line::from(Span::styled("Connection Stats", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(if is_zh { "连接状态" } else { "Connection Stats" }, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
         ];
         // Add connection stats
         let mut help_lines = help_lines;
@@ -3844,7 +4231,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
                     Span::raw(format!("{}", samples)),
                 ]));
             } else {
-                help_lines.push(Line::from(Span::styled("  No data yet", Style::default().fg(Color::DarkGray))));
+                help_lines.push(Line::from(Span::styled(if is_zh { "  暂无数据" } else { "  No data yet" }, Style::default().fg(Color::DarkGray))));
             }
         }
         let elapsed = vs.connected_at.elapsed().as_secs();
@@ -3865,7 +4252,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         if !peers.is_empty() {
             help_lines.push(Line::from(""));
             help_lines.push(Line::from(Span::styled(
-                format!("Peers ({})", peers.len()),
+                if is_zh { format!("对等方 ({})", peers.len()) } else { format!("Peers ({})", peers.len()) },
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             )));
             for v in peers.iter().take(5) {
@@ -3896,7 +4283,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
             }
             if peers.len() > 5 {
                 help_lines.push(Line::from(Span::styled(
-                    format!("  ... and {} more", peers.len() - 5),
+                    if is_zh { format!("  ... 还有 {} 个", peers.len() - 5) } else { format!("  ... and {} more", peers.len() - 5) },
                     Style::default().fg(Color::DarkGray),
                 )));
             }
@@ -3909,7 +4296,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         if let Some(last) = help_lines.last_mut() {
             *last = Line::from(vec![
                 Span::styled("  ?       ", Style::default().fg(Color::DarkGray)),
-                Span::raw("Close this help"),
+                Span::raw(if is_zh { "关闭帮助" } else { "Close this help" }),
             ]);
         }
 
@@ -3920,7 +4307,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan))
-            .title(" Help ");
+            .title(if is_zh { " 帮助 " } else { " Help " });
         let inner = block.inner(popup);
         f.render_widget(block, popup);
         f.render_widget(Paragraph::new(help_lines), inner);
