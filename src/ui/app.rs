@@ -127,6 +127,10 @@ pub struct App {
     #[cfg(feature = "pro")]
     viewer_state: Option<ViewerState>,
 
+    /// Metadata for all viewer sessions (persists across disconnects)
+    #[cfg(feature = "pro")]
+    viewer_sessions: HashMap<String, ViewerSessionInfo>,
+
     // Sound notifications (pro only) — plays sounds on status transitions
     #[cfg(feature = "pro")]
     notification_manager: crate::pro::notification::NotificationManager,
@@ -154,7 +158,27 @@ pub struct App {
 
 /// State for viewing a shared terminal session via relay.
 #[cfg(feature = "pro")]
+/// Metadata for a viewer session (persists across disconnects)
+#[derive(Clone, Debug)]
+pub struct ViewerSessionInfo {
+    pub room_id: String,
+    pub relay_url: String,
+    pub connected_at: std::time::SystemTime,
+    pub status: ViewerSessionStatus,
+}
+
+/// Connection status for a viewer session
+#[derive(Clone, Debug, PartialEq)]
+pub enum ViewerSessionStatus {
+    Connecting,
+    Connected,
+    Disconnected,
+    Reconnecting,
+}
+
 pub struct ViewerState {
+    /// Room ID for this viewer session
+    pub room_id: String,
     /// Name of the session being viewed.
     pub session_name: String,
     /// Current terminal content (raw bytes with ANSI escapes).
@@ -388,6 +412,8 @@ impl App {
             ),
             #[cfg(feature = "pro")]
             viewer_state: None,
+            #[cfg(feature = "pro")]
+            viewer_sessions: HashMap::new(),
             #[cfg(feature = "pro")]
             relay_clients: HashMap::new(),
             #[cfg(feature = "pro")]
@@ -1465,8 +1491,15 @@ impl App {
                     }
                     // Restore relay URL/room_id from existing relay client when already sharing
                     let (relay_share_url, relay_room_id) = if already_sharing {
+                        // Try to get from active relay client first
                         if let Some(client) = self.relay_clients.get(&inst.id) {
                             (client.share_url().await, client.room_id().await)
+                        }
+                        // Fallback: restore from persisted sharing state
+                        else if let Some(ref sharing) = inst.sharing {
+                            let url = sharing.links.first()
+                                .and_then(|link| link.web_url.clone());
+                            (url, None) // room_id cannot be recovered, but URL can
                         } else {
                             (None, None)
                         }
@@ -1486,6 +1519,7 @@ impl App {
                         relay_room_id,
                         copy_feedback_at: None,
                         selected_viewer: None,
+                        status_message: None,
                     };
                     self.dialog = Some(Dialog::Share(dialog));
                     self.state = AppState::Dialog;
@@ -2691,6 +2725,7 @@ impl App {
                         if let Some(ref relay) = relay_url {
                             // Use relay server
                             if let Some(auth) = &self.auth_token {
+                                d.status_message = Some("Creating room...".to_string());
                                 let client = Arc::new(crate::pro::collab::client::RelayClient::new(
                                     relay.clone(),
                                     auth.access_token.clone(),
@@ -2698,6 +2733,7 @@ impl App {
                                 let perm_str = perm.to_string();
                                 match client.create_room(&sid, &perm_str, expire).await {
                                     Ok(room) => {
+                                        d.status_message = Some("Connecting to relay...".to_string());
                                         // Start streaming
                                         match client.start_streaming(&tmux_name).await {
                                             Ok(()) => {
@@ -2709,6 +2745,7 @@ impl App {
                                                 d.relay_room_id = Some(room.room_id.clone());
                                                 d.web_url = Some(room.share_url.clone());
                                                 d.already_sharing = true;
+                                                d.status_message = Some("✓ Connected to relay".to_string());
 
                                                 let state = crate::sharing::SharingState {
                                                     active: true,
@@ -2749,6 +2786,7 @@ impl App {
                                             Err(e) => {
                                                 tracing::warn!("Relay streaming failed: {}", e);
                                                 d.relay_share_url = None;
+                                                d.status_message = Some(format!("✗ Connection failed: {}", e));
                                                 // Show error in web_url field as fallback indicator
                                                 d.web_url = Some(format!("Error: {}", e));
                                             }
@@ -2756,6 +2794,7 @@ impl App {
                                     }
                                     Err(e) => {
                                         tracing::warn!("Relay room creation failed: {}", e);
+                                        d.status_message = Some(format!("✗ Room creation failed: {}", e));
                                         d.web_url = Some(format!("Error: {}", e));
                                     }
                                 }
@@ -3223,6 +3262,46 @@ impl App {
                         created_at: Instant::now(),
                         color: ratatui::style::Color::Yellow,
                     });
+                }
+                _ => {}
+            },
+
+            #[cfg(feature = "pro")]
+            Dialog::DisconnectViewer(ref mut d) => match key {
+                KeyCode::Up => {
+                    if d.selected_option > 0 {
+                        d.selected_option -= 1;
+                    }
+                }
+                KeyCode::Down => {
+                    if d.selected_option < 2 {
+                        d.selected_option += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    let room_id = d.room_id.clone();
+                    let option = d.selected_option;
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+
+                    match option {
+                        0 => {
+                            // Disconnect only
+                            self.disconnect_viewer_session(&room_id, false).await;
+                        }
+                        1 => {
+                            // Disconnect and delete
+                            self.disconnect_viewer_session(&room_id, true).await;
+                        }
+                        2 => {
+                            // Cancel - do nothing
+                        }
+                        _ => {}
+                    }
+                }
+                KeyCode::Esc => {
+                    self.dialog = None;
+                    self.state = AppState::Normal;
                 }
                 _ => {}
             },
@@ -5017,9 +5096,15 @@ impl App {
                     tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
                 }
 
-                let (ws_stream, _) = match tokio_tungstenite::connect_async(&ws_url).await {
-                    Ok(s) => s,
-                    Err(e) => {
+                // Connect with 10-second timeout
+                let connect_result = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    tokio_tungstenite::connect_async(&ws_url)
+                ).await;
+
+                let (ws_stream, _) = match connect_result {
+                    Ok(Ok(s)) => s,
+                    Ok(Err(e)) => {
                         let err_str = e.to_string();
                         let (detail, hint) = if err_str.contains("timed out") || err_str.contains("Timed out") {
                             ("timed out", "Check your network connection")
@@ -5045,6 +5130,25 @@ impl App {
                         if attempt > 1 {
                             *status_msg_clone.lock().unwrap() = Some((
                                 format!("{} - {}. Retrying...", detail, hint),
+                                Instant::now()
+                            ));
+                        }
+                        continue;
+                    }
+                    Err(_) => {
+                        // Timeout occurred
+                        tracing::warn!("Viewer WS connect timed out after 10s");
+                        attempt += 1;
+                        if attempt > MAX_RECONNECT_ATTEMPTS {
+                            *status_msg_clone.lock().unwrap() = Some((
+                                "Connection timed out. Check your network. Press Esc to return.".to_string(),
+                                Instant::now()
+                            ));
+                            break;
+                        }
+                        if attempt > 1 {
+                            *status_msg_clone.lock().unwrap() = Some((
+                                "Connection timed out. Retrying...".to_string(),
                                 Instant::now()
                             ));
                         }
@@ -5145,11 +5249,14 @@ impl App {
                             match ws_msg {
                                 Some(Ok(tokio_tungstenite::tungstenite::Message::Binary(data))) => {
                                     rx_bytes_accum += data.len() as u64;
+                                    // Binary messages are incremental PTY output
+                                    // We append to buffer, but limit total size to prevent memory bloat
                                     let mut buf = content_clone.lock().unwrap();
                                     buf.extend_from_slice(&data);
-                                    const MAX_VIEWER_BUF: usize = 2 * 1024 * 1024;
+                                    // Keep only recent data (last 512KB) to avoid rendering stale content
+                                    const MAX_VIEWER_BUF: usize = 512 * 1024;
                                     if buf.len() > MAX_VIEWER_BUF {
-                                        let drain_to = buf.len() - (MAX_VIEWER_BUF / 2);
+                                        let drain_to = buf.len() - MAX_VIEWER_BUF;
                                         buf.drain(..drain_to);
                                     }
                                 }
@@ -5289,6 +5396,7 @@ impl App {
         });
 
         self.viewer_state = Some(ViewerState {
+            room_id: room_id.to_string(),
             session_name: format!("Room {}", &room_id[..8.min(room_id.len())]),
             terminal_content,
             terminal_size,
@@ -5342,6 +5450,30 @@ impl App {
             }
         }
         self.state = AppState::Normal;
+    }
+
+    /// Disconnect from a specific viewer session by room_id.
+    /// If delete_session is true, also remove the session metadata.
+    #[cfg(feature = "pro")]
+    pub async fn disconnect_viewer_session(&mut self, room_id: &str, delete_session: bool) {
+        // Update status to Disconnected
+        if let Some(session) = self.viewer_sessions.get_mut(room_id) {
+            session.status = ViewerSessionStatus::Disconnected;
+        }
+
+        // If currently viewing this session, exit viewer mode
+        if self.state == AppState::ViewerMode {
+            if let Some(ref viewer_state) = self.viewer_state {
+                if viewer_state.room_id == room_id {
+                    self.disconnect_viewer();
+                }
+            }
+        }
+
+        // Delete session metadata if requested
+        if delete_session {
+            self.viewer_sessions.remove(room_id);
+        }
     }
 
     /// Handle key events in viewer mode.
