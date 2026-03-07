@@ -5028,6 +5028,15 @@ impl App {
     pub async fn connect_viewer(&mut self, relay_url: &str, room_id: &str, viewer_token: &str) -> Result<()> {
         use crate::pro::collab::protocol::ControlMessage;
 
+        // Set status to Connecting
+        let session_info = ViewerSessionInfo {
+            room_id: room_id.to_string(),
+            relay_url: relay_url.to_string(),
+            connected_at: std::time::SystemTime::now(),
+            status: ViewerSessionStatus::Connecting,
+        };
+        self.viewer_sessions.insert(room_id.to_string(), session_info);
+
         let terminal_content = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
         let terminal_size = Arc::new(std::sync::Mutex::new((80u16, 24u16)));
         let viewer_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -5395,6 +5404,11 @@ impl App {
             reconnecting_clone.store(false, std::sync::atomic::Ordering::Relaxed);
         });
 
+        // Update session status to Connected
+        if let Some(session) = self.viewer_sessions.get_mut(room_id) {
+            session.status = ViewerSessionStatus::Connected;
+        }
+
         self.viewer_state = Some(ViewerState {
             room_id: room_id.to_string(),
             session_name: format!("Room {}", &room_id[..8.min(room_id.len())]),
@@ -5429,6 +5443,11 @@ impl App {
     #[cfg(feature = "pro")]
     pub fn disconnect_viewer(&mut self) {
         if let Some(vs) = self.viewer_state.take() {
+            // Update session status to Disconnected
+            if let Some(session) = self.viewer_sessions.get_mut(&vs.room_id) {
+                session.status = ViewerSessionStatus::Disconnected;
+            }
+
             // If we had RW control, send ControlRevoke before disconnecting
             // so the host knows we're no longer controlling
             if vs.has_rw_control.load(std::sync::atomic::Ordering::Acquire) {
