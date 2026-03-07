@@ -85,6 +85,14 @@ pub struct ConfigFile {
     #[cfg(feature = "max")]
     #[serde(default)]
     pub ai: AiConfig,
+
+    /// Language preference
+    #[serde(default)]
+    pub language: Option<String>,
+
+    /// First launch flag (for onboarding)
+    #[serde(default)]
+    pub first_launch: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

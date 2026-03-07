@@ -7,6 +7,7 @@ pub mod cli;
 pub mod config;
 pub mod hooks;
 pub mod error;
+pub mod i18n;
 pub mod session;
 pub mod sharing;
 pub mod tmux;

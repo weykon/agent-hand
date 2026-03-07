@@ -264,6 +264,8 @@ pub enum Dialog {
     #[cfg(feature = "pro")]
     JoinSession(JoinSessionDialog),
     #[cfg(feature = "pro")]
+    DisconnectViewer(DisconnectViewerDialog),
+    #[cfg(feature = "pro")]
     ControlRequest(ControlRequestDialog),
     #[cfg(feature = "pro")]
     PackBrowser(PackBrowserDialog),
@@ -288,6 +290,8 @@ pub struct ShareDialog {
     pub copy_feedback_at: Option<std::time::Instant>,
     /// Selected viewer index in the viewer list (for revoke/management actions).
     pub selected_viewer: Option<usize>,
+    /// Connection status message (shown during connection process).
+    pub status_message: Option<String>,
 }
 
 /// Dialog for joining a shared session via relay URL (Premium)
@@ -347,6 +351,26 @@ impl JoinSessionDialog {
             })?;
 
         Some((base_url.to_string(), room_id.to_string(), token))
+    }
+}
+
+/// Dialog for disconnecting from a viewer session (Premium)
+#[cfg(feature = "pro")]
+#[derive(Debug, Clone)]
+pub struct DisconnectViewerDialog {
+    pub room_id: String,
+    pub relay_url: String,
+    pub selected_option: usize, // 0=disconnect only, 1=disconnect+delete, 2=cancel
+}
+
+#[cfg(feature = "pro")]
+impl DisconnectViewerDialog {
+    pub fn new(room_id: String, relay_url: String) -> Self {
+        Self {
+            room_id,
+            relay_url,
+            selected_option: 0,
+        }
     }
 }
 
@@ -564,6 +588,7 @@ pub enum SettingsField {
     JumpLines,
     ScrollPadding,
     ReadyTtl,
+    Language,
 }
 
 impl SettingsField {
@@ -601,6 +626,7 @@ impl SettingsField {
                 Self::JumpLines,
                 Self::ScrollPadding,
                 Self::ReadyTtl,
+                Self::Language,
             ],
         }
     }
@@ -643,6 +669,7 @@ impl SettingsField {
             Self::JumpLines => "Jump Lines",
             Self::ScrollPadding => "Scroll Padding",
             Self::ReadyTtl => "Ready TTL (min)",
+            Self::Language => "Language",
         }
     }
 
@@ -666,7 +693,7 @@ impl SettingsField {
     /// Whether this field is a selector (toggle/cycle) type.
     pub fn is_selector(&self) -> bool {
         match self {
-            Self::AiProvider | Self::DefaultPermission | Self::AnalyticsEnabled | Self::MouseCapture => true,
+            Self::AiProvider | Self::DefaultPermission | Self::AnalyticsEnabled | Self::MouseCapture | Self::Language => true,
             #[cfg(feature = "pro")]
             Self::NotifAutoRegister
             | Self::NotifEnabled
@@ -728,6 +755,8 @@ pub struct SettingsDialog {
     pub jump_lines: TextInput,
     pub scroll_padding: TextInput,
     pub ready_ttl: TextInput,
+    /// 0=English, 1=Chinese
+    pub language_idx: usize,
     // State
     pub editing: bool,
     pub dirty: bool,
@@ -845,6 +874,10 @@ impl SettingsDialog {
             jump_lines: TextInput::with_text(cfg.jump_lines().to_string()),
             scroll_padding: TextInput::with_text(cfg.scroll_padding().to_string()),
             ready_ttl: TextInput::with_text(cfg.ready_ttl_minutes().to_string()),
+            language_idx: match cfg.language.as_ref().map(|s| crate::i18n::Language::from_str(s)) {
+                Some(crate::i18n::Language::Chinese) => 1,
+                _ => 0,
+            },
             editing: false,
             dirty: false,
         }
