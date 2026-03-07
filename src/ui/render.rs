@@ -827,6 +827,12 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
     }
 
     #[cfg(feature = "pro")]
+    if let Some(d) = app.disconnect_viewer_dialog() {
+        render_disconnect_viewer_dialog(f, area, d);
+        return;
+    }
+
+    #[cfg(feature = "pro")]
     if let Some(d) = app.share_dialog() {
         render_share_dialog(f, area, d, app);
         return;
@@ -2881,6 +2887,59 @@ fn render_join_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui::JoinSess
         Paragraph::new(hint_text).style(Style::default().fg(Color::DarkGray)),
         chunks[6],
     );
+}
+
+#[cfg(feature = "pro")]
+fn render_disconnect_viewer_dialog(f: &mut Frame, area: Rect, d: &crate::ui::DisconnectViewerDialog) {
+    let popup_area = centered_rect(60, 50, area);
+    f.render_widget(Clear, popup_area);
+
+    let text = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("Room: "),
+            Span::styled(&d.room_id, Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
+            Span::raw("Relay: "),
+            Span::styled(&d.relay_url, Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(""),
+        Line::from("What would you like to do?"),
+        Line::from(""),
+        Line::from(vec![
+            if d.selected_option == 0 {
+                Span::styled("> Disconnect (keep session)", Style::default().fg(Color::Yellow))
+            } else {
+                Span::raw("  Disconnect (keep session)")
+            },
+        ]),
+        Line::from(vec![
+            if d.selected_option == 1 {
+                Span::styled("> Disconnect and delete session", Style::default().fg(Color::Red))
+            } else {
+                Span::raw("  Disconnect and delete session")
+            },
+        ]),
+        Line::from(vec![
+            if d.selected_option == 2 {
+                Span::styled("> Cancel", Style::default().fg(Color::Green))
+            } else {
+                Span::raw("  Cancel")
+            },
+        ]),
+        Line::from(""),
+        Line::from("Use ↑/↓ to select, Enter to confirm"),
+    ];
+
+    let paragraph = Paragraph::new(text)
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(" Disconnect Viewer Session ")
+            .border_style(Style::default().fg(Color::Yellow)))
+        .wrap(Wrap { trim: true });
+
+    f.render_widget(paragraph, popup_area);
 }
 
 #[cfg(feature = "pro")]

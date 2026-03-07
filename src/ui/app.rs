@@ -4931,6 +4931,14 @@ impl App {
     }
 
     #[cfg(feature = "pro")]
+    pub fn disconnect_viewer_dialog(&self) -> Option<&crate::ui::dialogs::DisconnectViewerDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::DisconnectViewer(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "pro")]
     pub fn pack_browser_dialog(&self) -> Option<&crate::ui::dialogs::PackBrowserDialog> {
         match self.dialog.as_ref() {
             Some(Dialog::PackBrowser(d)) => Some(d),
