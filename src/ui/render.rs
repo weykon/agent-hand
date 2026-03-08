@@ -326,27 +326,35 @@ fn render_active_panel(f: &mut Frame, area: Rect, app: &App, active: &[&crate::s
             if let Some(ref sharing) = s.sharing {
                 if sharing.active {
                     if let Some(relay) = app.relay_client(&s.id) {
-                        let vc = relay.viewer_count();
-                        if vc > 0 {
-                            let viewers = relay.viewers();
-                            let rw_viewer = viewers.iter().find(|v| v.permission == "rw");
-                            if let Some(rw) = rw_viewer {
-                                let name = truncate_name(&rw.display_name, 8);
-                                spans.push(Span::styled(
-                                    format!(" {}v {}", vc, name),
-                                    if is_selected { base } else { Style::default().fg(Color::Cyan) },
-                                ));
+                        if !relay.is_connected() {
+                            // Host WS disconnected — show lost state
+                            spans.push(Span::styled(
+                                " ✕ disconnected",
+                                if is_selected { base } else { Style::default().fg(Color::Red) },
+                            ));
+                        } else {
+                            let vc = relay.viewer_count();
+                            if vc > 0 {
+                                let viewers = relay.viewers();
+                                let rw_viewer = viewers.iter().find(|v| v.permission == "rw");
+                                if let Some(rw) = rw_viewer {
+                                    let name = truncate_name(&rw.display_name, 8);
+                                    spans.push(Span::styled(
+                                        format!(" {}v {}", vc, name),
+                                        if is_selected { base } else { Style::default().fg(Color::Cyan) },
+                                    ));
+                                } else {
+                                    spans.push(Span::styled(
+                                        format!(" {}v", vc),
+                                        if is_selected { base } else { Style::default().fg(Color::Green) },
+                                    ));
+                                }
                             } else {
                                 spans.push(Span::styled(
-                                    format!(" {}v", vc),
-                                    if is_selected { base } else { Style::default().fg(Color::Green) },
+                                    " shared",
+                                    if is_selected { base } else { Style::default().fg(Color::DarkGray) },
                                 ));
                             }
-                        } else {
-                            spans.push(Span::styled(
-                                " shared",
-                                if is_selected { base } else { Style::default().fg(Color::DarkGray) },
-                            ));
                         }
                     } else {
                         spans.push(Span::styled(
@@ -646,6 +654,12 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
                                 #[cfg(feature = "pro")]
                                 {
                                     if let Some(relay) = app.relay_client(&session.id) {
+                                        if !relay.is_connected() {
+                                            spans.push(Span::styled(
+                                                "[share: disconnected]",
+                                                Style::default().fg(Color::Red),
+                                            ));
+                                        } else {
                                         let vc = relay.viewer_count();
                                         let viewers = relay.viewers();
                                         let perm = &sharing.default_permission;
@@ -714,6 +728,7 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
                                                 Style::default().fg(Color::Green),
                                             ));
                                         }
+                                    } // end else (is_connected)
                                     } else {
                                         spans.push(Span::styled(
                                             format!("[share: {}]", sharing.default_permission),
