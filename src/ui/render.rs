@@ -396,7 +396,11 @@ fn render_viewer_sessions_panel(f: &mut Frame, area: Rect, app: &App) {
     let focused = app.viewer_panel_focused();
     let selected = app.viewer_panel_selected();
 
-    let items: Vec<ListItem> = sessions
+    // Sort by connected_at so display order is deterministic
+    let mut sorted: Vec<_> = sessions.iter().collect();
+    sorted.sort_by_key(|(_, info)| info.connected_at);
+
+    let items: Vec<ListItem> = sorted
         .iter()
         .enumerate()
         .map(|(i, (room_id, info))| {
@@ -425,7 +429,7 @@ fn render_viewer_sessions_panel(f: &mut Frame, area: Rect, app: &App) {
             let display_room = if room_id.len() > 12 {
                 format!("{}...", &room_id[..12])
             } else {
-                room_id.clone()
+                room_id.to_string()
             };
 
             // Truncate relay_url for display
@@ -3436,7 +3440,14 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
             }
         };
 
-        for (i, v) in viewers.iter().enumerate() {
+        // Sort: RW first, then by join time (earliest first)
+        let mut sorted_viewers: Vec<_> = viewers.iter().collect();
+        sorted_viewers.sort_by(|a, b| {
+            let perm_ord = (a.permission != "rw").cmp(&(b.permission != "rw"));
+            perm_ord.then_with(|| a.joined_at.cmp(&b.joined_at))
+        });
+
+        for (i, v) in sorted_viewers.iter().enumerate() {
             if i >= max_viewer_display {
                 viewer_lines.push(Line::from(Span::styled(
                     if is_zh { format!("  ... 还有 {} 个", viewers.len() - max_viewer_display) } else { format!("  ... and {} more", viewers.len() - max_viewer_display) },
@@ -4048,8 +4059,16 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         let peer_names: String = if peers.is_empty() {
             String::new()
         } else {
+            // Sort: RW first, then by join time (earliest first)
             #[cfg(feature = "pro")]
-            let names: Vec<&str> = peers.iter().take(3).map(|v| v.display_name.as_str()).collect();
+            let names: Vec<&str> = {
+                let mut sorted: Vec<_> = peers.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let perm_ord = (a.permission != "rw").cmp(&(b.permission != "rw"));
+                    perm_ord.then_with(|| a.joined_at.cmp(&b.joined_at))
+                });
+                sorted.iter().take(3).map(|v| v.display_name.as_str()).collect()
+            };
             #[cfg(not(feature = "pro"))]
             let names: Vec<&str> = peers.iter().take(3).map(|v| v.as_str()).collect();
             let suffix = if peers.len() > 3 { format!(" +{}", peers.len() - 3) } else { String::new() };
@@ -4258,8 +4277,18 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
                 if is_zh { format!("对等方 ({})", peers.len()) } else { format!("Peers ({})", peers.len()) },
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             )));
+            // Sort: RW first, then by join time (earliest first)
             #[cfg(feature = "pro")]
-            for v in peers.iter().take(5) {
+            let sorted_peers: Vec<_> = {
+                let mut s: Vec<_> = peers.iter().collect();
+                s.sort_by(|a, b| {
+                    let perm_ord = (a.permission != "rw").cmp(&(b.permission != "rw"));
+                    perm_ord.then_with(|| a.joined_at.cmp(&b.joined_at))
+                });
+                s
+            };
+            #[cfg(feature = "pro")]
+            for v in sorted_peers.iter().take(5) {
                 let (perm_label, perm_style) = if v.permission == "rw" {
                     ("RW", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
                 } else {
