@@ -4,9 +4,6 @@
 
 A fast tmux-backed terminal session manager for AI coding agents.
 
-> Agent Hand is a Rust rewrite inspired by the original Go open-source project
-> [agent-deck](https://github.com/asheshgoplani/agent-deck).
-
 Chinese README: [README.zh.md](README.zh.md)
 
 ![Preview](docs/preview.jpg)
@@ -40,12 +37,13 @@ In early 2025, I was juggling **5+ Claude Code instances** simultaneously for di
 - "Which Claude is working on which task?"
 - Wasting 10+ minutes just finding the right session
 
-I tried the original [agent-deck](https://github.com/asheshgoplani/agent-deck) (Go) and loved the concept, but wanted:
-- **Better performance** (Rust's zero-cost abstractions)
-- **More features** (Ctrl+N priority jump, Ctrl+G switcher)
-- **Cleaner integration** (dedicated tmux server)
+I needed a tool that could:
+- **Show me at a glance** which sessions need attention
+- **Jump instantly** to the most urgent session (Ctrl+N priority jump)
+- **Switch fast** between any session (Ctrl+G fuzzy search)
+- **Stay out of the way** with a dedicated tmux server
 
-Agent Hand was born — a Rust rewrite that keeps what works and adds what I needed.
+So I built Agent Hand — a Rust-powered TUI that does exactly this.
 
 > *"The best tool is the one you'll actually use."*
 

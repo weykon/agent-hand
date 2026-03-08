@@ -6,9 +6,6 @@
 
 一个基于 tmux 的快速终端会话管理器，用于 AI 编程代理（Claude / Copilot / OpenCode 等）。
 
-> Agent Hand 是受原始 Go 开源项目
-> [agent-deck](https://github.com/asheshgoplani/agent-deck) 启发的 Rust 重写版本。
-
 ![Preview](docs/preview.jpg)
 
 ## Why Agent Hand?
@@ -33,19 +30,20 @@ Agent Hand 解决这些问题：
 
 ## Agent Hand 的由来
 
-2024 年初，我同时在跑 **5+ 个 Claude Code 实例**做不同的项目。那叫一个乱：
+2025 年初，我同时在跑 **5+ 个 Claude Code 实例**做不同的项目。那叫一个乱：
 
 - 四个终端窗口，每个 3-4 个 tmux pane
 - "我刚才确认那个提示了吗？"
 - "哪个 Claude 在做哪个任务？"
 - 光找对 session 就花了 10+ 分钟
 
-我试了原版 [agent-deck](https://github.com/asheshgoplani/agent-deck)（Go），喜欢这个概念，但想要：
-- **更好的性能**（Rust 的零成本抽象）
-- **更多功能**（Ctrl+N 优先级跳转、Ctrl+G 切换器）
-- **更干净的集成**（专用 tmux server）
+我需要一个工具能够：
+- **一目了然**看到哪些 session 需要处理
+- **瞬间跳转**到最紧急的 session（Ctrl+N 优先级跳转）
+- **快速切换**到任意 session（Ctrl+G 模糊搜索）
+- **不干扰工作流**，用专用 tmux server 隔离
 
-Agent Hand 就这样诞生了 —— Rust 重写版，保留好用的，加进我需要的。
+所以我用 Rust 造了 Agent Hand —— 一个专门解决这个问题的 TUI。
 
 > *"最好的工具，是你会真正去用的那个。"*
 
