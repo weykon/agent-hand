@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { PricingSection } from "./pricing";
+import { CopyButton } from "./copy-button";
 
 const SITE_URL = "https://weykon.github.io/agent-hand";
 
@@ -144,9 +145,10 @@ export default function HomePage() {
           Priority jump to urgent sessions, fuzzy search across all agents, real-time status detection, and PTY monitoring. Free and MIT-licensed.
         </p>
         <div className="mx-auto mb-4 flex max-w-lg items-center justify-center rounded-lg border border-[#333] bg-[#1a1a2e] px-4 py-3 font-mono text-sm">
-          <code className="text-[#94a3b8]">
+          <code className="flex-1 text-[#94a3b8]">
             curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash
           </code>
+          <CopyButton text="curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash" />
         </div>
         <div className="flex justify-center gap-2">
           {["macOS", "Linux", "WSL"].map((p) => (
