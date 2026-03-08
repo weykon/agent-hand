@@ -4052,11 +4052,16 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
     let content = vs.terminal_content.lock().unwrap();
     let (host_cols, host_rows) = *vs.host_terminal_size.lock().unwrap();
 
-    // Use VIEWER's display width so content reflows to fit the actual screen.
-    // The host may capture at 200+ cols, but the viewer should wrap at its own width.
-    let viewer_cols = chunks[0].width.saturating_sub(2).max(1);
-    let viewer_rows = chunks[0].height.saturating_sub(2).max(1);
-    let mut parser = vt100::Parser::new(viewer_rows, viewer_cols, 2000);
+    // Use HOST dimensions for the parser so tmux capture-pane line structure is
+    // preserved correctly.  capture-pane -p -e outputs pre-formatted text with
+    // hard newlines at the host's pane width; replaying through a parser of a
+    // different width causes wrong wraps and offset rendering.  The viewer clips
+    // the rendered output to its own widget size.
+    let viewer_cols = chunks[0].width.saturating_sub(2).max(1) as usize;
+    let viewer_rows = chunks[0].height.saturating_sub(2).max(1) as usize;
+    let parser_cols = if host_cols > 0 { host_cols } else { viewer_cols as u16 };
+    let parser_rows = if host_rows > 0 { host_rows } else { viewer_rows as u16 };
+    let mut parser = vt100::Parser::new(parser_rows, parser_cols, 2000);
     parser.process(&content);
     drop(content);
 
@@ -4067,19 +4072,34 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
     let screen = parser.screen();
     let (screen_rows, screen_cols) = screen.size();
     let inner_height = chunks[0].height.saturating_sub(2) as usize; // subtract borders
-    let render_cols = screen_cols as usize;
+    // Clip to the narrower of host columns and viewer widget width
+    let render_cols = (screen_cols as usize).min(viewer_cols);
+    // When viewer is shorter than host, show the bottom portion (most recent content)
+    let row_offset = if (screen_rows as usize) > inner_height {
+        (screen_rows as usize) - inner_height
+    } else {
+        0
+    };
     let render_rows = inner_height.min(screen_rows as usize);
 
     // Cursor position — only show when following (scroll_offset == 0) and connected
+    // Adjust for row_offset so cursor highlights correctly in the clipped view
     let cursor_pos = if scroll_offset == 0 && connected {
         let (cr, cc) = screen.cursor_position();
-        Some((cr as usize, cc as usize))
+        let cr = cr as usize;
+        let cc = cc as usize;
+        if cr >= row_offset && cr < row_offset + render_rows {
+            Some((cr - row_offset, cc))
+        } else {
+            None
+        }
     } else {
         None
     };
 
     let mut visible_lines: Vec<Line> = Vec::with_capacity(render_rows);
-    for row_idx in 0..render_rows {
+    for i in 0..render_rows {
+        let row_idx = i + row_offset; // Map viewer row to host screen row
         let mut spans: Vec<Span> = Vec::new();
         let mut current_text = String::new();
         let mut current_style = Style::default();
@@ -4094,7 +4114,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
                 let ch = cell.contents();
 
                 // Highlight cursor position — RW gets brighter cursor
-                if cursor_pos == Some((row_idx, col_idx)) {
+                if cursor_pos == Some((i, col_idx)) {
                     if has_rw {
                         style = style.fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
                     } else {
