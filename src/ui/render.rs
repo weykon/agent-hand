@@ -425,11 +425,12 @@ fn render_viewer_sessions_panel(f: &mut Frame, area: Rect, app: &App) {
                 crate::ui::app::ViewerSessionStatus::Disconnected => Color::Red,
             };
 
-            // Truncate room_id for display
-            let display_room = if room_id.len() > 12 {
-                format!("{}...", &room_id[..12])
+            // Show session name if available, otherwise truncated room_id
+            let display_name = info.session_name.as_deref().unwrap_or(room_id);
+            let display_name = if display_name.len() > 20 {
+                format!("{}...", &display_name[..20])
             } else {
-                room_id.to_string()
+                display_name.to_string()
             };
 
             // Truncate relay_url for display
@@ -445,7 +446,7 @@ fn render_viewer_sessions_panel(f: &mut Frame, area: Rect, app: &App) {
             let line = Line::from(vec![
                 Span::styled(status_icon, if is_selected { base } else { Style::default().fg(status_color) }),
                 Span::raw(" "),
-                Span::styled(display_room, if is_selected { base } else { Style::default().fg(Color::Cyan) }),
+                Span::styled(display_name, if is_selected { base } else { Style::default().fg(Color::Cyan) }),
                 Span::raw(" - "),
                 Span::styled(relay_display, if is_selected { base } else { Style::default().fg(Color::DarkGray) }),
             ]);
@@ -506,7 +507,7 @@ fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
 
     let tree_focused = {
         #[cfg(feature = "pro")]
-        { !app.active_panel_focused() }
+        { !app.active_panel_focused() && !app.viewer_panel_focused() }
         #[cfg(not(feature = "pro"))]
         { true }
     };
@@ -4048,6 +4049,9 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         ])
         .split(area);
 
+    // Resolve display name: host session name if available, fallback to "Room {id}"
+    let display_name = vs.display_name();
+
     // --- Terminal content via vt100 parser ---
     let content = vs.terminal_content.lock().unwrap();
     let (host_cols, host_rows) = *vs.host_terminal_size.lock().unwrap();
@@ -4150,19 +4154,19 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
     let reconnect_num = vs.reconnect_attempt.load(std::sync::atomic::Ordering::Relaxed);
     let title = if reconnecting {
         if reconnect_num > 0 {
-            format!(" {} [reconnecting {}/10...] ", vs.session_name, reconnect_num)
+            format!(" {} [reconnecting {}/10...] ", display_name, reconnect_num)
         } else {
-            format!(" {} [reconnecting...] ", vs.session_name)
+            format!(" {} [reconnecting...] ", display_name)
         }
     } else if !connected && reconnect_num == 0 {
         // Initial connection attempt (never connected yet)
-        format!(" {} [connecting...] ", vs.session_name)
+        format!(" {} [connecting...] ", display_name)
     } else if !connected {
-        format!(" {} [disconnected] ", vs.session_name)
+        format!(" {} [disconnected] ", display_name)
     } else if has_rw {
-        format!(" {} [RW] ", vs.session_name)
+        format!(" {} [RW] ", display_name)
     } else {
-        format!(" {} [RO] ", vs.session_name)
+        format!(" {} [RO] ", display_name)
     };
 
     let border_color = if reconnecting {
@@ -4215,15 +4219,15 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         let spin_char = spinner[app.tick_count() as usize / 2 % spinner.len()];
         if reconnect_num > 0 {
             if is_zh {
-                format!("  {} 重连 {} (尝试 {}/10)  |  Esc: 断开", spin_char, vs.session_name, reconnect_num)
+                format!("  {} 重连 {} (尝试 {}/10)  |  Esc: 断开", spin_char, display_name, reconnect_num)
             } else {
-                format!("  {} Reconnecting to {} (attempt {}/10)  |  Esc: disconnect", spin_char, vs.session_name, reconnect_num)
+                format!("  {} Reconnecting to {} (attempt {}/10)  |  Esc: disconnect", spin_char, display_name, reconnect_num)
             }
         } else {
             if is_zh {
-                format!("  {} 重连 {}...  |  Esc: 断开", spin_char, vs.session_name)
+                format!("  {} 重连 {}...  |  Esc: 断开", spin_char, display_name)
             } else {
-                format!("  {} Reconnecting to {}...  |  Esc: disconnect", spin_char, vs.session_name)
+                format!("  {} Reconnecting to {}...  |  Esc: disconnect", spin_char, display_name)
             }
         }
     } else if connected {
@@ -4255,7 +4259,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
             format!(
                 "  {}  {}{}  |  {} 位观察者{}",
                 connection_pulse(app.tick_count()),
-                vs.session_name,
+                display_name,
                 identity_part,
                 viewer_count,
                 peer_names,
@@ -4264,7 +4268,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
             format!(
                 "  {}  {}{}  |  {} viewer{}{}",
                 connection_pulse(app.tick_count()),
-                vs.session_name,
+                display_name,
                 identity_part,
                 viewer_count,
                 if viewer_count == 1 { "" } else { "s" },
@@ -4324,7 +4328,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         let essential = format!("{}{}{}", viewers_part, control_part, esc_part);
         if essential.chars().count() >= available {
             // Ultra-narrow: just show session name + control
-            format!("  {}{}  |  Esc", vs.session_name, control_part)
+            format!("  {}{}  |  Esc", display_name, control_part)
         } else {
             let with_latency = format!("{}{}{}{}", viewers_part, control_part, latency_part, esc_part);
             if with_latency.chars().count() >= available {
@@ -4345,9 +4349,9 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         }
     } else {
         if is_zh {
-            format!("  已断开 {}  |  按 Esc 返回", vs.session_name)
+            format!("  已断开 {}  |  按 Esc 返回", display_name)
         } else {
-            format!("  Disconnected from {}  |  Press Esc to return", vs.session_name)
+            format!("  Disconnected from {}  |  Press Esc to return", display_name)
         }
     };
 

@@ -189,6 +189,8 @@ pub struct ViewerSessionInfo {
     pub viewer_token: String,
     pub connected_at: std::time::SystemTime,
     pub status: ViewerSessionStatus,
+    /// Host's session name (received from relay on auth). Displayed instead of room_id.
+    pub session_name: Option<String>,
 }
 
 /// Connection status for a viewer session
@@ -203,8 +205,10 @@ pub enum ViewerSessionStatus {
 pub struct ViewerState {
     /// Room ID for this viewer session
     pub room_id: String,
-    /// Name of the session being viewed.
+    /// Fallback display name (e.g. "Room abc123").
     pub session_name: String,
+    /// Host's session name received from relay (updated asynchronously from task).
+    pub host_session_name: Arc<std::sync::Mutex<Option<String>>>,
     /// Current terminal content (raw bytes with ANSI escapes).
     /// Uses std::sync::Mutex so it can be read from synchronous render context.
     pub terminal_content: Arc<std::sync::Mutex<Vec<u8>>>,
@@ -254,6 +258,15 @@ pub struct ViewerState {
     pub connected_at: Instant,
     /// Whether the keyboard shortcut help overlay is visible.
     pub show_help: bool,
+}
+
+#[cfg(feature = "pro")]
+impl ViewerState {
+    /// Display name: host's session name if available, otherwise fallback "Room {id}".
+    pub fn display_name(&self) -> String {
+        self.host_session_name.lock().unwrap().clone()
+            .unwrap_or_else(|| self.session_name.clone())
+    }
 }
 
 /// A transient toast notification shown briefly in the UI corner.
@@ -735,6 +748,19 @@ impl App {
             // Cap queue to prevent unbounded growth from rapid join/leave events
             if self.toast_notifications.len() > 10 {
                 self.toast_notifications.drain(0..self.toast_notifications.len() - 10);
+            }
+        }
+
+        // Sync session name from viewer task to ViewerSessionInfo (for panel display)
+        #[cfg(feature = "pro")]
+        if let Some(ref vs) = self.viewer_state {
+            let name = vs.host_session_name.lock().unwrap().clone();
+            if name.is_some() {
+                if let Some(session) = self.viewer_sessions.get_mut(&vs.room_id) {
+                    if session.session_name.is_none() {
+                        session.session_name = name;
+                    }
+                }
             }
         }
 
@@ -5359,6 +5385,7 @@ impl App {
             viewer_token: viewer_token.to_string(),
             connected_at: std::time::SystemTime::now(),
             status: ViewerSessionStatus::Connecting,
+            session_name: None, // Populated when AuthResult arrives from relay
         };
         self.viewer_sessions.insert(room_id.to_string(), session_info);
 
@@ -5393,6 +5420,7 @@ impl App {
         let bytes_received_per_sec = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let bytes_sent_per_sec = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let connection_stats = Arc::new(std::sync::Mutex::new((0u32, 0u32, 0u32, 0u32))); // (min, max, avg, samples)
+        let session_name_shared = Arc::new(std::sync::Mutex::new(None::<String>));
 
         // Clone Arcs for the spawned task
         let content_clone = terminal_content.clone();
@@ -5410,6 +5438,7 @@ impl App {
         let bytes_rx_clone = bytes_received_per_sec.clone();
         let bytes_tx_clone = bytes_sent_per_sec.clone();
         let conn_stats_clone = connection_stats.clone();
+        let session_name_clone = session_name_shared.clone();
         let token = viewer_token.to_string();
         let viewer_display_name_for_task = viewer_display_name.clone();
         let viewer_user_token_for_task = viewer_user_token;
@@ -5514,12 +5543,16 @@ impl App {
                 // Wait for AuthResult
                 match ws_read.next().await {
                     Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
-                        if let Ok(ControlMessage::AuthResult { success, error, permission, .. }) = serde_json::from_str(&text) {
+                        if let Ok(ControlMessage::AuthResult { success, error, permission, session_name, .. }) = serde_json::from_str(&text) {
                             if !success {
                                 let reason = error.unwrap_or_else(|| "unknown error".to_string());
                                 tracing::warn!("Viewer auth failed: {}", reason);
                                 *status_msg_clone.lock().unwrap() = Some((format!("Auth failed: {}", reason), Instant::now()));
                                 break;
+                            }
+                            // Store session name from host
+                            if let Some(name) = session_name {
+                                *session_name_clone.lock().unwrap() = Some(name);
                             }
                             // Show permission downgrade reason if present
                             if let Some(note) = error {
@@ -5740,6 +5773,7 @@ impl App {
         self.viewer_state = Some(ViewerState {
             room_id: room_id.to_string(),
             session_name: format!("Room {}", &room_id[..8.min(room_id.len())]),
+            host_session_name: session_name_shared,
             terminal_content,
             host_terminal_size: terminal_size,
             viewer_count,
