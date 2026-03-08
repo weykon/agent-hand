@@ -2764,7 +2764,11 @@ impl App {
                     }
                 }
                 KeyCode::Enter => {
-                    if d.already_sharing {
+                    // Guard: ignore Enter while a connection is in progress
+                    let is_connecting = d.status_message.as_ref().is_some_and(|m| !m.starts_with('✓') && !m.starts_with('✗'));
+                    if is_connecting {
+                        // Do nothing — connection already in progress
+                    } else if d.already_sharing {
                         // Stop sharing — try relay cleanup first, then tmate
                         if d.relay_room_id.is_some() {
                             // Relay sharing — stop client and pipe-pane
@@ -2864,7 +2868,7 @@ impl App {
                                                 d.relay_room_id = Some(room.room_id.clone());
                                                 d.web_url = Some(room.share_url.clone());
                                                 d.already_sharing = true;
-                                                d.status_message = Some("✓ Connected to relay".to_string());
+                                                d.status_message = None; // clear — "● Sharing active" takes over
 
                                                 let state = crate::sharing::SharingState {
                                                     active: true,

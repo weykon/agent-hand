@@ -3344,19 +3344,42 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
         chunks[0],
     );
 
-    // Status
-    let status = if d.already_sharing {
-        Span::styled(
+    // Status — show status_message (loading state) if present
+    let status = if let Some(ref msg) = d.status_message {
+        // Connection in progress or just completed — show with spinner
+        let color = if msg.starts_with('✓') {
+            Color::Green
+        } else if msg.starts_with('✗') {
+            Color::Red
+        } else {
+            Color::Yellow
+        };
+        let spinner = if !msg.starts_with('✓') && !msg.starts_with('✗') {
+            let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            let tick = (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() / 120) as usize;
+            format!("{} ", frames[tick % frames.len()])
+        } else {
+            String::new()
+        };
+        Line::from(Span::styled(
+            format!("{}{}", spinner, msg),
+            Style::default().fg(color),
+        ))
+    } else if d.already_sharing {
+        Line::from(Span::styled(
             if is_zh { "● 共享中" } else { "● Sharing active" },
             Style::default().fg(Color::Green),
-        )
+        ))
     } else {
-        Span::styled(
+        Line::from(Span::styled(
             if is_zh { "○ 未共享 — 按回车开始" } else { "○ Not sharing — press Enter to start" },
             Style::default().fg(Color::DarkGray),
-        )
+        ))
     };
-    f.render_widget(Paragraph::new(Line::from(status)), chunks[1]);
+    f.render_widget(Paragraph::new(status), chunks[1]);
 
     // URL display — prefer relay URL over SSH/web
     // Check inline copy feedback (show for 2 seconds)
@@ -3538,8 +3561,11 @@ fn render_share_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ShareDialog, ap
         f.render_widget(Paragraph::new(viewer_lines), chunks[5]);
     }
 
-    // Actions hint
-    let action = if is_zh {
+    // Actions hint — show connecting state or normal actions
+    let is_connecting = d.status_message.as_ref().is_some_and(|m| !m.starts_with('✓') && !m.starts_with('✗'));
+    let action = if is_connecting {
+        if is_zh { "连接中... 请稍候  |  Esc: 取消" } else { "Connecting... please wait  |  Esc: Cancel" }
+    } else if is_zh {
         if d.already_sharing {
             "回车: 停止  |  c: 复制链接  |  ↑/↓: 观察者  |  Esc: 关闭"
         } else {
