@@ -269,6 +269,8 @@ pub enum Dialog {
     ControlRequest(ControlRequestDialog),
     #[cfg(feature = "pro")]
     PackBrowser(PackBrowserDialog),
+    #[cfg(feature = "pro")]
+    OrphanedRooms(OrphanedRoomsDialog),
 }
 
 /// Dialog for sharing a session remotely (Premium)
@@ -1275,6 +1277,33 @@ pub struct PackBrowserDialog {
     pub loading: bool,
     /// Whether we're currently installing a pack.
     pub installing: bool,
+}
+
+/// Dialog for managing orphaned relay rooms detected at startup (Premium)
+#[cfg(feature = "pro")]
+#[derive(Debug, Clone)]
+pub struct OrphanedRoomsDialog {
+    pub rooms: Vec<crate::ui::app::OrphanedRoomInfo>,
+    pub selected_index: usize,
+}
+
+#[cfg(feature = "pro")]
+impl OrphanedRoomsDialog {
+    pub fn new(rooms: Vec<crate::ui::app::OrphanedRoomInfo>) -> Self {
+        Self {
+            rooms,
+            selected_index: 0,
+        }
+    }
+
+    pub fn move_selection(&mut self, delta: i32) {
+        if self.rooms.is_empty() {
+            return;
+        }
+        let len = self.rooms.len() as i32;
+        let new_idx = (self.selected_index as i32 + delta).rem_euclid(len);
+        self.selected_index = new_idx as usize;
+    }
 }
 
 #[cfg(feature = "pro")]

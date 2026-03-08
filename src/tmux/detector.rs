@@ -108,7 +108,7 @@ impl PromptDetector {
 
     /// Check if terminal content shows the agent is currently busy (running/thinking).
     pub fn is_busy(&self, content: &str) -> bool {
-        let lines = get_last_lines(content, 15);
+        let lines = get_last_lines(content, 35);
         let recent_raw = strip_ansi(&lines.join("\n"));
         let recent = recent_raw.to_lowercase();
 
@@ -179,7 +179,7 @@ impl PromptDetector {
 
     /// Check if terminal content shows a prompt waiting for user input.
     pub fn has_prompt(&self, content: &str) -> bool {
-        let lines = get_last_lines(content, 15);
+        let lines = get_last_lines(content, 35);
         let recent = strip_ansi(&lines.join("\n"));
         let recent_lower = recent.to_lowercase();
 

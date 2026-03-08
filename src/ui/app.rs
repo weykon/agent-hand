@@ -29,7 +29,7 @@ use super::{
 };
 
 #[cfg(feature = "pro")]
-use super::{CreateRelationshipDialog, CreateRelationshipField, ShareDialog};
+use super::{CreateRelationshipDialog, CreateRelationshipField, OrphanedRoomsDialog, ShareDialog};
 
 /// Main TUI application
 pub struct App {
@@ -155,6 +155,9 @@ pub struct App {
     /// Tracks the last-known RW controller per session (for control-change notifications).
     #[cfg(feature = "pro")]
     last_known_controller: HashMap<String, Option<String>>,
+    /// Orphaned relay rooms from a previous session detected at startup.
+    #[cfg(feature = "pro")]
+    orphaned_rooms: Vec<OrphanedRoomInfo>,
 
     // AI summarizer (Max tier)
     #[cfg(feature = "max")]
@@ -162,6 +165,18 @@ pub struct App {
     #[cfg(feature = "max")]
     /// Summaries received from background AI tasks, displayed in preview.
     summary_results: HashMap<String, String>,
+}
+
+/// An orphaned relay room detected at startup (host died without cleanup).
+#[cfg(feature = "pro")]
+#[derive(Clone, Debug)]
+pub struct OrphanedRoomInfo {
+    pub room_id: String,
+    pub session_id: String,
+    pub relay_url: String,
+    pub host_token: String,
+    pub viewer_count: usize,
+    pub created_at: String,
 }
 
 /// State for viewing a shared terminal session via relay.
@@ -193,8 +208,8 @@ pub struct ViewerState {
     /// Current terminal content (raw bytes with ANSI escapes).
     /// Uses std::sync::Mutex so it can be read from synchronous render context.
     pub terminal_content: Arc<std::sync::Mutex<Vec<u8>>>,
-    /// Current terminal dimensions.
-    pub terminal_size: Arc<std::sync::Mutex<(u16, u16)>>,
+    /// Host's terminal dimensions (cols, rows) — used for display context, NOT for parser sizing.
+    pub host_terminal_size: Arc<std::sync::Mutex<(u16, u16)>>,
     /// Number of viewers (including self).
     pub viewer_count: Arc<std::sync::atomic::AtomicUsize>,
     /// Whether the connection is active.
@@ -442,6 +457,8 @@ impl App {
             last_known_viewers: HashMap::new(),
             #[cfg(feature = "pro")]
             last_known_controller: HashMap::new(),
+            #[cfg(feature = "pro")]
+            orphaned_rooms: Vec::new(),
             #[cfg(feature = "max")]
             summarizer: {
                 let is_max = crate::auth::AuthToken::load().map_or(false, |t| t.is_max());
@@ -466,6 +483,49 @@ impl App {
         let _ = app.refresh_statuses().await;
         app.last_status_refresh = Instant::now();
         let _ = app.update_preview().await;
+
+        // Check for orphaned relay rooms from a previous session
+        #[cfg(feature = "pro")]
+        {
+            let mut ledger = crate::pro::collab::ledger::RoomLedger::load();
+            if !ledger.entries.is_empty() {
+                let mut orphaned = Vec::new();
+                let mut stale_ids = Vec::new();
+
+                for entry in &ledger.entries {
+                    match crate::pro::collab::client::RelayClient::check_room_status(
+                        &entry.relay_url,
+                        &entry.room_id,
+                        &entry.host_token,
+                    ).await {
+                        Some(status) => {
+                            orphaned.push(OrphanedRoomInfo {
+                                room_id: entry.room_id.clone(),
+                                session_id: status.session_id,
+                                relay_url: entry.relay_url.clone(),
+                                host_token: entry.host_token.clone(),
+                                viewer_count: status.viewer_count,
+                                created_at: status.created_at,
+                            });
+                        }
+                        None => {
+                            // Room no longer exists (404 or unreachable)
+                            stale_ids.push(entry.room_id.clone());
+                        }
+                    }
+                }
+
+                // Remove stale entries from ledger
+                for id in &stale_ids {
+                    ledger.remove(id);
+                }
+
+                if !orphaned.is_empty() {
+                    tracing::info!("Found {} orphaned relay room(s)", orphaned.len());
+                    app.orphaned_rooms = orphaned;
+                }
+            }
+        }
 
         Ok(app)
     }
@@ -513,6 +573,14 @@ impl App {
 
         // Initial preview/status
         self.on_navigation();
+
+        // Show orphaned rooms dialog if any were detected at startup
+        #[cfg(feature = "pro")]
+        if !self.orphaned_rooms.is_empty() {
+            let rooms = std::mem::take(&mut self.orphaned_rooms);
+            self.dialog = Some(Dialog::OrphanedRooms(OrphanedRoomsDialog::new(rooms)));
+            self.state = AppState::Dialog;
+        }
 
         loop {
             // Hot-reload mouse capture state (triggered by settings save)
@@ -942,7 +1010,7 @@ impl App {
 
             let content = self
                 .tmux
-                .capture_pane(&tmux_session, 15)
+                .capture_pane(&tmux_session, 35)
                 .await
                 .unwrap_or_default();
             let detector = crate::tmux::PromptDetector::new(session.tool);
@@ -2770,7 +2838,7 @@ impl App {
                         // Do nothing — connection already in progress
                     } else if d.already_sharing {
                         // Stop sharing — try relay cleanup first, then tmate
-                        if d.relay_room_id.is_some() {
+                        if let Some(ref room_id) = d.relay_room_id {
                             // Relay sharing — stop client and pipe-pane
                             let tmux_name = self.sessions_by_id
                                 .get(&d.session_id)
@@ -2782,6 +2850,9 @@ impl App {
                             } else {
                                 let _ = self.tmux.stop_pipe_pane(&tmux_name).await;
                             }
+                            // Remove from ledger
+                            let mut ledger = crate::pro::collab::ledger::RoomLedger::load();
+                            ledger.remove(room_id);
                         } else {
                             // Tmate sharing
                             let mut mgr = crate::pro::tmate::TmateManager::from_config().await;
@@ -2863,6 +2934,19 @@ impl App {
                                                 share_started = true;
                                                 // Store client to keep background tasks alive
                                                 self.relay_clients.insert(sid.clone(), client);
+
+                                                // Persist room credentials for orphan recovery
+                                                {
+                                                    let mut ledger = crate::pro::collab::ledger::RoomLedger::load();
+                                                    ledger.add(crate::pro::collab::ledger::RoomLedgerEntry {
+                                                        room_id: room.room_id.clone(),
+                                                        session_id: sid.clone(),
+                                                        relay_url: relay.clone(),
+                                                        host_token: room.host_token.clone(),
+                                                        share_url: room.share_url.clone(),
+                                                        created_at: chrono::Utc::now().to_rfc3339(),
+                                                    });
+                                                }
 
                                                 d.relay_share_url = Some(room.share_url.clone());
                                                 d.relay_room_id = Some(room.room_id.clone());
@@ -3445,6 +3529,61 @@ impl App {
                     if !d.installing && !d.loading {
                         self.install_selected_pack().await;
                     }
+                }
+                _ => {}
+            },
+
+            #[cfg(feature = "pro")]
+            Dialog::OrphanedRooms(ref mut d) => match key {
+                KeyCode::Esc => {
+                    // Dismiss — rooms will expire naturally via server cleanup
+                    self.dialog = None;
+                    self.state = AppState::Normal;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    d.move_selection(-1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    d.move_selection(1);
+                }
+                KeyCode::Enter | KeyCode::Char('d') => {
+                    // Close the selected room
+                    if let Some(room) = d.rooms.get(d.selected_index).cloned() {
+                        let closed = crate::pro::collab::client::RelayClient::close_room(
+                            &room.relay_url,
+                            &room.room_id,
+                            &room.host_token,
+                        ).await;
+                        if closed {
+                            let mut ledger = crate::pro::collab::ledger::RoomLedger::load();
+                            ledger.remove(&room.room_id);
+                        }
+                        d.rooms.retain(|r| r.room_id != room.room_id);
+                        if d.selected_index >= d.rooms.len() && !d.rooms.is_empty() {
+                            d.selected_index = d.rooms.len() - 1;
+                        }
+                        if d.rooms.is_empty() {
+                            self.dialog = None;
+                            self.state = AppState::Normal;
+                        }
+                    }
+                }
+                KeyCode::Char('a') => {
+                    // Close all rooms
+                    let rooms: Vec<_> = d.rooms.drain(..).collect();
+                    for room in &rooms {
+                        let closed = crate::pro::collab::client::RelayClient::close_room(
+                            &room.relay_url,
+                            &room.room_id,
+                            &room.host_token,
+                        ).await;
+                        if closed {
+                            let mut ledger = crate::pro::collab::ledger::RoomLedger::load();
+                            ledger.remove(&room.room_id);
+                        }
+                    }
+                    self.dialog = None;
+                    self.state = AppState::Normal;
                 }
                 _ => {}
             },
@@ -5084,6 +5223,14 @@ impl App {
         }
     }
 
+    #[cfg(feature = "pro")]
+    pub fn orphaned_rooms_dialog(&self) -> Option<&crate::ui::dialogs::OrphanedRoomsDialog> {
+        match self.dialog.as_ref() {
+            Some(Dialog::OrphanedRooms(d)) => Some(d),
+            _ => None,
+        }
+    }
+
     pub fn language(&self) -> crate::i18n::Language {
         self.language
     }
@@ -5594,7 +5741,7 @@ impl App {
             room_id: room_id.to_string(),
             session_name: format!("Room {}", &room_id[..8.min(room_id.len())]),
             terminal_content,
-            terminal_size,
+            host_terminal_size: terminal_size,
             viewer_count,
             connected,
             task_handle: Some(task_handle),

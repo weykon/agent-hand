@@ -886,6 +886,12 @@ fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
     }
 
     #[cfg(feature = "pro")]
+    if let Some(d) = app.orphaned_rooms_dialog() {
+        render_orphaned_rooms_dialog(f, area, d, is_zh);
+        return;
+    }
+
+    #[cfg(feature = "pro")]
     if let Some(d) = app.pack_browser_dialog() {
         render_pack_browser_dialog(f, area, d, is_zh);
         return;
@@ -3642,6 +3648,130 @@ fn render_control_request_dialog(f: &mut Frame, area: Rect, d: &crate::ui::Contr
 }
 
 #[cfg(feature = "pro")]
+fn render_orphaned_rooms_dialog(
+    f: &mut Frame,
+    area: Rect,
+    d: &crate::ui::dialogs::OrphanedRoomsDialog,
+    is_zh: bool,
+) {
+    let popup_area = centered_rect(60, 50, area);
+    f.render_widget(Clear, popup_area);
+
+    let title = if is_zh {
+        "⚠ 发现孤立房间 ⚠"
+    } else {
+        "⚠ Orphaned Rooms Found ⚠"
+    };
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .title(title);
+
+    let inner_area = outer.inner(popup_area);
+    f.render_widget(outer, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // Description
+            Constraint::Length(1), // Spacing
+            Constraint::Min(1),   // Room list
+            Constraint::Length(1), // Spacing
+            Constraint::Length(1), // Keybind hints
+        ])
+        .split(inner_area);
+
+    let desc = if is_zh {
+        "以下房间来自上次会话，仍在中继服务器上运行："
+    } else {
+        "These rooms from a previous session are still alive on the relay server:"
+    };
+    f.render_widget(
+        Paragraph::new(desc)
+            .style(Style::default().fg(Color::DarkGray))
+            .wrap(Wrap { trim: true }),
+        chunks[0],
+    );
+
+    // Room list
+    let items: Vec<ListItem> = d
+        .rooms
+        .iter()
+        .enumerate()
+        .map(|(i, room)| {
+            let viewers_label = if is_zh {
+                format!("{} 个观察者", room.viewer_count)
+            } else {
+                format!(
+                    "{} viewer{}",
+                    room.viewer_count,
+                    if room.viewer_count == 1 { "" } else { "s" }
+                )
+            };
+            let age = format_room_age(&room.created_at, is_zh);
+
+            let marker = if i == d.selected_index { "▸ " } else { "  " };
+            let style = if i == d.selected_index {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, style),
+                Span::styled(&room.session_id, style),
+                Span::raw("  "),
+                Span::styled(viewers_label, Style::default().fg(Color::Cyan)),
+                Span::raw("  "),
+                Span::styled(age, Style::default().fg(Color::DarkGray)),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items);
+    f.render_widget(list, chunks[2]);
+
+    let hints = if is_zh {
+        "Enter: 关闭  a: 全部关闭  Esc: 忽略"
+    } else {
+        "Enter: Close  a: Close All  Esc: Dismiss"
+    };
+    f.render_widget(
+        Paragraph::new(hints)
+            .style(Style::default().fg(Color::Yellow))
+            .alignment(Alignment::Center),
+        chunks[4],
+    );
+}
+
+/// Format room age as a human-readable string (e.g. "5 min ago").
+#[cfg(feature = "pro")]
+fn format_room_age(created_at: &str, is_zh: bool) -> String {
+    let Ok(dt) = chrono::DateTime::parse_from_rfc3339(created_at) else {
+        return String::new();
+    };
+    let elapsed = chrono::Utc::now().signed_duration_since(dt);
+    let mins = elapsed.num_minutes();
+    if mins < 1 {
+        if is_zh { "刚刚".to_string() } else { "just now".to_string() }
+    } else if mins < 60 {
+        if is_zh {
+            format!("{} 分钟前", mins)
+        } else {
+            format!("{} min ago", mins)
+        }
+    } else {
+        let hours = mins / 60;
+        if is_zh {
+            format!("{} 小时前", hours)
+        } else {
+            format!("{} hr ago", hours)
+        }
+    }
+}
+
+#[cfg(feature = "pro")]
 fn render_create_relationship_dialog(
     f: &mut Frame,
     area: Rect,
@@ -3920,12 +4050,13 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
 
     // --- Terminal content via vt100 parser ---
     let content = vs.terminal_content.lock().unwrap();
-    let (term_cols, term_rows) = *vs.terminal_size.lock().unwrap();
+    let (host_cols, host_rows) = *vs.host_terminal_size.lock().unwrap();
 
-    // Use host terminal dimensions for the vt100 parser
-    let parser_cols = if term_cols > 0 { term_cols } else { area.width.saturating_sub(2).max(80) };
-    let parser_rows = if term_rows > 0 { term_rows } else { 24 };
-    let mut parser = vt100::Parser::new(parser_rows, parser_cols, 1000); // 1000 lines scrollback
+    // Use VIEWER's display width so content reflows to fit the actual screen.
+    // The host may capture at 200+ cols, but the viewer should wrap at its own width.
+    let viewer_cols = chunks[0].width.saturating_sub(2).max(1);
+    let viewer_rows = chunks[0].height.saturating_sub(2).max(1);
+    let mut parser = vt100::Parser::new(viewer_rows, viewer_cols, 2000);
     parser.process(&content);
     drop(content);
 
@@ -3936,8 +4067,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
     let screen = parser.screen();
     let (screen_rows, screen_cols) = screen.size();
     let inner_height = chunks[0].height.saturating_sub(2) as usize; // subtract borders
-    let inner_width = chunks[0].width.saturating_sub(2) as usize;
-    let render_cols = inner_width.min(screen_cols as usize);
+    let render_cols = screen_cols as usize;
     let render_rows = inner_height.min(screen_rows as usize);
 
     // Cursor position — only show when following (scroll_offset == 0) and connected
@@ -4293,6 +4423,10 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         help_lines.push(Line::from(vec![
             Span::styled("  Uptime  ", Style::default().fg(Color::Cyan)),
             Span::raw(uptime_str),
+        ]));
+        help_lines.push(Line::from(vec![
+            Span::styled(if is_zh { "  主机终端" } else { "  Host    " }, Style::default().fg(Color::Cyan)),
+            Span::raw(format!("{}x{}", host_cols, host_rows)),
         ]));
 
         // Peer viewers section
