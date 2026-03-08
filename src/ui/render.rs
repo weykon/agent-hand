@@ -3734,9 +3734,9 @@ fn render_orphaned_rooms_dialog(
     f.render_widget(list, chunks[2]);
 
     let hints = if is_zh {
-        "Enter: 关闭  a: 全部关闭  Esc: 忽略"
+        "r: 重连  Enter: 关闭  a: 全部关闭  Esc: 忽略"
     } else {
-        "Enter: Close  a: Close All  Esc: Dismiss"
+        "r: Reconnect  Enter: Close  a: Close All  Esc: Dismiss"
     };
     f.render_widget(
         Paragraph::new(hints)
@@ -4061,7 +4061,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
     // actual_scrollback: the clamped scrollback position (0 if no scrollback content exists)
     let (visible_lines, actual_scrollback) = {
         let mut parser = vs.vt_parser.lock().unwrap();
-        parser.set_scrollback(scroll_offset);
+        parser.screen_mut().set_scrollback(scroll_offset);
 
         let screen = parser.screen();
         let actual_scrollback = screen.scrollback();

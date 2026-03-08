@@ -90,7 +90,7 @@ fs2 = "0.4"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
 futures-util = { version = "0.3", optional = true }
 base64 = { version = "0.22", optional = true }
-vt100 = { version = "0.15", optional = true }
+vt100 = { version = "0.16", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

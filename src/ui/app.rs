@@ -3602,6 +3602,80 @@ impl App {
                         }
                     }
                 }
+                KeyCode::Char('r') => {
+                    // Reconnect to the selected room
+                    if let Some(room) = d.rooms.get(d.selected_index).cloned() {
+                        let sid = room.session_id.clone();
+                        // Find the tmux session's name
+                        let tmux_name = self.sessions_by_id
+                            .get(&sid)
+                            .and_then(|&idx| self.sessions.get(idx))
+                            .map(|s| s.tmux_name())
+                            .unwrap_or_else(|| crate::tmux::TmuxManager::session_name_legacy(&sid));
+
+                        // Create RelayClient and reconnect
+                        let auth_token = self.auth_token
+                            .as_ref()
+                            .map(|a| a.access_token.clone())
+                            .unwrap_or_default();
+                        let client = Arc::new(crate::pro::collab::client::RelayClient::new(
+                            room.relay_url.clone(),
+                            auth_token,
+                        ));
+                        client.reconnect_room(
+                            &room.room_id,
+                            &room.session_id,
+                            &room.host_token,
+                            "", // share_url not stored in OrphanedRoomInfo; rebuild from ledger
+                        ).await;
+
+                        match client.start_streaming(&tmux_name).await {
+                            Ok(()) => {
+                                tracing::info!("Reconnected to orphaned room {} for session {}", room.room_id, sid);
+                                self.relay_clients.insert(sid.clone(), client);
+
+                                // Restore sharing state on the session
+                                if let Some(&idx) = self.sessions_by_id.get(&sid) {
+                                    if let Some(inst) = self.sessions.get_mut(idx) {
+                                        // Rebuild share URL from ledger
+                                        let ledger = crate::pro::collab::ledger::RoomLedger::load();
+                                        let share_url = ledger.entries.iter()
+                                            .find(|e| e.room_id == room.room_id)
+                                            .map(|e| e.share_url.clone());
+
+                                        inst.sharing = Some(crate::sharing::SharingState {
+                                            active: true,
+                                            tmate_socket: String::new(),
+                                            links: share_url.iter().map(|url| crate::sharing::ShareLink {
+                                                permission: crate::sharing::SharePermission::ReadOnly,
+                                                ssh_url: String::new(),
+                                                web_url: Some(url.clone()),
+                                                created_at: chrono::Utc::now(),
+                                                expires_at: None,
+                                            }).collect(),
+                                            default_permission: crate::sharing::SharePermission::ReadOnly,
+                                            started_at: chrono::Utc::now(),
+                                            auto_expire_minutes: None,
+                                        });
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to reconnect to room {}: {}", room.room_id, e);
+                            }
+                        }
+
+                        // Remove this room from the dialog
+                        d.rooms.retain(|r| r.room_id != room.room_id);
+                        if d.selected_index >= d.rooms.len() && !d.rooms.is_empty() {
+                            d.selected_index = d.rooms.len() - 1;
+                        }
+                        if d.rooms.is_empty() {
+                            self.dialog = None;
+                            self.state = AppState::Normal;
+                        }
+                    }
+                }
                 KeyCode::Char('a') => {
                     // Close all rooms
                     let rooms: Vec<_> = d.rooms.drain(..).collect();
@@ -5640,7 +5714,7 @@ impl App {
                                         }
                                         Ok(ControlMessage::Resize { cols, rows }) => {
                                             *size_clone.lock().unwrap() = (cols, rows);
-                                            vt_parser_clone.lock().unwrap().set_size(rows, cols);
+                                            vt_parser_clone.lock().unwrap().screen_mut().set_size(rows, cols);
                                         }
                                         Ok(ControlMessage::ViewerCount { count }) => {
                                             count_clone.store(count, std::sync::atomic::Ordering::Relaxed);
