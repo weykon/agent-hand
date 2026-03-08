@@ -4052,104 +4052,95 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
     // Resolve display name: host session name if available, fallback to "Room {id}"
     let display_name = vs.display_name();
 
-    // --- Terminal content via vt100 parser ---
-    let content = vs.terminal_content.lock().unwrap();
-    let (host_cols, host_rows) = *vs.host_terminal_size.lock().unwrap();
-
-    // Use HOST dimensions for the parser so tmux capture-pane line structure is
-    // preserved correctly.  capture-pane -p -e outputs pre-formatted text with
-    // hard newlines at the host's pane width; replaying through a parser of a
-    // different width causes wrong wraps and offset rendering.  The viewer clips
-    // the rendered output to its own widget size.
+    // --- Read from persistent vt100 parser (no byte processing during render) ---
     let viewer_cols = chunks[0].width.saturating_sub(2).max(1) as usize;
-    let viewer_rows = chunks[0].height.saturating_sub(2).max(1) as usize;
-    let parser_cols = if host_cols > 0 { host_cols } else { viewer_cols as u16 };
-    let parser_rows = if host_rows > 0 { host_rows } else { viewer_rows as u16 };
-    let mut parser = vt100::Parser::new(parser_rows, parser_cols, 2000);
-    parser.process(&content);
-    drop(content);
 
-    // Apply scroll offset — this shifts what screen.cell() considers "visible"
     let scroll_offset = vs.scroll_offset;
-    parser.set_scrollback(scroll_offset);
 
-    let screen = parser.screen();
-    let (screen_rows, screen_cols) = screen.size();
-    let inner_height = chunks[0].height.saturating_sub(2) as usize; // subtract borders
-    // Clip to the narrower of host columns and viewer widget width
-    let render_cols = (screen_cols as usize).min(viewer_cols);
-    // When viewer is shorter than host, show the bottom portion (most recent content)
-    let row_offset = if (screen_rows as usize) > inner_height {
-        (screen_rows as usize) - inner_height
-    } else {
-        0
-    };
-    let render_rows = inner_height.min(screen_rows as usize);
+    // Build visible_lines while holding the parser lock, then release it.
+    let visible_lines = {
+        let mut parser = vs.vt_parser.lock().unwrap();
+        parser.set_scrollback(scroll_offset);
 
-    // Cursor position — only show when following (scroll_offset == 0) and connected
-    // Adjust for row_offset so cursor highlights correctly in the clipped view
-    let cursor_pos = if scroll_offset == 0 && connected {
-        let (cr, cc) = screen.cursor_position();
-        let cr = cr as usize;
-        let cc = cc as usize;
-        if cr >= row_offset && cr < row_offset + render_rows {
-            Some((cr - row_offset, cc))
+        let screen = parser.screen();
+        let (screen_rows, screen_cols) = screen.size();
+        let inner_height = chunks[0].height.saturating_sub(2) as usize; // subtract borders
+        // Clip to the narrower of parser columns and viewer widget width
+        let render_cols = (screen_cols as usize).min(viewer_cols);
+        // When viewer is shorter than host, show the bottom portion (most recent content)
+        let row_offset = if (screen_rows as usize) > inner_height {
+            (screen_rows as usize) - inner_height
+        } else {
+            0
+        };
+        let render_rows = inner_height.min(screen_rows as usize);
+
+        // Cursor position — only show when following (scroll_offset == 0) and connected
+        // Adjust for row_offset so cursor highlights correctly in the clipped view
+        let cursor_pos = if scroll_offset == 0 && connected {
+            let (cr, cc) = screen.cursor_position();
+            let cr = cr as usize;
+            let cc = cc as usize;
+            if cr >= row_offset && cr < row_offset + render_rows {
+                Some((cr - row_offset, cc))
+            } else {
+                None
+            }
         } else {
             None
-        }
-    } else {
-        None
-    };
+        };
 
-    let mut visible_lines: Vec<Line> = Vec::with_capacity(render_rows);
-    for i in 0..render_rows {
-        let row_idx = i + row_offset; // Map viewer row to host screen row
-        let mut spans: Vec<Span> = Vec::new();
-        let mut current_text = String::new();
-        let mut current_style = Style::default();
+        let mut visible_lines: Vec<Line> = Vec::with_capacity(render_rows);
+        for i in 0..render_rows {
+            let row_idx = i + row_offset; // Map viewer row to host screen row
+            let mut spans: Vec<Span> = Vec::new();
+            let mut current_text = String::new();
+            let mut current_style = Style::default();
 
-        for col_idx in 0..render_cols {
-            let cell = screen.cell(row_idx as u16, col_idx as u16);
-            if let Some(cell) = cell {
-                if cell.is_wide_continuation() {
-                    continue; // Skip continuation cells of wide characters
-                }
-                let mut style = vt100_cell_to_style(cell);
-                let ch = cell.contents();
-
-                // Highlight cursor position — RW gets brighter cursor
-                if cursor_pos == Some((i, col_idx)) {
-                    if has_rw {
-                        style = style.fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
-                    } else {
-                        style = style.add_modifier(Modifier::REVERSED);
+            for col_idx in 0..render_cols {
+                let cell = screen.cell(row_idx as u16, col_idx as u16);
+                if let Some(cell) = cell {
+                    if cell.is_wide_continuation() {
+                        continue; // Skip continuation cells of wide characters
                     }
-                }
+                    let mut style = vt100_cell_to_style(cell);
+                    let ch = cell.contents();
 
-                if style == current_style {
-                    if ch.is_empty() {
-                        current_text.push(' ');
-                    } else {
-                        current_text.push_str(&ch);
+                    // Highlight cursor position — RW gets brighter cursor
+                    if cursor_pos == Some((i, col_idx)) {
+                        if has_rw {
+                            style = style.fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD);
+                        } else {
+                            style = style.add_modifier(Modifier::REVERSED);
+                        }
                     }
-                } else {
-                    if !current_text.is_empty() {
-                        spans.push(Span::styled(std::mem::take(&mut current_text), current_style));
-                    }
-                    current_style = style;
-                    if ch.is_empty() {
-                        current_text.push(' ');
+
+                    if style == current_style {
+                        if ch.is_empty() {
+                            current_text.push(' ');
+                        } else {
+                            current_text.push_str(&ch);
+                        }
                     } else {
-                        current_text.push_str(&ch);
+                        if !current_text.is_empty() {
+                            spans.push(Span::styled(std::mem::take(&mut current_text), current_style));
+                        }
+                        current_style = style;
+                        if ch.is_empty() {
+                            current_text.push(' ');
+                        } else {
+                            current_text.push_str(&ch);
+                        }
                     }
                 }
             }
+            if !current_text.is_empty() {
+                spans.push(Span::styled(current_text, current_style));
+            }
+            visible_lines.push(Line::from(spans));
         }
-        if !current_text.is_empty() {
-            spans.push(Span::styled(current_text, current_style));
-        }
-        visible_lines.push(Line::from(spans));
-    }
+        visible_lines
+    }; // parser lock released here
 
     let reconnect_num = vs.reconnect_attempt.load(std::sync::atomic::Ordering::Relaxed);
     let title = if reconnecting {
@@ -4450,7 +4441,10 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
         ]));
         help_lines.push(Line::from(vec![
             Span::styled(if is_zh { "  主机终端" } else { "  Host    " }, Style::default().fg(Color::Cyan)),
-            Span::raw(format!("{}x{}", host_cols, host_rows)),
+            Span::raw({
+                let (hc, hr) = *vs.host_terminal_size.lock().unwrap();
+                format!("{}x{}", hc, hr)
+            }),
         ]));
 
         // Peer viewers section

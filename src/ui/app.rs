@@ -209,9 +209,10 @@ pub struct ViewerState {
     pub session_name: String,
     /// Host's session name received from relay (updated asynchronously from task).
     pub host_session_name: Arc<std::sync::Mutex<Option<String>>>,
-    /// Current terminal content (raw bytes with ANSI escapes).
+    /// Persistent vt100 parser fed exclusively by raw PTY stream.
     /// Uses std::sync::Mutex so it can be read from synchronous render context.
-    pub terminal_content: Arc<std::sync::Mutex<Vec<u8>>>,
+    #[cfg(feature = "pro")]
+    pub vt_parser: Arc<std::sync::Mutex<vt100::Parser>>,
     /// Host's terminal dimensions (cols, rows) — used for display context, NOT for parser sizing.
     pub host_terminal_size: Arc<std::sync::Mutex<(u16, u16)>>,
     /// Number of viewers (including self).
@@ -5389,7 +5390,7 @@ impl App {
         };
         self.viewer_sessions.insert(room_id.to_string(), session_info);
 
-        let terminal_content = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        let vt_parser = Arc::new(std::sync::Mutex::new(vt100::Parser::new(24, 80, 5000)));
         let terminal_size = Arc::new(std::sync::Mutex::new((80u16, 24u16)));
         let viewer_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -5423,7 +5424,7 @@ impl App {
         let session_name_shared = Arc::new(std::sync::Mutex::new(None::<String>));
 
         // Clone Arcs for the spawned task
-        let content_clone = terminal_content.clone();
+        let vt_parser_clone = vt_parser.clone();
         let size_clone = terminal_size.clone();
         let count_clone = viewer_count.clone();
         let connected_clone = connected.clone();
@@ -5445,7 +5446,6 @@ impl App {
 
         let task_handle = tokio::spawn(async move {
             use futures_util::{SinkExt, StreamExt};
-            use base64::Engine;
 
             const MAX_RECONNECT_ATTEMPTS: u32 = 10;
             const MAX_BACKOFF_SECS: u64 = 30;
@@ -5619,28 +5619,21 @@ impl App {
                             match ws_msg {
                                 Some(Ok(tokio_tungstenite::tungstenite::Message::Binary(data))) => {
                                     rx_bytes_accum += data.len() as u64;
-                                    // Binary messages are incremental PTY output
-                                    // We append to buffer, but limit total size to prevent memory bloat
-                                    let mut buf = content_clone.lock().unwrap();
-                                    buf.extend_from_slice(&data);
-                                    // Keep only recent data (last 512KB) to avoid rendering stale content
-                                    const MAX_VIEWER_BUF: usize = 512 * 1024;
-                                    if buf.len() > MAX_VIEWER_BUF {
-                                        let drain_to = buf.len() - MAX_VIEWER_BUF;
-                                        buf.drain(..drain_to);
-                                    }
+                                    // Feed raw PTY bytes directly into the persistent parser.
+                                    // No buffer cap needed — parser manages memory via scrollback limit.
+                                    vt_parser_clone.lock().unwrap().process(&data);
                                 }
                                 Some(Ok(tokio_tungstenite::tungstenite::Message::Text(text))) => {
                                     rx_bytes_accum += text.len() as u64;
                                     match serde_json::from_str::<ControlMessage>(&text) {
-                                        Ok(ControlMessage::Snapshot { cols, rows, data }) => {
-                                            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&data) {
-                                                *content_clone.lock().unwrap() = decoded;
-                                                *size_clone.lock().unwrap() = (cols, rows);
-                                            }
+                                        Ok(ControlMessage::Snapshot { cols, rows, .. }) => {
+                                            // Snapshots are ignored in the persistent-parser architecture.
+                                            // Just update size for backward compatibility with old relay servers.
+                                            *size_clone.lock().unwrap() = (cols, rows);
                                         }
                                         Ok(ControlMessage::Resize { cols, rows }) => {
                                             *size_clone.lock().unwrap() = (cols, rows);
+                                            vt_parser_clone.lock().unwrap().set_size(rows, cols);
                                         }
                                         Ok(ControlMessage::ViewerCount { count }) => {
                                             count_clone.store(count, std::sync::atomic::Ordering::Relaxed);
@@ -5774,7 +5767,7 @@ impl App {
             room_id: room_id.to_string(),
             session_name: format!("Room {}", &room_id[..8.min(room_id.len())]),
             host_session_name: session_name_shared,
-            terminal_content,
+            vt_parser,
             host_terminal_size: terminal_size,
             viewer_count,
             connected,
