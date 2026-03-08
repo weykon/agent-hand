@@ -111,82 +111,9 @@ const faqQuestions = [
   },
 ];
 
-const allSchemas = {
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "SoftwareApplication",
-      name: "Agent Hand",
-      url: SITE_URL + "/",
-      image: SITE_URL + "/preview.jpg",
-      description:
-        "Manage 5+ Claude Code, Gemini CLI, and AI agent sessions from one Rust TUI. Priority jump, fuzzy search, tmux isolation — free & open source.",
-      applicationCategory: "DeveloperApplication",
-      operatingSystem: ["Linux", "macOS", "Windows (WSL)"],
-      offers: [
-        { "@type": "Offer", price: "0", priceCurrency: "USD", name: "Free" },
-        { "@type": "Offer", price: "19", priceCurrency: "USD", name: "Pro", description: "One-time license" },
-        { "@type": "Offer", price: "9", priceCurrency: "USD", name: "Max", description: "Monthly subscription — AI Session Summarizer, Remote Sharing, Session Relationships" },
-      ],
-      featureList:
-        "tmux session management, AI agent status tracking, fuzzy search switching, priority jumping with Ctrl+N, groups and labels, dedicated tmux server isolation",
-      softwareVersion: "0.2.13",
-      programmingLanguage: "Rust",
-      downloadUrl: "https://github.com/weykon/agent-hand/releases",
-      codeRepository: "https://github.com/weykon/agent-hand",
-    },
-    {
-      "@type": "FAQPage",
-      mainEntity: faqQuestions,
-    },
-    {
-      "@type": "HowTo",
-      name: "How to Install Agent Hand",
-      description:
-        "Install Agent Hand, a Rust-based terminal session manager for AI coding agents, on macOS, Linux, or WSL in under 30 seconds.",
-      totalTime: "PT30S",
-      tool: [
-        { "@type": "HowToTool", name: "Terminal (macOS Terminal, iTerm2, or any Linux terminal)" },
-        { "@type": "HowToTool", name: "curl" },
-      ],
-      step: [
-        {
-          "@type": "HowToStep",
-          position: 1,
-          name: "Run the install script",
-          text: "Open your terminal and run: curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash",
-        },
-        {
-          "@type": "HowToStep",
-          position: 2,
-          name: "Launch Agent Hand",
-          text: "Run 'agent-hand' in your terminal. It will automatically create a dedicated tmux server and show the session dashboard.",
-        },
-        {
-          "@type": "HowToStep",
-          position: 3,
-          name: "Start managing AI sessions",
-          text: "Press 'n' to create a new session, launch your AI agent (Claude Code, Gemini CLI, etc.), and use Ctrl+N to priority-jump between sessions.",
-        },
-      ],
-    },
-    {
-      "@type": "Organization",
-      name: "Agent Hand",
-      url: SITE_URL + "/",
-      logo: SITE_URL + "/preview.jpg",
-      sameAs: ["https://github.com/weykon/agent-hand"],
-      description:
-        "Open-source developer tools for AI agent terminal session management. Built in Rust.",
-    },
-  ],
-};
-
 export default function HomePage() {
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(allSchemas) }} />
-
       {/* Navbar */}
       <header className="border-b border-[#1e293b]">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
