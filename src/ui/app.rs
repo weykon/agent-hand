@@ -3563,7 +3563,14 @@ impl App {
             #[cfg(feature = "pro")]
             Dialog::OrphanedRooms(ref mut d) => match key {
                 KeyCode::Esc => {
-                    // Dismiss — rooms will expire naturally via server cleanup
+                    // Dismiss — clean up ledger entries so they don't reappear.
+                    // The rooms will expire on the relay server via its 30s grace period.
+                    {
+                        let mut ledger = crate::pro::collab::ledger::RoomLedger::load();
+                        for room in &d.rooms {
+                            ledger.remove(&room.room_id);
+                        }
+                    }
                     self.dialog = None;
                     self.state = AppState::Normal;
                 }

@@ -555,6 +555,37 @@ impl TmuxManager {
         Ok(output.stdout)
     }
 
+    /// Capture the pane's visible screen plus scrollback history.
+    /// Returns rendered ANSI text with `\n` line endings.
+    /// `scrollback_lines`: how many lines of history to capture (e.g. 5000).
+    #[cfg(feature = "pro")]
+    pub async fn capture_pane_with_scrollback(
+        &self,
+        name: &str,
+        scrollback_lines: usize,
+    ) -> Result<Vec<u8>> {
+        let start_line = format!("-{}", scrollback_lines);
+        let output = self
+            .tmux_cmd()
+            .args(&[
+                "capture-pane",
+                "-t",
+                name,
+                "-p",  // Print to stdout
+                "-e",  // Include escape sequences (ANSI colors, etc.)
+                "-S",
+                &start_line, // Start from N lines back in scrollback
+            ])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            return Ok(Vec::new());
+        }
+
+        Ok(output.stdout)
+    }
+
     /// Start pipe-pane to stream PTY output to a named pipe / file.
     /// Returns the pipe path. The caller reads from this pipe and
     /// forwards bytes over WebSocket.

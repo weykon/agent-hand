@@ -4058,11 +4058,13 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
     let scroll_offset = vs.scroll_offset;
 
     // Build visible_lines while holding the parser lock, then release it.
-    let visible_lines = {
+    // actual_scrollback: the clamped scrollback position (0 if no scrollback content exists)
+    let (visible_lines, actual_scrollback) = {
         let mut parser = vs.vt_parser.lock().unwrap();
         parser.set_scrollback(scroll_offset);
 
         let screen = parser.screen();
+        let actual_scrollback = screen.scrollback();
         let (screen_rows, screen_cols) = screen.size();
         let inner_height = chunks[0].height.saturating_sub(2) as usize; // subtract borders
         // Clip to the narrower of parser columns and viewer widget width
@@ -4139,7 +4141,7 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
             }
             visible_lines.push(Line::from(spans));
         }
-        visible_lines
+        (visible_lines, actual_scrollback)
     }; // parser lock released here
 
     let reconnect_num = vs.reconnect_attempt.load(std::sync::atomic::Ordering::Relaxed);
@@ -4180,10 +4182,18 @@ fn render_viewer_mode(f: &mut Frame, area: Rect, app: &App) {
 
     // --- Scroll indicator ---
     if scroll_offset > 0 {
-        let scroll_text = format!(
-            " Scrolled: +{} lines from bottom | End/G: follow | Up/Down/PgUp/PgDn: scroll ",
-            scroll_offset,
-        );
+        let scroll_text = if actual_scrollback == 0 {
+            if is_zh {
+                " 无可用滚动历史 (全屏应用不产生滚动缓冲) | End/G: 回到底部 ".to_string()
+            } else {
+                " No scrollback history available (full-screen apps don't produce scrollback) | End/G: follow ".to_string()
+            }
+        } else {
+            format!(
+                " Scrolled: +{} lines from bottom | End/G: follow | Up/Down/PgUp/PgDn: scroll ",
+                actual_scrollback,
+            )
+        };
         let scroll_bar = Paragraph::new(scroll_text)
             .style(Style::default().fg(Color::Black).bg(Color::DarkGray));
         f.render_widget(scroll_bar, chunks[1]);
