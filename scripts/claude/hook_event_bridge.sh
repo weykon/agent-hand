@@ -173,23 +173,112 @@ if events_file and tmux_session:
 # Hook stdout context injection:
 # On UserPromptSubmit, read .agent-hand-context.md and output as
 # hookSpecificOutput so Claude Code receives real-time context.
+# Also injects AI summaries from related sessions via relationships.
 MAX_CONTEXT_CHARS = 9000
 event_type = kind.get("type", "") if isinstance(kind, dict) else ""
-# Normalize: handle both camelCase and snake_case event names
 is_prompt_submit = event_type in ("user_prompt_submit", "UserPromptSubmit")
 if is_prompt_submit and cwd:
+    context_parts = []
+
+    # Part 1: existing .agent-hand-context.md
     context_path = os.path.join(cwd, ".agent-hand-context.md")
     try:
         if os.path.isfile(context_path):
             with open(context_path, "r", encoding="utf-8", errors="replace") as f:
-                context_content = f.read(MAX_CONTEXT_CHARS)
-            if context_content.strip():
-                hook_output = {
-                    "hookSpecificOutput": {
-                        "additionalContext": context_content
-                    }
-                }
-                print(json.dumps(hook_output, separators=(",", ":")))
+                file_ctx = f.read(MAX_CONTEXT_CHARS)
+            if file_ctx.strip():
+                context_parts.append(file_ctx)
     except Exception:
-        pass  # Never block user prompt
+        pass
+
+    # Part 2: cross-session context via relationships
+    # Find current session by tmux_session name, look up relationships,
+    # inject AI summaries from related sessions.
+    try:
+        home = os.path.expanduser("~")
+        sessions_path = os.path.join(home, ".agent-hand", "profiles", "default", "sessions.json")
+        summaries_path = os.path.join(home, ".agent-hand", "ai_summaries.json")
+
+        if tmux_session and os.path.isfile(sessions_path):
+            with open(sessions_path, "r", encoding="utf-8") as f:
+                store = json.loads(f.read())
+
+            instances = store.get("instances", [])
+            relationships = store.get("relationships", [])
+
+            # Map tmux_session name → session ID
+            # tmux name format: "{sanitized_title}_{id_prefix}" or "agentdeck_rs_{id}"
+            current_id = None
+            for inst in instances:
+                sid = inst.get("id", "")
+                tmux_name = inst.get("tmux_session_name", "")
+                # Direct match on stored tmux name
+                if tmux_name and tmux_name == tmux_session:
+                    current_id = sid
+                    break
+                # Legacy format: agentdeck_rs_{id}
+                if tmux_session == "agentdeck_rs_" + sid:
+                    current_id = sid
+                    break
+                # New format: {sanitized_title}_{id_first_8}
+                if sid and tmux_session.endswith("_" + sid[:8]):
+                    current_id = sid
+                    break
+
+            if current_id and relationships:
+                # Find related session IDs
+                related_ids = []
+                for rel in relationships:
+                    a = rel.get("session_a_id", "")
+                    b = rel.get("session_b_id", "")
+                    rtype = rel.get("relation_type", "")
+                    label = rel.get("label", "") or ""
+                    if a == current_id:
+                        related_ids.append((b, rtype, label))
+                    elif b == current_id:
+                        related_ids.append((a, rtype, label))
+
+                if related_ids:
+                    # Load AI summaries
+                    summaries = {}
+                    if os.path.isfile(summaries_path):
+                        try:
+                            with open(summaries_path, "r", encoding="utf-8") as f:
+                                summaries = json.loads(f.read())
+                        except Exception:
+                            pass
+
+                    # Build session ID → title map
+                    id_to_title = {inst.get("id", ""): inst.get("title", "") for inst in instances}
+
+                    # Build related context section
+                    related_lines = []
+                    for rid, rtype, rlabel in related_ids:
+                        rtitle = id_to_title.get(rid, rid[:12])
+                        summary = summaries.get(rid, "")
+                        if summary:
+                            header = rtitle
+                            if rlabel:
+                                header += " (" + rlabel + ")"
+                            related_lines.append("### " + header + " [" + rtype + "]")
+                            related_lines.append(summary)
+                            related_lines.append("")
+
+                    if related_lines:
+                        section = "## Related Sessions Context\n\n" + "\n".join(related_lines)
+                        context_parts.append(section)
+    except Exception:
+        pass  # Never fail on relationship context
+
+    # Output combined context
+    if context_parts:
+        combined = "\n\n---\n\n".join(context_parts)
+        if len(combined) > MAX_CONTEXT_CHARS:
+            combined = combined[:MAX_CONTEXT_CHARS]
+        hook_output = {
+            "hookSpecificOutput": {
+                "additionalContext": combined
+            }
+        }
+        print(json.dumps(hook_output, separators=(",", ":")))
 ' 2>/dev/null || true
