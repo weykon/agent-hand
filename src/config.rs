@@ -864,10 +864,16 @@ impl Default for KeyBindings {
         );
         kb.bindings.insert(
             "settings",
-            vec![KeySpec {
-                code: KeyCode::Char(','),
-                modifiers: KeyModifiers::NONE,
-            }],
+            vec![
+                KeySpec {
+                    code: KeyCode::Char(','),
+                    modifiers: KeyModifiers::NONE,
+                },
+                KeySpec {
+                    code: KeyCode::Char('，'),
+                    modifiers: KeyModifiers::NONE,
+                },
+            ],
         );
         kb.bindings.insert(
             "resume",
