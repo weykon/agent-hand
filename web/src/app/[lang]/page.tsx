@@ -74,15 +74,18 @@ export default async function HomePage({
   return (
     <>
       {/* Hero */}
-      <section className="px-6 py-20 text-center">
-        <h1 className="mb-4 text-5xl font-bold tracking-tight">{dict.hero.title}</h1>
-        <p className="mx-auto mb-2 max-w-2xl text-lg text-[#94a3b8]">
-          {dict.hero.subtitle}
-        </p>
-        <p className="mx-auto mb-8 max-w-xl text-sm text-[#64748b]">
-          {dict.hero.tagline}
-        </p>
-        <LandingClient section="heroInstall" />
+      <section className="relative overflow-hidden px-6 py-20 text-center">
+        <LandingClient section="heroBg" />
+        <div className="relative z-10">
+          <h1 className="mb-4 text-5xl font-bold tracking-tight">{dict.hero.title}</h1>
+          <p className="mx-auto mb-2 max-w-2xl text-lg text-[#94a3b8]">
+            {dict.hero.subtitle}
+          </p>
+          <p className="mx-auto mb-8 max-w-xl text-sm text-[#64748b]">
+            {dict.hero.tagline}
+          </p>
+          <LandingClient section="heroInstall" />
+        </div>
       </section>
 
       {/* Terminal Preview */}

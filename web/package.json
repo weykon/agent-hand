@@ -9,13 +9,17 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "@react-three/postprocessing": "^3.0.4",
     "@types/mdx": "^2.0.13",
     "fumadocs-core": "^15.8.5",
     "fumadocs-mdx": "^14.2.9",
     "fumadocs-ui": "^15.8.5",
     "next": "^15.1.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
