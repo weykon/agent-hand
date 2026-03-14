@@ -1,0 +1,59 @@
+---
+title: Claude Codeとの使い方
+description: Agent HandでClaude Codeのターミナルセッションを管理する設定方法。
+---
+
+## 概要
+
+Claude CodeはAnthropicが提供するClaude用のCLIです。ターミナルで `claude` を実行すると、コマンドの実行、テストの実行、プロジェクトのビルドのためにtmuxセッションが作成されます。Agent Handはフックシステムを通じてClaude Codeと深く統合されています。
+
+## セットアップ
+
+1. Agent Handをインストール（[インストール](/docs/getting-started/installation)）
+2. Agent Handを起動: `agent-hand`
+3. フックが自動的に `~/.claude/hooks/` にインストールされます
+
+以上です。Agent Handは起動時にClaude Codeのイベントフックを登録します。
+
+## キャプチャされる情報
+
+フック統合により、Agent Handは以下を受信します：
+
+| イベント | データ |
+| --- | --- |
+| **SessionStart** | セッションID、タイムスタンプ |
+| **SessionStop** | セッションID、終了ステータス |
+| **UserPromptSubmit** | タイムスタンプ、プロンプトテキスト（オプトイン） |
+
+## ワークフロー
+
+一般的なClaude Code + Agent Handのワークフロー：
+
+```
+Terminal 1                    Terminal 2
+┌─────────────────┐          ┌──────────────────────┐
+│  $ claude       │          │  $ agent-hand        │
+│                 │          │                      │
+│  > "fix the     │ ──hook──→│  [SessionStart]      │
+│    login bug"   │          │  ● claude-session-1  │
+│                 │          │    Status: running    │
+│  Running tests..│          │                      │
+│  ✓ All pass     │          │  [SessionStop]       │
+│                 │ ──hook──→│  ○ claude-session-1  │
+│  > "now add     │          │    Status: exited(0) │
+│    logout"      │          │                      │
+│                 │ ──hook──→│  ● claude-session-2  │
+└─────────────────┘          │    Status: running   │
+                             └──────────────────────┘
+```
+
+## ヒント
+
+- **ターミナルを分割**: Claude Codeの横のtmuxペインでAgent Handを実行
+- **エラーへジャンプ**: Agent Handはエラーセッションをリストの上部にソート — `Enter` で詳細を確認
+- **セッション再開**: Claude Codeがセッション再開をサポートしている場合、Agent Handは再接続用のセッションIDを追跡
+- **Claudeセッションのグループ化**: `g` で「Claude」グループを作成し、セッションを自動割り当て
+
+## プロファイル別分離
+
+Agent Handはプロファイル別のtmuxサーバー分離をサポートしています。異なるClaude Codeプロファイルは別々のtmuxサーバーを取得するため、セッションの競合を防ぎます。

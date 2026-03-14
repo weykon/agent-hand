@@ -1,0 +1,80 @@
+---
+title: Hook System
+description: Event hooks for integrating Agent Hand with AI coding agents.
+---
+
+## Overview
+
+The hook system lets Agent Hand receive events from AI coding agents. When an agent starts a session, submits a prompt, or encounters an error, Agent Hand can react in real time.
+
+## How Hooks Work
+
+```
+AI Agent (e.g., Claude Code)
+    │
+    ├─ SessionStart event ──→ hook_event_bridge.sh
+    ├─ UserPromptSubmit   ──→ hook_event_bridge.sh
+    └─ SessionStop        ──→ hook_event_bridge.sh
+                                    │
+                                    ▼
+                          hook-events.jsonl
+                                    │
+                                    ▼
+                          Agent Hand (EventReceiver)
+                                    │
+                                    ▼
+                          TUI updates in real-time
+```
+
+1. The AI agent fires lifecycle events
+2. A bridge script converts them to JSONL format
+3. Agent Hand's EventReceiver polls the events file
+4. The TUI updates immediately with new session info
+
+## Supported Events
+
+| Event | Description |
+| --- | --- |
+| `SessionStart` | A new coding session has begun |
+| `SessionStop` | A session has ended |
+| `UserPromptSubmit` | The user submitted a prompt to the AI |
+
+## Hook Installation
+
+Agent Hand automatically installs hooks for supported tools on first launch:
+
+```bash
+# Hooks are installed to the tool's config directory
+# For Claude Code: ~/.claude/hooks/
+agent-hand
+```
+
+You can verify hook installation in the settings dialog or by checking the tool's hook configuration.
+
+## Event Bridge
+
+The event bridge (`hook_event_bridge.sh`) is a lightweight script that:
+
+1. Receives event data from the AI tool
+2. Parses the event type and metadata
+3. Writes a JSONL entry to the events file
+4. Agent Hand picks it up on the next poll cycle
+
+The bridge is stateless — it doesn't maintain any persistent state or connections.
+
+## Custom Hooks
+
+You can extend the hook system by:
+
+1. Adding new event types to the bridge script
+2. Creating custom event handlers in the Rust codebase
+3. Using the `tool-adapters` crate to add support for new AI tools
+
+## Troubleshooting
+
+If hooks aren't firing:
+
+1. Check that the bridge script exists and is executable
+2. Verify the events file is being written to: `ls -la ~/.agent-hand/events/`
+3. Check the AI tool's hook configuration
+4. Ensure the event bridge has write permissions to the events directory

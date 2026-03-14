@@ -1,0 +1,126 @@
+[package]
+name = "agent-hand"
+version = "0.5.0"
+edition = "2021"
+authors = ["Agent Hand Contributors"]
+description = "Terminal session manager for AI coding agents"
+license = "MIT"
+default-run = "agent-hand"
+
+[[bin]]
+name = "agent-hand"
+path = "src/main.rs"
+
+[[bin]]
+name = "agent-hand-bridge"
+path = "src/bin/bridge.rs"
+
+[features]
+default = []
+pro = ["dep:tokio-tungstenite", "dep:futures-util", "dep:base64", "dep:vt100"]
+max = ["pro", "dep:ai_api_provider"]
+wasm = ["dep:wasmtime"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# TUI framework
+ratatui = "0.28"
+crossterm = { version = "0.28", features = ["event-stream"] }
+
+# CLI parsing
+clap = { version = "4", features = ["derive", "env"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Async trait support
+async-trait = "0.1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Fuzzy search
+fuzzy-matcher = "0.3"
+
+# File watching
+notify = "6"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Unix socket helpers
+tokio-util = { version = "0.7", features = ["codec"] }
+
+# Regex
+regex = "1"
+
+# Better sync primitives
+parking_lot = "0.12"
+dashmap = "6"
+
+# Better hashing
+ahash = "0.8"
+
+# String optimization
+compact_str = "0.8"
+
+# Graph data structure for canvas workflow editor
+petgraph = "0.6"
+
+# UUID generation
+uuid = { version = "1", features = ["v4", "fast-rng"] }
+
+# Directory utilities
+dirs = "5"
+
+# Multi-tool hook adapter
+agent-hooks = { path = "tool-adapters" }
+
+# Cross-platform browser opener
+open = "5"
+
+# AI provider (shared crate)
+ai_api_provider = { path = "../ai_api_provider", optional = true }
+
+# File locking for multi-instance safety
+fs2 = "0.4"
+
+# Device fingerprinting
+sha2 = "0.10"
+hex = "0.4"
+mac_address = "1.1"
+hostname = "0.4"
+
+# WebSocket client for relay sharing (Pro only)
+tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
+futures-util = { version = "0.3", optional = true }
+base64 = { version = "0.22", optional = true }
+vt100 = { version = "0.16", optional = true }
+
+# WASM runtime for pluggable analyzers (optional, feature-gated)
+wasmtime = { version = "29", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

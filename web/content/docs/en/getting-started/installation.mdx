@@ -1,0 +1,71 @@
+---
+title: Installation
+description: Install Agent Hand on macOS, Linux, or Windows (WSL).
+---
+
+## Requirements
+
+- **tmux** 3.0+ installed
+- macOS, Linux, or Windows with WSL
+- A terminal emulator
+
+## One-Line Install (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anthropics/agent-hand/main/install.sh | bash
+```
+
+This downloads the latest prebuilt binary for your platform and places it in `~/.local/bin/`.
+
+## Install via Cargo
+
+If you have Rust installed:
+
+```bash
+cargo install agent-hand
+```
+
+## Manual Download
+
+Download the latest release from [GitHub Releases](https://github.com/weykon/agent-hand/releases):
+
+| Platform | Binary |
+| --- | --- |
+| macOS (Apple Silicon) | `agent-hand-aarch64-apple-darwin` |
+| macOS (Intel) | `agent-hand-x86_64-apple-darwin` |
+| Linux (x86_64) | `agent-hand-x86_64-unknown-linux-gnu` |
+
+After downloading:
+
+```bash
+chmod +x agent-hand-*
+mv agent-hand-* ~/.local/bin/agent-hand
+```
+
+## Verify Installation
+
+```bash
+agent-hand --version
+# agent-hand 0.3.8
+```
+
+## tmux Setup
+
+Agent Hand requires tmux. Install it if you haven't:
+
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu / Debian
+sudo apt install tmux
+
+# Arch
+sudo pacman -S tmux
+```
+
+Agent Hand manages its own tmux server instances — it won't interfere with your existing tmux sessions.
+
+## Next Steps
+
+Launch `agent-hand` and proceed to the [Quick Start](/docs/getting-started/quick-start) guide.

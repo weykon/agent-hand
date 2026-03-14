@@ -1,0 +1,29 @@
+---
+title: 配合 Cursor 使用
+description: 使用 Agent Hand 管理 Cursor 的终端会话。
+---
+
+## 概述
+
+Cursor 是一款 AI 驱动的代码编辑器，可以运行终端命令来进行代码生成、调试和测试。这些终端会话在 tmux 中运行，Agent Hand 会自动发现它们。
+
+## 设置
+
+1. 安装 Agent Hand（[安装指南](/docs/getting-started/installation)）
+2. 确保 Cursor 使用 tmux 来管理其终端会话
+3. 启动 Agent Hand：`agent-hand`
+
+Agent Hand 将自动发现 Cursor 的终端会话。
+
+## 工作流程
+
+1. 在 Cursor 中打开你的项目
+2. 在另一个终端中启动 Agent Hand
+3. 当 Cursor 运行命令（构建、测试、代码检查）时，它们会出现在 Agent Hand 中
+4. 使用 Agent Hand 监控状态、跳转到错误并查看输出
+
+## 使用技巧
+
+- **监控构建状态**：关注红色（错误）指示器以捕获失败的构建
+- **快速检查**：在任意会话上按 `Enter` 查看其完整终端输出
+- **使用分组整理**：创建一个"Cursor"分组来将 Cursor 会话与其他工具分开

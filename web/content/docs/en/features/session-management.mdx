@@ -1,0 +1,63 @@
+---
+title: Session Management
+description: Groups, labels, filtering, and organization for your terminal sessions.
+---
+
+## Session List
+
+The main panel shows all discovered tmux sessions with:
+
+- **Session name** — the tmux session identifier
+- **Status** — running, idle, exited, or error (color-coded)
+- **Last activity** — when the session was last active
+- **Group badge** — if the session belongs to a group
+
+## Fuzzy Search
+
+Press `/` to open fuzzy search. Type to filter sessions by name, group, or label. The search is instant and works across all session metadata.
+
+## Groups
+
+Groups let you organize sessions logically. Press `g` to open the group manager.
+
+### Create a Group
+
+1. Press `g` to open groups
+2. Press `n` to create a new group
+3. Enter a group name
+4. Select sessions to add
+
+### Auto-Grouping
+
+Agent Hand can automatically group sessions based on naming patterns. Sessions from the same AI agent or project are grouped together.
+
+## Labels
+
+Labels are lightweight tags you can attach to sessions for quick identification. Unlike groups, a session can have multiple labels.
+
+## Priority Sorting
+
+Sessions are automatically sorted by priority:
+
+1. **Error** — sessions with non-zero exit codes (shown first)
+2. **Running** — actively executing processes
+3. **Idle** — waiting for input
+4. **Exited** — completed processes (shown last)
+
+This ensures you always see the most important sessions first.
+
+## Session Actions
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Attach to session |
+| `d` | Detach from session |
+| `x` | Kill session (with confirmation) |
+| `g` | Manage groups |
+| `/` | Fuzzy search |
+| `r` | Refresh list |
+| `s` | Sort options |
+
+## Multi-Tool Support
+
+When you're using multiple AI agents simultaneously, Agent Hand consolidates all their sessions into one view. Each agent's sessions are distinguishable by their naming patterns and optional group assignments.

@@ -1,0 +1,59 @@
+---
+title: 支持的工具
+description: 与 Agent Hand 兼容的 AI 编程代理和开发工具。
+---
+
+## AI 编程代理
+
+Agent Hand 可以与任何创建 tmux 会话的工具配合使用。以下是具有一流钩子集成的代理：
+
+### Claude Code (Anthropic)
+
+Agent Hand 通过**钩子系统**与 Claude Code 深度集成：
+
+- `SessionStart` 时自动捕获会话 ID
+- 提示提交事件跟踪
+- 会话停止/恢复生命周期事件
+
+```bash
+# Agent Hand 自动向 Claude Code 注册钩子
+agent-hand
+# 钩子安装在 ~/.claude/hooks/ 目录下
+```
+
+### Cursor
+
+Cursor 在运行命令时会创建终端会话。Agent Hand 通过 tmux 自动发现这些会话。
+
+### GitHub Copilot / Codex
+
+通过 tmux 会话发现机制工作。由 Copilot 或 Codex 创建的任何终端会话都会被自动列出。
+
+### Windsurf (Codeium)
+
+Windsurf 的终端会话以相同方式被捕获——Agent Hand 监控 tmux 服务器上的所有会话。
+
+### OpenCode
+
+通过 tmux 会话发现机制兼容。
+
+## 检测机制
+
+Agent Hand 使用两种互补的机制：
+
+1. **tmux 轮询** — 定期列出已配置 tmux 服务器上的所有会话并检测其状态
+2. **钩子事件** — 对于支持的工具（目前是 Claude Code），事件钩子提供更丰富的元数据，如会话 ID、标题和生命周期事件
+
+## 添加新工具支持
+
+Agent Hand 的钩子系统是可扩展的。`tool-adapters` 包提供了不同 AI 工具的适配器：
+
+```
+tool-adapters/
+├── src/
+│   ├── lib.rs      # 适配器 trait
+│   ├── claude.rs   # Claude Code 适配器
+│   └── ...         # 未来的适配器
+```
+
+如果你的 AI 工具支持自定义钩子或事件回调，它就可以与 Agent Hand 集成。

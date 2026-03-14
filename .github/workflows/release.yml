@@ -1,0 +1,449 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-free:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-14
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone agent-hooks crate
+        run: git clone https://github.com/weykon/agent-hooks.git tool-adapters
+
+      - name: Stub ai_api_provider (optional path dep)
+        shell: bash
+        run: |
+          mkdir -p ../ai_api_provider/src
+          cat > ../ai_api_provider/Cargo.toml << 'TOML'
+          [package]
+          name = "ai_api_provider"
+          version = "0.1.0"
+          edition = "2021"
+          [dependencies]
+          reqwest = { version = "0.12", features = ["json"] }
+          serde = { version = "1", features = ["derive"] }
+          serde_json = "1"
+          thiserror = "2"
+          TOML
+          echo "// stub" > ../ai_api_provider/src/lib.rs
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (free)
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=agent-hand
+          BRIDGE=agent-hand-bridge
+          OUTDIR=dist
+          mkdir -p "$OUTDIR"
+
+          BIN_PATH="target/${{ matrix.target }}/release/${BIN}"
+          BRIDGE_PATH="target/${{ matrix.target }}/release/${BRIDGE}"
+          OUT_BIN="$BIN"
+          OUT_BRIDGE="$BRIDGE"
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            BIN_PATH="${BIN_PATH}.exe"
+            BRIDGE_PATH="${BRIDGE_PATH}.exe"
+            OUT_BIN="${BIN}.exe"
+            OUT_BRIDGE="${BRIDGE}.exe"
+          fi
+
+          cp "$BIN_PATH" "$OUTDIR/$OUT_BIN"
+          cp "$BRIDGE_PATH" "$OUTDIR/$OUT_BRIDGE"
+          tar -C "$OUTDIR" -czf "$OUTDIR/${BIN}-${{ matrix.target }}.tar.gz" "$OUT_BIN" "$OUT_BRIDGE"
+          (
+            cd "$OUTDIR"
+            if command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "${BIN}-${{ matrix.target }}.tar.gz" > "${BIN}-${{ matrix.target }}.tar.gz.sha256"
+            else
+              sha256sum "${BIN}-${{ matrix.target }}.tar.gz" > "${BIN}-${{ matrix.target }}.tar.gz.sha256"
+            fi
+          )
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+
+  update-packages:
+    needs: build-free
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download SHA256 files from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/sha256
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern '*.sha256' --dir /tmp/sha256
+
+      - name: Parse SHA256 checksums
+        id: sha
+        run: |
+          for f in /tmp/sha256/agent-hand-*.sha256; do
+            hash=$(awk '{print $1}' "$f")
+            name=$(basename "$f" .sha256)
+            # Convert dashes and dots to underscores for env-safe key
+            key=$(echo "$name" | sed 's/[^a-zA-Z0-9]/_/g')
+            echo "${key}=${hash}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Update Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/weykon/homebrew-tap.git /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
+
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA_AARCH64_MACOS="${{ steps.sha.outputs.agent_hand_aarch64_apple_darwin_tar_gz }}"
+          SHA_X86_64_MACOS="${{ steps.sha.outputs.agent_hand_x86_64_apple_darwin_tar_gz }}"
+          SHA_LINUX="${{ steps.sha.outputs.agent_hand_x86_64_unknown_linux_gnu_tar_gz }}"
+
+          cat > Formula/agent-hand.rb << RUBY
+          class AgentHand < Formula
+            desc "A fast tmux-backed terminal session manager for AI coding agents"
+            homepage "https://github.com/weykon/agent-hand"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/weykon/agent-hand/releases/download/v#{version}/agent-hand-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA_AARCH64_MACOS}"
+              else
+                url "https://github.com/weykon/agent-hand/releases/download/v#{version}/agent-hand-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA_X86_64_MACOS}"
+              end
+            end
+
+            on_linux do
+              url "https://github.com/weykon/agent-hand/releases/download/v#{version}/agent-hand-x86_64-unknown-linux-gnu.tar.gz"
+              sha256 "${SHA_LINUX}"
+            end
+
+            depends_on "tmux"
+
+            def install
+              bin.install "agent-hand"
+              bin.install "agent-hand-bridge" if File.exist?("agent-hand-bridge")
+            end
+
+            test do
+              system "#{bin}/agent-hand", "--version"
+            end
+          end
+          RUBY
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' Formula/agent-hand.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/agent-hand.rb
+          git diff --cached --quiet || git commit -m "Update agent-hand to ${VERSION}"
+          git push
+
+      - name: Update Scoop bucket
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/weykon/scoop-agent-hand.git /tmp/scoop-agent-hand
+          cd /tmp/scoop-agent-hand
+
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA_WINDOWS="${{ steps.sha.outputs.agent_hand_x86_64_pc_windows_msvc_tar_gz }}"
+
+          cat > bucket/agent-hand.json << JSONEOF
+          {
+              "version": "${VERSION}",
+              "description": "A fast tmux-backed terminal session manager for AI coding agents",
+              "homepage": "https://github.com/weykon/agent-hand",
+              "license": "MIT",
+              "architecture": {
+                  "64bit": {
+                      "url": "https://github.com/weykon/agent-hand/releases/download/v${VERSION}/agent-hand-x86_64-pc-windows-msvc.tar.gz",
+                      "hash": "${SHA_WINDOWS}",
+                      "extract_dir": ""
+                  }
+              },
+              "bin": [
+                  "agent-hand.exe",
+                  "agent-hand-bridge.exe"
+              ],
+              "checkver": {
+                  "github": "https://github.com/weykon/agent-hand"
+              },
+              "autoupdate": {
+                  "architecture": {
+                      "64bit": {
+                          "url": "https://github.com/weykon/agent-hand/releases/download/v\$version/agent-hand-x86_64-pc-windows-msvc.tar.gz"
+                      }
+                  },
+                  "hash": {
+                      "url": "\$url.sha256",
+                      "regex": "^([a-fA-F0-9]+)"
+                  }
+              }
+          }
+          JSONEOF
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' bucket/agent-hand.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/agent-hand.json
+          git diff --cached --quiet || git commit -m "Update agent-hand to ${VERSION}"
+          git push
+
+  build-pro:
+    if: github.repository == 'weykon/agent-hand'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-14
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone agent-hooks crate
+        run: git clone https://github.com/weykon/agent-hooks.git tool-adapters
+
+      - name: Clone pro module
+        env:
+          PRO_REPO_TOKEN: ${{ secrets.PRO_REPO_TOKEN }}
+        run: git clone https://x-access-token:${PRO_REPO_TOKEN}@github.com/weykon/agent-hand-pro.git pro
+        shell: bash
+
+      - name: Stub ai_api_provider (optional path dep)
+        shell: bash
+        run: |
+          mkdir -p ../ai_api_provider/src
+          cat > ../ai_api_provider/Cargo.toml << 'TOML'
+          [package]
+          name = "ai_api_provider"
+          version = "0.1.0"
+          edition = "2021"
+          [dependencies]
+          reqwest = { version = "0.12", features = ["json"] }
+          serde = { version = "1", features = ["derive"] }
+          serde_json = "1"
+          thiserror = "2"
+          TOML
+          echo "// stub" > ../ai_api_provider/src/lib.rs
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (pro)
+        run: cargo build --release --features pro --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=agent-hand
+          BRIDGE=agent-hand-bridge
+          OUTDIR=dist
+          mkdir -p "$OUTDIR"
+
+          BIN_PATH="target/${{ matrix.target }}/release/${BIN}"
+          BRIDGE_PATH="target/${{ matrix.target }}/release/${BRIDGE}"
+          OUT_BIN="$BIN"
+          OUT_BRIDGE="$BRIDGE"
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            BIN_PATH="${BIN_PATH}.exe"
+            BRIDGE_PATH="${BRIDGE_PATH}.exe"
+            OUT_BIN="${BIN}.exe"
+            OUT_BRIDGE="${BRIDGE}.exe"
+          fi
+
+          cp "$BIN_PATH" "$OUTDIR/$OUT_BIN"
+          cp "$BRIDGE_PATH" "$OUTDIR/$OUT_BRIDGE"
+          tar -C "$OUTDIR" -czf "$OUTDIR/agent-hand-pro-${{ matrix.target }}.tar.gz" "$OUT_BIN" "$OUT_BRIDGE"
+          (
+            cd "$OUTDIR"
+            if command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "agent-hand-pro-${{ matrix.target }}.tar.gz" > "agent-hand-pro-${{ matrix.target }}.tar.gz.sha256"
+            else
+              sha256sum "agent-hand-pro-${{ matrix.target }}.tar.gz" > "agent-hand-pro-${{ matrix.target }}.tar.gz.sha256"
+            fi
+          )
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+
+  build-max:
+    if: github.repository == 'weykon/agent-hand'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-14
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone agent-hooks crate
+        run: git clone https://github.com/weykon/agent-hooks.git tool-adapters
+
+      - name: Clone pro module
+        env:
+          PRO_REPO_TOKEN: ${{ secrets.PRO_REPO_TOKEN }}
+        run: git clone https://x-access-token:${PRO_REPO_TOKEN}@github.com/weykon/agent-hand-pro.git pro
+        shell: bash
+
+      - name: Clone ai_api_provider
+        env:
+          PRO_REPO_TOKEN: ${{ secrets.PRO_REPO_TOKEN }}
+        run: git clone https://x-access-token:${PRO_REPO_TOKEN}@github.com/weykon/ai_api_provider.git ../ai_api_provider
+        shell: bash
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (max)
+        run: cargo build --release --features max --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=agent-hand
+          BRIDGE=agent-hand-bridge
+          OUTDIR=dist
+          mkdir -p "$OUTDIR"
+
+          BIN_PATH="target/${{ matrix.target }}/release/${BIN}"
+          BRIDGE_PATH="target/${{ matrix.target }}/release/${BRIDGE}"
+          OUT_BIN="$BIN"
+          OUT_BRIDGE="$BRIDGE"
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            BIN_PATH="${BIN_PATH}.exe"
+            BRIDGE_PATH="${BRIDGE_PATH}.exe"
+            OUT_BIN="${BIN}.exe"
+            OUT_BRIDGE="${BRIDGE}.exe"
+          fi
+
+          cp "$BIN_PATH" "$OUTDIR/$OUT_BIN"
+          cp "$BRIDGE_PATH" "$OUTDIR/$OUT_BRIDGE"
+          tar -C "$OUTDIR" -czf "$OUTDIR/agent-hand-max-${{ matrix.target }}.tar.gz" "$OUT_BIN" "$OUT_BRIDGE"
+          (
+            cd "$OUTDIR"
+            if command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "agent-hand-max-${{ matrix.target }}.tar.gz" > "agent-hand-max-${{ matrix.target }}.tar.gz.sha256"
+            else
+              sha256sum "agent-hand-max-${{ matrix.target }}.tar.gz" > "agent-hand-max-${{ matrix.target }}.tar.gz.sha256"
+            fi
+          )
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256

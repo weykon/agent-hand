@@ -1,0 +1,71 @@
+---
+title: 安装
+description: 在 macOS、Linux 或 Windows (WSL) 上安装 Agent Hand。
+---
+
+## 系统要求
+
+- **tmux** 3.0+ 已安装
+- macOS、Linux 或 Windows（WSL 环境）
+- 一个终端模拟器
+
+## 一键安装（推荐）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anthropics/agent-hand/main/install.sh | bash
+```
+
+这将为你的平台下载最新的预编译二进制文件，并将其放置在 `~/.local/bin/` 目录中。
+
+## 通过 Cargo 安装
+
+如果你已经安装了 Rust：
+
+```bash
+cargo install agent-hand
+```
+
+## 手动下载
+
+从 [GitHub Releases](https://github.com/weykon/agent-hand/releases) 下载最新版本：
+
+| 平台 | 二进制文件 |
+| --- | --- |
+| macOS (Apple Silicon) | `agent-hand-aarch64-apple-darwin` |
+| macOS (Intel) | `agent-hand-x86_64-apple-darwin` |
+| Linux (x86_64) | `agent-hand-x86_64-unknown-linux-gnu` |
+
+下载后执行：
+
+```bash
+chmod +x agent-hand-*
+mv agent-hand-* ~/.local/bin/agent-hand
+```
+
+## 验证安装
+
+```bash
+agent-hand --version
+# agent-hand 0.3.8
+```
+
+## 安装 tmux
+
+Agent Hand 依赖 tmux。如果你还没有安装，请执行：
+
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu / Debian
+sudo apt install tmux
+
+# Arch
+sudo pacman -S tmux
+```
+
+Agent Hand 管理自己的 tmux 服务器实例——它不会干扰你现有的 tmux 会话。
+
+## 下一步
+
+启动 `agent-hand` 并前往[快速开始](/docs/getting-started/quick-start)指南。

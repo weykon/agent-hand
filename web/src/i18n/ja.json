@@ -1,0 +1,243 @@
+{
+  "nav": {
+    "features": "機能",
+    "install": "インストール",
+    "pricing": "料金",
+    "story": "ストーリー",
+    "faq": "よくある質問",
+    "docs": "ドキュメント",
+    "github": "GitHub",
+    "signIn": "ログイン",
+    "account": "アカウント",
+    "admin": "管理",
+    "signOut": "ログアウト"
+  },
+  "hero": {
+    "title": "Agent Hand",
+    "subtitle": "Agent Hand は、複数のAIコーディングエージェントセッション（Claude Code、Gemini CLI、Cursor、Codex、Windsurf）を1つのtmuxベースのダッシュボードで管理するオープンソースのRust TUIです。起動時間50ms未満。",
+    "tagline": "優先ジャンプ、ファジー検索、キャンバスワークフローエディタ、AIセッションサマライザー、マルチツールフック。コア機能は無料、ProとMaxティアあり。"
+  },
+  "terminal": {
+    "title": "agent-hand",
+    "sessions": [
+      { "icon": "!", "color": "text-yellow-400", "name": "claude-main", "group": "[仕事]", "status": "入力待ち..." },
+      { "icon": "●", "color": "text-blue-400", "name": "research-agent", "group": "[コーディング]", "status": "思考中..." },
+      { "icon": "✓", "color": "text-green-400", "name": "bugfix-session", "group": "[デバッグ]", "status": "5分前に完了" },
+      { "icon": "○", "color": "text-[#64748b]", "name": "new-project", "group": "[実験]", "status": "未開始" }
+    ]
+  },
+  "features": {
+    "title": "主な機能",
+    "subtitle": "無料・オープンソース — アカウント登録不要",
+    "free": [
+      { "icon": "🔍", "title": "ステータス検出", "desc": "WAITING、RUNNING、READY、IDLEの状態を一目で確認できる視覚的なインジケーター。" },
+      { "icon": "🎯", "title": "優先ジャンプ (Ctrl+N)", "desc": "最も緊急なセッションに即座にジャンプ。確認プロンプトを見逃しません。" },
+      { "icon": "⚡", "title": "ファジースイッチャー (Ctrl+G)", "desc": "ミリ秒単位で任意のセッションを検索・切替。数文字入力するだけで直接ジャンプ。" },
+      { "icon": "📊", "title": "PTYモニタリング", "desc": "リアルタイムの疑似端末使用量トラッキング。システム全体のゲージと警告付き。" },
+      { "icon": "📁", "title": "グループ＆ラベル", "desc": "カスタムタイトルとカラーラベルでプロジェクトごとにセッションを整理。" },
+      { "icon": "🔒", "title": "tmux分離", "desc": "専用のtmuxサーバーはデフォルトのtmuxに影響しません。あなたの設定、あなたのワークフロー。" },
+      { "icon": "🔗", "title": "マルチツールフック", "desc": "Claude Code、Gemini CLI、Cursor、Codex、Windsurfに対応。初回実行時にフックが自動登録。" },
+      { "icon": "🌐", "title": "中国語サポート", "desc": "システムロケールを自動検出。CLIとTUIの完全な中国語翻訳。" }
+    ],
+    "proLabel": "PRO",
+    "proTitle": "Pro機能",
+    "proSubtitle": "$19 買い切り — フルツールキットをアンロック",
+    "pro": [
+      { "icon": "🗺️", "title": "キャンバスワークフローエディタ", "desc": "セッションワークフローをマッピングするビジュアルノードグラフ。ノードのドラッグ、エッジの描画、自動レイアウト。終了時に自動保存。" },
+      { "icon": "🔀", "title": "セッション関係", "desc": "セッションを親子、依存、コラボレーションとしてリンク。Ctrl+Eで専用リレーションシップビューアー。" },
+      { "icon": "📚", "title": "スキルライブラリ", "desc": "再利用可能なプロンプトスキルの閲覧、同期、共有。Gitベースのコミュニティリポジトリ。" },
+      { "icon": "🔔", "title": "サウンド通知", "desc": "セッションが注意を必要とする時にオーディオアラート。クロスプラットフォーム、設定可能なサウンドパック。" },
+      { "icon": "♻️", "title": "セッション再開", "desc": "再起動後もAIセッションを再開。Claude、Gemini、Cursorのツールセッションを自動検出。" },
+      { "icon": "📡", "title": "リモート共有", "desc": "WebSocketリレーでライブターミナルセッションを共有。読み取り専用または読み書きモード、自動期限切れ。" }
+    ],
+    "maxLabel": "MAX",
+    "maxTitle": "Max機能",
+    "maxSubtitle": "$9/月 — AI駆動のインサイトとクロスネットワークコラボレーション",
+    "max": [
+      { "icon": "🤖", "title": "AIセッションサマライザー", "desc": "ワンキーで任意のセッション出力をAI要約。DeepSeek、Claude、Ollama、OpenAI互換プロバイダーに対応。" },
+      { "icon": "🧠", "title": "コラボレーティブコンテキスト", "desc": "スナップショットと注釈でリレーションシップコンテキストをキャプチャ。新しいセッションにコンテキストを注入。" },
+      { "icon": "🌍", "title": "リモートセッションノード", "desc": "他のマシン上のセッションにキャンバスノードを追加。クロスネットワークのリレーションシップマッピング。" }
+    ]
+  },
+  "preview": {
+    "title": "実際の動作を見る",
+    "alt": "Agent Hand — Claude Code、Gemini CLIセッションとステータスインジケーターを表示するAIターミナルセッションマネージャーダッシュボード"
+  },
+  "install": {
+    "title": "始めましょう",
+    "tabUnix": "macOS / Linux / WSL",
+    "tabWindows": "Windows",
+    "oneLiner": "ワンライナーインストール",
+    "oneLinerDesc": "macOS、Linux、WSLで動作します。スクリプトは必要に応じてtmuxを自動インストールします。",
+    "windowsInstall": "Windowsインストール",
+    "option1": "オプション1：WSL（推奨）",
+    "option1Desc": "インストール",
+    "option1Link": "WSL",
+    "option1Suffix": "してから、WSLターミナルで実行：",
+    "option2": "オプション2：ネイティブPowerShell（上級者向け）",
+    "option2Desc": "tmux付きのPOSIXレイヤーが必要です（例：MSYS2/Cygwin）。",
+    "wslNote": "推奨：",
+    "wslNoteLink": "WSL",
+    "wslNoteSuffix": "内でmacOS/Linuxコマンドを使用してください。ネイティブPowerShellにはtmux付きのPOSIXレイヤー（例：MSYS2）が必要です。",
+    "buildFromSource": "ソースからビルド",
+    "rustRequired": "Rustツールチェーンが必要",
+    "copy": "コピー",
+    "copied": "コピー済み！"
+  },
+  "stats": {
+    "items": [
+      { "value": "<50ms", "label": "起動時間" },
+      { "value": "~8MB", "label": "メモリ使用量" },
+      { "value": "2.7MB", "label": "バイナリサイズ" },
+      { "value": "Rust", "label": "パワード" }
+    ]
+  },
+  "pricing": {
+    "title": "シンプルな料金体系",
+    "subtitle": "コア機能は永久無料。Proは買い切り。Maxはサブスクリプション。",
+    "monthly": "月払い",
+    "yearly": "年払い",
+    "save": "約$19お得",
+    "free": {
+      "name": "無料",
+      "price": "$0",
+      "features": [
+        "セッション管理TUI",
+        "ステータス検出 + 優先ジャンプ",
+        "マルチツールフック（Claude、Gemini、Cursor）",
+        "グループ、ラベル、ファジー検索",
+        "中国語 + 英語"
+      ],
+      "cta": "無料で始める"
+    },
+    "pro": {
+      "name": "Pro",
+      "price": "$19",
+      "period": "買い切り",
+      "features": [
+        "無料版のすべて",
+        "キャンバスワークフローエディタ",
+        "セッション関係",
+        "スキルライブラリ",
+        "サウンド通知",
+        "セッション再開",
+        "リモート共有"
+      ],
+      "cta": "ライセンスを購入"
+    },
+    "max": {
+      "name": "Max",
+      "popular": "人気",
+      "features": [
+        "Proのすべて",
+        "AIセッションサマライザー",
+        "コラボレーティブコンテキストキャプチャ",
+        "リモートセッションノード"
+      ],
+      "cta": "サブスクライブ"
+    },
+    "activateNote": "購入後、{command} を実行してアクティベートしてください。"
+  },
+  "story": {
+    "title": "クリエイターより",
+    "p1": "2025年初頭、私は {highlight} を同時に操作していました。4つのターミナルウィンドウ、それぞれ3-4のtmuxペイン。「あのプロンプトに返信したっけ？」「どのClaudeがどのタスクを担当してる？」正しいセッションを見つけるだけで10分以上無駄にしていました。",
+    "p1Highlight": "5つ以上のClaude Codeインスタンス",
+    "p2": "オリジナルのagent-deck（Go）を試して、コンセプトは気に入りましたが、より良いパフォーマンス、より多くの機能、よりクリーンな統合が欲しかった。Agent Handが誕生しました — うまくいく部分を残し、必要なものを追加したRustリライトです。",
+    "footer": "最高のツールは、実際に使うツールです。"
+  },
+  "faq": {
+    "title": "よくある質問",
+    "questions": [
+      {
+        "q": "Agent Handとは？",
+        "a": "Agent Handは、Claude Code、Gemini CLI、Cursor、Codex、WindsurfなどのAIコーディングエージェント向けの高速なRustベースのターミナルセッションマネージャー（TUI）です。tmuxで分離し、ステータス検出、優先ジャンプ、ファジー検索、キャンバスワークフローエディタ、AIセッションサマライザーを備えた1つのダッシュボードから5つ以上の同時AIセッションを管理できます。"
+      },
+      {
+        "q": "Agent Handをインストールするには？",
+        "a": "次のコマンドを実行：curl -fsSL https://raw.githubusercontent.com/weykon/agent-hand/master/install.sh | bash — macOS、Linux、WSLで動作します。または cargo build --release でソースからビルドできます。"
+      },
+      {
+        "q": "Agent Handは無料ですか？",
+        "a": "はい、コアのセッションマネージャーはオープンソース（MIT）で無料です。ステータス検出、優先ジャンプ、ファジー検索、マルチツールフック、中国語サポートが含まれます。Pro（$19買い切り）でキャンバスワークフローエディタ、セッション関係、スキルライブラリ、サウンド通知、セッション再開、リモート共有が追加されます。Max（$9/月）でAIセッションサマライザー、コラボレーティブコンテキストキャプチャ、リモートセッションノードが追加されます。"
+      },
+      {
+        "q": "Agent HandはClaude Codeで使えますか？",
+        "a": "はい。Agent Handは元々複数のClaude Codeセッションを管理するために作られました。セッションステータス（待機中、実行中、アイドル）を検出し、Ctrl+Nで入力が必要なセッションに優先ジャンプし、Ctrl+Gですべてのセッションをファジー検索できます。"
+      },
+      {
+        "q": "Agent Handとtmuxの違いは？",
+        "a": "Agent Handはtmuxの上で動作します（設定に影響しないよう専用サーバーを使用）。AIエージェント固有の機能を追加します：自動ステータス検出、優先ジャンプ、セッショングルーピング、PTYモニタリング、ビジュアルダッシュボード — これらは素のtmuxにはない機能です。"
+      }
+    ]
+  },
+  "support": {
+    "title": "お困りですか？",
+    "syncNote": "支払いが表示されない場合は、{command} を実行してサーバーからライセンスを同期してください。",
+    "contactNote": "まだ問題がある場合は、こちらまでご連絡ください：",
+    "contactEmail": "weykon@qq.com"
+  },
+  "footer": {
+    "github": "GitHub",
+    "releases": "リリース",
+    "terms": "利用規約",
+    "privacy": "プライバシーポリシー",
+    "refund": "返金ポリシー",
+    "license": "MITライセンス"
+  },
+  "account": {
+    "title": "アカウント",
+    "signInDesc": "アカウントを管理するにはログインしてください。または、ターミナルで {command} を実行してください。",
+    "signInGoogle": "Googleでログイン",
+    "signInGithub": "GitHubでログイン",
+    "backToHome": "ホームに戻る",
+    "email": "メールアドレス",
+    "plan": "プラン",
+    "purchased": "購入日",
+    "subscription": "サブスクリプション",
+    "nextBilling": "次回請求日",
+    "accessUntil": "有効期限",
+    "includedFeatures": "含まれる機能",
+    "sessionManagement": "セッション管理TUI",
+    "tmuxIntegration": "tmux統合＆ステータスモニタリング",
+    "autoUpgrade": "自動アップグレードコマンド",
+    "prioritySupport": "優先サポート",
+    "aiSummarizer": "AIセッションサマライザー",
+    "remoteSharing": "リモート共有＆コラボレーション",
+    "sessionRelationships": "セッション関係＆コンテキスト",
+    "activeDevices": "アクティブデバイス",
+    "noDevices": "まだデバイスが登録されていません。",
+    "remove": "削除",
+    "inactiveNote": "非アクティブなデバイスは14日後に自動的に解放されます。",
+    "upgradePro": "Proにアップグレード — $19 買い切り",
+    "upgradeMax": "Maxをサブスクライブ — $9/月",
+    "upgradeToMax": "Maxにアップグレード — $9/月",
+    "redirecting": "リダイレクト中...",
+    "refresh": "更新",
+    "logout": "ログアウト",
+    "loading": "読み込み中...",
+    "processingPayment": "お支払いを処理しています…通常数秒で完了します。",
+    "removeDeviceConfirm": "このデバイスを削除しますか？次回起動時に再認証が必要になります。"
+  },
+  "activate": {
+    "noCode": "デバイスコードがありません",
+    "noCodeDesc": "ターミナルで {command} を実行して開始してください。",
+    "authorizeDevice": "デバイスの認証",
+    "yourCode": "デバイスコード：",
+    "signInToLink": "ログインしてアカウントをこのデバイスにリンクしてください。",
+    "signInGoogle": "Googleでログイン",
+    "signInGithub": "GitHubでログイン"
+  },
+  "auth": {
+    "error": "認証エラー",
+    "errorDesc": "コールバックURLにトークンまたはメールが見つかりません。",
+    "signingIn": "ログイン中..."
+  },
+  "legal": {
+    "englishOnly": "このページは英語のみです。",
+    "backToHome": "ホームに戻る"
+  },
+  "common": {
+    "loading": "読み込み中...",
+    "redirecting": "リダイレクト中..."
+  }
+}

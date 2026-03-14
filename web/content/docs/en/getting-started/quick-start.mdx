@@ -1,0 +1,57 @@
+---
+title: Quick Start
+description: Launch Agent Hand and learn the essential keybindings in 2 minutes.
+---
+
+## Launch
+
+```bash
+agent-hand
+```
+
+The TUI opens with the **session list** on the left and an **info bar** at the bottom.
+
+## Core Keybindings
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` | Navigate up/down in session list |
+| `Enter` | Attach to selected session (jump into tmux) |
+| `q` | Quit Agent Hand |
+| `/` | Fuzzy search sessions |
+| `r` | Refresh session list |
+| `g` | Group manager |
+| `?` | Show all keybindings |
+
+## Session States
+
+Each session shows a colored status indicator:
+
+- **Running** (green) — process is actively executing
+- **Idle** (blue) — session exists but nothing is running
+- **Exited** (gray) — process has finished
+- **Error** (red) — process exited with a non-zero code
+
+Agent Hand detects these states automatically by inspecting the tmux pane.
+
+## Priority Jump
+
+Sessions are sorted by priority: errors and running sessions appear first, so the most important things are always at the top.
+
+## Working with AI Agents
+
+When you run an AI coding agent (Claude Code, Cursor, etc.), it typically spawns multiple terminal sessions. Agent Hand automatically discovers and lists all tmux sessions, including those created by your AI tools.
+
+A typical workflow:
+
+1. Start your AI agent in one terminal
+2. Open Agent Hand in another terminal (or a tmux split)
+3. Watch as sessions appear in the list
+4. Jump into any session to inspect output
+5. Use status indicators to spot errors quickly
+
+## Next Steps
+
+- [Supported Tools](/docs/getting-started/supported-tools) — which AI agents work with Agent Hand
+- [Session Management](/docs/features/session-management) — groups, labels, filtering
+- [Canvas Editor](/docs/features/canvas) — visual workflow diagrams (Pro)

@@ -1,0 +1,423 @@
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
+
+use crate::tmux::{SessionStatus, TmuxManager, TmuxSession, Tool};
+
+use crate::sharing::SharingState;
+
+/// Session status (persisted)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Status {
+    Running,
+    Waiting,
+    Idle,
+    Error,
+    Starting,
+}
+
+impl From<SessionStatus> for Status {
+    fn from(status: SessionStatus) -> Self {
+        match status {
+            SessionStatus::Running => Status::Running,
+            SessionStatus::Waiting => Status::Waiting,
+            SessionStatus::Idle => Status::Idle,
+            SessionStatus::Error => Status::Error,
+            SessionStatus::Starting => Status::Starting,
+        }
+    }
+}
+
+/// Optional UI label color (persisted)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LabelColor {
+    Gray,
+    Magenta,
+    Cyan,
+    Green,
+    Yellow,
+    Red,
+    Blue,
+}
+
+impl Default for LabelColor {
+    fn default() -> Self {
+        Self::Gray
+    }
+}
+
+/// Session instance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Instance {
+    pub id: String,
+    pub title: String,
+    pub project_path: PathBuf,
+    pub group_path: String,
+    pub parent_session_id: Option<String>,
+    pub command: String,
+    #[serde(default)]
+    pub tool: Tool,
+
+    // Optional UI label
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub label_color: LabelColor,
+
+    // User-defined tags for filtering and categorization
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+
+    pub status: Status,
+    pub created_at: DateTime<Utc>,
+    pub last_accessed_at: Option<DateTime<Utc>>,
+
+    /// Last time this session was detected as Running (for Ready indicator)
+    #[serde(default)]
+    pub last_running_at: Option<DateTime<Utc>>,
+
+    /// Last time this session entered Waiting (for priority target selection)
+    #[serde(default)]
+    pub last_waiting_at: Option<DateTime<Utc>>,
+
+    // Claude integration
+    pub claude_session_id: Option<String>,
+    pub claude_detected_at: Option<DateTime<Utc>>,
+
+    // Gemini integration
+    pub gemini_session_id: Option<String>,
+    pub gemini_detected_at: Option<DateTime<Utc>>,
+
+    // Codex integration
+    #[serde(default)]
+    pub codex_session_id: Option<String>,
+    #[serde(default)]
+    pub codex_detected_at: Option<DateTime<Utc>>,
+
+    // Pending CLI session ID — stored when tool type is still Shell (unknown).
+    // Migrated to the tool-specific field once the tool is detected via upgrade_tool().
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_cli_session_id: Option<String>,
+
+    // Premium: remote sharing state
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharing: Option<SharingState>,
+
+    /// If this session was auto-created as a relationship workspace,
+    /// stores the ID of the originating Relationship.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_id: Option<String>,
+
+    /// Persisted tmux session name. Computed from title + ID on creation.
+    /// Legacy sessions (pre-migration) have None and fall back to "agentdeck_rs_{id}".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tmux_session_name: Option<String>,
+
+    // Non-serialized fields
+    #[serde(skip)]
+    tmux_session: Option<Arc<TmuxSession>>,
+
+    /// Number of /dev/ptmx FDs held by this session's process tree (runtime-only).
+    #[serde(skip)]
+    pub ptmx_count: u32,
+}
+
+impl Instance {
+    /// Create a new session instance
+    pub fn new(title: String, project_path: PathBuf) -> Self {
+        let id = generate_id();
+        let group_path = extract_group_path(&project_path);
+        let tmux_session_name = Some(TmuxManager::build_session_name(&title, &id));
+
+        Self {
+            id,
+            title,
+            project_path,
+            group_path,
+            parent_session_id: None,
+            command: String::new(),
+            tool: Tool::Shell,
+            label: String::new(),
+            label_color: LabelColor::Gray,
+            tags: Vec::new(),
+            status: Status::Idle,
+            created_at: Utc::now(),
+            last_accessed_at: None,
+            last_running_at: None,
+            last_waiting_at: None,
+            claude_session_id: None,
+            claude_detected_at: None,
+            gemini_session_id: None,
+            gemini_detected_at: None,
+            codex_session_id: None,
+            codex_detected_at: None,
+            pending_cli_session_id: None,
+            sharing: None,
+            relationship_id: None,
+            tmux_session_name,
+            tmux_session: None,
+            ptmx_count: 0,
+        }
+    }
+
+    /// Create with explicit group path
+    pub fn with_group(title: String, project_path: PathBuf, group_path: String) -> Self {
+        let mut instance = Self::new(title, project_path);
+        instance.group_path = group_path;
+        instance
+    }
+
+    /// Create with tool
+    pub fn with_tool(title: String, project_path: PathBuf, tool: Tool) -> Self {
+        let mut instance = Self::new(title, project_path);
+        instance.tool = tool;
+        instance
+    }
+
+    /// Get tmux session name.
+    /// Returns the stored name, or falls back to legacy format for old sessions.
+    pub fn tmux_name(&self) -> String {
+        self.tmux_session_name
+            .clone()
+            .unwrap_or_else(|| TmuxManager::session_name_legacy(&self.id))
+    }
+
+    /// Add a tag (no-op if already present)
+    pub fn add_tag(&mut self, tag: &str) {
+        let tag = tag.trim().to_string();
+        if !tag.is_empty() && !self.tags.contains(&tag) {
+            self.tags.push(tag);
+        }
+    }
+
+    /// Remove a tag. Returns true if the tag was present.
+    pub fn remove_tag(&mut self, tag: &str) -> bool {
+        let before = self.tags.len();
+        self.tags.retain(|t| t != tag);
+        self.tags.len() != before
+    }
+
+    /// Check if this instance has a specific tag
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|t| t == tag)
+    }
+
+    /// Mark as accessed
+    pub fn mark_accessed(&mut self) {
+        self.last_accessed_at = Some(Utc::now());
+    }
+
+    /// Check if this is a sub-session
+    pub fn is_sub_session(&self) -> bool {
+        self.parent_session_id.is_some()
+    }
+
+    /// Set parent session
+    pub fn set_parent(&mut self, parent_id: String) {
+        self.parent_session_id = Some(parent_id);
+    }
+
+    /// Clear parent
+    pub fn clear_parent(&mut self) {
+        self.parent_session_id = None;
+    }
+
+    /// Initialize tmux session wrapper
+    pub fn init_tmux(&mut self, manager: Arc<TmuxManager>) {
+        let tmux_session = Arc::new(TmuxSession::new(
+            self.tmux_name(),
+            self.project_path.clone(),
+            self.tool,
+            manager,
+        ));
+        self.tmux_session = Some(tmux_session);
+    }
+
+    /// Get tmux session (if initialized)
+    pub fn tmux(&self) -> Option<&Arc<TmuxSession>> {
+        self.tmux_session.as_ref()
+    }
+
+    /// Update status from tmux
+    pub async fn update_status(&mut self) -> crate::Result<()> {
+        if let Some(tmux) = &self.tmux_session {
+            let status = tmux.update_status().await?;
+            self.status = status.into();
+        }
+        Ok(())
+    }
+
+    /// Start the session
+    pub async fn start(&mut self) -> crate::Result<()> {
+        if let Some(tmux) = &self.tmux_session {
+            let cmd = if self.command.is_empty() {
+                None
+            } else {
+                Some(self.command.as_str())
+            };
+            tmux.start(cmd).await?;
+            let _ = tmux.set_title(&self.title).await;
+            self.status = Status::Idle;
+        }
+        Ok(())
+    }
+
+    /// Stop the session
+    pub async fn stop(&mut self) -> crate::Result<()> {
+        if let Some(tmux) = &self.tmux_session {
+            tmux.stop().await?;
+            self.status = Status::Error;
+        }
+        Ok(())
+    }
+
+    /// Attach to the session
+    pub async fn attach(&mut self) -> crate::Result<()> {
+        self.mark_accessed();
+        if let Some(tmux) = &self.tmux_session {
+            tmux.attach().await?;
+        }
+        Ok(())
+    }
+
+    /// Check if session exists in tmux
+    pub fn exists(&self) -> bool {
+        self.tmux_session
+            .as_ref()
+            .map(|t| t.exists())
+            .unwrap_or(false)
+    }
+
+    /// Get the CLI session ID for this instance's tool (for resume).
+    /// Falls back to pending_cli_session_id when tool is still Shell.
+    pub fn cli_session_id(&self) -> Option<&str> {
+        match self.tool {
+            Tool::Claude => self.claude_session_id.as_deref(),
+            Tool::Codex => self.codex_session_id.as_deref(),
+            Tool::Gemini => self.gemini_session_id.as_deref(),
+            _ => self.pending_cli_session_id.as_deref(),
+        }
+    }
+
+    /// Upgrade the tool type from Shell to an actual detected tool.
+    /// Migrates any pending_cli_session_id into the tool-specific field.
+    /// Returns true if the upgrade was performed.
+    pub fn upgrade_tool(&mut self, new_tool: Tool) -> bool {
+        if self.tool == Tool::Shell && new_tool != Tool::Shell {
+            self.tool = new_tool;
+            // Migrate pending session ID to the now-known tool's field
+            if let Some(pending) = self.pending_cli_session_id.take() {
+                self.set_cli_session_id(&pending, Utc::now());
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Set the CLI session ID for this instance's tool.
+    /// When tool is still Shell (unknown), stores as pending_cli_session_id
+    /// which will be migrated once upgrade_tool() detects the real tool.
+    /// Returns true if the value actually changed.
+    pub fn set_cli_session_id(&mut self, session_id: &str, now: DateTime<Utc>) -> bool {
+        if session_id.is_empty() {
+            return false;
+        }
+        match self.tool {
+            Tool::Claude | Tool::Codex | Tool::Gemini => {
+                let (id_field, ts_field) = match self.tool {
+                    Tool::Claude => (&mut self.claude_session_id, &mut self.claude_detected_at),
+                    Tool::Codex => (&mut self.codex_session_id, &mut self.codex_detected_at),
+                    Tool::Gemini => (&mut self.gemini_session_id, &mut self.gemini_detected_at),
+                    _ => unreachable!(),
+                };
+                if id_field.as_deref() == Some(session_id) {
+                    return false;
+                }
+                *id_field = Some(session_id.to_string());
+                *ts_field = Some(now);
+                true
+            }
+            _ => {
+                // Tool not yet determined — store as pending
+                if self.pending_cli_session_id.as_deref() == Some(session_id) {
+                    return false;
+                }
+                self.pending_cli_session_id = Some(session_id.to_string());
+                true
+            }
+        }
+    }
+}
+
+/// Generate a unique session ID
+fn generate_id() -> String {
+    // Use first 12 chars of UUID for shorter IDs
+    Uuid::new_v4().to_string()[..12].to_string()
+}
+
+/// Extract group path from project path
+/// E.g., /home/user/projects/work/app -> projects/work
+/// Returns `"default"` if the derived path would be empty.
+fn extract_group_path(path: &PathBuf) -> String {
+    let home = dirs::home_dir().unwrap_or_default();
+    let path_str = path.to_str().unwrap_or("");
+    let home_str = home.to_str().unwrap_or("");
+
+    let result = if path_str.starts_with(home_str) {
+        let relative = path_str.strip_prefix(home_str).unwrap_or("");
+        let parts: Vec<&str> = relative.trim_start_matches('/').split('/').collect();
+
+        // Use first 2 directory levels as group
+        if parts.len() >= 2 {
+            format!("{}/{}", parts[0], parts[1])
+        } else if parts.len() == 1 {
+            parts[0].to_string()
+        } else {
+            String::new()
+        }
+    } else {
+        // Not under home dir - use first directory
+        let parts: Vec<&str> = path_str.trim_start_matches('/').split('/').collect();
+        if !parts.is_empty() {
+            parts[0].to_string()
+        } else {
+            String::new()
+        }
+    };
+
+    if result.is_empty() { "default".to_string() } else { result }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_id() {
+        let id = generate_id();
+        assert_eq!(id.len(), 12);
+    }
+
+    #[test]
+    fn test_extract_group_path() {
+        let path = PathBuf::from("/home/user/projects/work/app");
+        let group = extract_group_path(&path);
+        println!("Group: {}", group);
+        assert!(!group.is_empty());
+    }
+
+    #[test]
+    fn test_is_sub_session() {
+        let mut instance = Instance::new("test".to_string(), PathBuf::from("/tmp"));
+        assert!(!instance.is_sub_session());
+
+        instance.set_parent("parent-id".to_string());
+        assert!(instance.is_sub_session());
+    }
+}

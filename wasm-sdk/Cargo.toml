@@ -1,0 +1,12 @@
+[package]
+name = "agent-hand-wasm-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "Guest SDK for building agent-hand WASM canvas plugins"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+crate-type = ["rlib"]

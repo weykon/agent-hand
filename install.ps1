@@ -1,0 +1,171 @@
+param(
+  [string]$Version = "latest",
+  [switch]$SkipWslInstall,
+  [switch]$Pro
+)
+
+$ErrorActionPreference = "Stop"
+
+$REPO = "weykon/agent-hand"
+$BIN_NAME = "agent-hand"
+$INSTALL_URL = "https://raw.githubusercontent.com/$REPO/master/install.sh"
+
+function Info($msg)  { Write-Host "[INFO] $msg" -ForegroundColor Green }
+function Warn($msg)  { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
+function Fail($msg)  { Write-Error "[ERROR] $msg"; exit 1 }
+
+function Test-Admin {
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+  return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# ── Step 1: Check if WSL is available ──
+
+$wslExists = Get-Command wsl.exe -ErrorAction SilentlyContinue
+
+if ($wslExists) {
+  # Check if a distro is actually installed
+  $distros = wsl.exe --list --quiet 2>$null
+  if ($LASTEXITCODE -eq 0 -and $distros) {
+    Info "WSL is installed with a Linux distro."
+  } else {
+    Info "WSL is installed but no Linux distro found. Installing Ubuntu..."
+    if (-not (Test-Admin)) {
+      Warn "Installing a WSL distro requires Administrator privileges."
+      Warn "Please re-run this script as Administrator, or manually run:"
+      Write-Host "  wsl --install -d Ubuntu" -ForegroundColor Cyan
+      exit 1
+    }
+    wsl --install -d Ubuntu
+    Write-Host ""
+    Warn "Ubuntu is being installed. You may need to restart your computer."
+    Warn "After restart, open Ubuntu from the Start menu to finish setup,"
+    Warn "then re-run this installer."
+    exit 0
+  }
+} else {
+  if ($SkipWslInstall) {
+    Fail "WSL is not installed and -SkipWslInstall was specified. agent-hand requires WSL (tmux)."
+  }
+
+  Info "WSL is not installed. agent-hand requires Linux (tmux) to manage sessions."
+  Info "Installing WSL with Ubuntu..."
+  Write-Host ""
+
+  if (-not (Test-Admin)) {
+    Warn "WSL installation requires Administrator privileges."
+    Warn "Please re-run this script as Administrator:"
+    Write-Host "  Start-Process powershell -Verb RunAs -ArgumentList '-File', '$($MyInvocation.MyCommand.Path)'" -ForegroundColor Cyan
+    exit 1
+  }
+
+  wsl --install -d Ubuntu
+  Write-Host ""
+  Warn "WSL + Ubuntu is being installed. You will need to restart your computer."
+  Warn "After restart:"
+  Warn "  1. Open 'Ubuntu' from the Start menu and create a Linux user"
+  Warn "  2. Re-run this installer to finish agent-hand setup"
+  exit 0
+}
+
+# ── Step 2: Install agent-hand inside WSL ──
+
+Info "Installing $BIN_NAME inside WSL..."
+Write-Host ""
+
+$proFlag = if ($Pro) { " --pro" } else { "" }
+if ($Version -eq "latest") {
+  $installCmd = "curl -fsSL $INSTALL_URL | bash -s --${proFlag}"
+} else {
+  $installCmd = "curl -fsSL $INSTALL_URL | bash -s -- --version $Version${proFlag}"
+}
+
+# Use -e to exec bash directly (bypasses /bin/sh which may not find bash).
+# Try /bin/bash first, then fall back to 'bash' in PATH.
+$installed = $false
+
+# Temporarily allow errors so we can try multiple approaches
+$ErrorActionPreference = "Continue"
+
+wsl -e /bin/bash -c $installCmd
+if ($LASTEXITCODE -eq 0) { $installed = $true }
+
+if (-not $installed) {
+  # /bin/bash may not exist (e.g. Alpine). Try with the default distro's bash in PATH.
+  wsl -e bash -c $installCmd
+  if ($LASTEXITCODE -eq 0) { $installed = $true }
+}
+
+if (-not $installed) {
+  # Auto-install bash and curl via sh, then retry
+  Info "bash not found — attempting to install it automatically..."
+  wsl -e sh -c "apk add bash curl 2>/dev/null || apt-get install -y bash curl 2>/dev/null || yum install -y bash curl 2>/dev/null || pacman -S --noconfirm bash curl 2>/dev/null" 2>$null
+
+  wsl -e bash -c $installCmd
+  if ($LASTEXITCODE -eq 0) { $installed = $true }
+}
+
+$ErrorActionPreference = "Stop"
+
+if (-not $installed) {
+  Write-Host ""
+  Warn "Installation inside WSL failed."
+  Warn "The easiest fix is to install Ubuntu as your WSL distro:"
+  Write-Host ""
+  Write-Host "  wsl --install -d Ubuntu" -ForegroundColor Cyan
+  Write-Host "  wsl --set-default Ubuntu" -ForegroundColor White
+  Write-Host "  Then re-run this installer." -ForegroundColor White
+  Write-Host ""
+  Write-Host "Or open WSL and install manually:" -ForegroundColor Cyan
+  Write-Host "  wsl" -ForegroundColor White
+  Write-Host "  curl -fsSL $INSTALL_URL | bash" -ForegroundColor White
+  Write-Host ""
+  Fail "Installation inside WSL failed."
+}
+
+# ── Step 3: Verify installation ──
+
+$ErrorActionPreference = "Continue"
+
+# Quick verification that agent-hand and tmux are findable with explicit PATH
+$verify = wsl -e sh -c "PATH=/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/bin; command -v $BIN_NAME && command -v tmux" 2>$null
+if (-not $verify) {
+  Warn "Post-install check: agent-hand or tmux may not be in the default PATH."
+  Warn "The PowerShell shim will handle this automatically."
+}
+
+$ErrorActionPreference = "Stop"
+
+# ── Step 4: Create a Windows shim so 'agent-hand' works from PowerShell ──
+
+$shimDir = Join-Path $env:USERPROFILE ".local\bin"
+New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
+
+# Shim uses absolute path and explicit PATH to avoid WSL non-login shell issue
+# (microsoft/WSL#3627: wsl <cmd> doesn't source .profile or .bashrc)
+$shimPath = Join-Path $shimDir "$BIN_NAME.cmd"
+$shimContent = @"
+@echo off
+wsl -e sh -c "export PATH=/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/bin; exec agent-hand %*"
+"@
+Set-Content -Path $shimPath -Value $shimContent -Encoding ASCII
+
+# Add shim dir to user PATH if needed (persistent + current session)
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$shimDir*") {
+  [Environment]::SetEnvironmentVariable("Path", "$shimDir;$userPath", "User")
+  Info "Added '$shimDir' to your user PATH (persistent)."
+}
+# Also update current session so the user doesn't need to open a new terminal
+if ($env:Path -notlike "*$shimDir*") {
+  $env:Path = "$shimDir;$env:Path"
+}
+
+Info "Installation complete!"
+Write-Host ""
+Write-Host "You can now run agent-hand directly:" -ForegroundColor Cyan
+Write-Host "  agent-hand" -ForegroundColor White
+Write-Host ""
+Write-Host "This forwards to WSL automatically. You can also run it from inside WSL." -ForegroundColor DarkGray
+Write-Host ""

@@ -1,0 +1,80 @@
+---
+title: 钩子系统
+description: 用于将 Agent Hand 与 AI 编程代理集成的事件钩子。
+---
+
+## 概述
+
+钩子系统让 Agent Hand 能够接收来自 AI 编程代理的事件。当代理启动会话、提交提示或遇到错误时，Agent Hand 可以实时响应。
+
+## 钩子工作原理
+
+```
+AI 代理（例如 Claude Code）
+    │
+    ├─ SessionStart 事件   ──→ hook_event_bridge.sh
+    ├─ UserPromptSubmit    ──→ hook_event_bridge.sh
+    └─ SessionStop         ──→ hook_event_bridge.sh
+                                    │
+                                    ▼
+                          hook-events.jsonl
+                                    │
+                                    ▼
+                          Agent Hand (EventReceiver)
+                                    │
+                                    ▼
+                          TUI 实时更新
+```
+
+1. AI 代理触发生命周期事件
+2. 桥接脚本将事件转换为 JSONL 格式
+3. Agent Hand 的 EventReceiver 轮询事件文件
+4. TUI 立即更新显示新的会话信息
+
+## 支持的事件
+
+| 事件 | 描述 |
+| --- | --- |
+| `SessionStart` | 新的编程会话已开始 |
+| `SessionStop` | 会话已结束 |
+| `UserPromptSubmit` | 用户向 AI 提交了提示 |
+
+## 钩子安装
+
+Agent Hand 在首次启动时会自动为支持的工具安装钩子：
+
+```bash
+# 钩子会安装到工具的配置目录
+# 对于 Claude Code: ~/.claude/hooks/
+agent-hand
+```
+
+你可以在设置对话框中验证钩子安装情况，或者检查工具的钩子配置。
+
+## 事件桥接
+
+事件桥接（`hook_event_bridge.sh`）是一个轻量级脚本，它：
+
+1. 从 AI 工具接收事件数据
+2. 解析事件类型和元数据
+3. 向事件文件写入 JSONL 条目
+4. Agent Hand 在下一个轮询周期中获取该条目
+
+桥接是无状态的——它不维护任何持久状态或连接。
+
+## 自定义钩子
+
+你可以通过以下方式扩展钩子系统：
+
+1. 向桥接脚本添加新的事件类型
+2. 在 Rust 代码库中创建自定义事件处理器
+3. 使用 `tool-adapters` 包添加对新 AI 工具的支持
+
+## 故障排除
+
+如果钩子没有触发：
+
+1. 检查桥接脚本是否存在且具有可执行权限
+2. 验证事件文件是否正在被写入：`ls -la ~/.agent-hand/events/`
+3. 检查 AI 工具的钩子配置
+4. 确保事件桥接对事件目录有写入权限

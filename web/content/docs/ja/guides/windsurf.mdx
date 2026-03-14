@@ -1,0 +1,27 @@
+---
+title: Windsurfとの使い方
+description: Agent HandでWindsurf（Codeium）のターミナルセッションを管理。
+---
+
+## 概要
+
+CodeiumのWindsurfは、コードの実行やテストのためにターミナルコマンドを実行するAI搭載IDEです。Agent Handはtmuxを通じてこれらのセッションを自動的に検出します。
+
+## セットアップ
+
+1. Agent Handをインストール（[インストール](/docs/getting-started/installation)）
+2. Windsurfのターミナルセッションがtmuxで実行されていることを確認
+3. Agent Handを起動: `agent-hand`
+
+## ワークフロー
+
+1. Windsurfでプロジェクトを開く
+2. 別のターミナルでAgent Handを起動
+3. Windsurfのターミナルセッションが自動的に表示
+4. Agent Handからセッションの監視、ジャンプ、管理が可能
+
+## ヒント
+
+- **一目でステータス確認**: Windsurfのタスクが実行中、完了、または失敗したかを確認
+- **エラートリアージ**: エラーはリストの上部に表示 — `Enter` で調査
+- **マルチツール構成**: Windsurfを他のAIツールと同時に実行し、すべてのセッションを一箇所で管理

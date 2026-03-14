@@ -1,0 +1,59 @@
+---
+title: Supported Tools
+description: AI coding agents and development tools that work with Agent Hand.
+---
+
+## AI Coding Agents
+
+Agent Hand works with any tool that creates tmux sessions. Here are the agents with first-class hook integration:
+
+### Claude Code (Anthropic)
+
+Agent Hand provides deep integration with Claude Code through the **hook system**:
+
+- Automatic session ID capture on `SessionStart`
+- Prompt submit event tracking
+- Session stop/resume lifecycle events
+
+```bash
+# Agent Hand automatically registers hooks with Claude Code
+agent-hand
+# Hooks are installed at ~/.claude/hooks/
+```
+
+### Cursor
+
+Cursor creates terminal sessions for running commands. Agent Hand discovers these automatically through tmux.
+
+### GitHub Copilot / Codex
+
+Works through tmux session discovery. Any terminal session spawned by Copilot or Codex is automatically listed.
+
+### Windsurf (Codeium)
+
+Windsurf terminal sessions are captured the same way — Agent Hand monitors all tmux sessions on the server.
+
+### OpenCode
+
+Compatible through tmux session discovery.
+
+## How Detection Works
+
+Agent Hand uses two complementary mechanisms:
+
+1. **tmux polling** — Periodically lists all sessions on configured tmux servers and detects their status
+2. **Hook events** — For supported tools (currently Claude Code), event hooks provide richer metadata like session IDs, titles, and lifecycle events
+
+## Adding Support for New Tools
+
+Agent Hand's hook system is extensible. The `tool-adapters` crate provides adapters for different AI tools:
+
+```
+tool-adapters/
+├── src/
+│   ├── lib.rs      # Adapter trait
+│   ├── claude.rs   # Claude Code adapter
+│   └── ...         # Future adapters
+```
+
+If your AI tool supports custom hooks or event callbacks, it can be integrated with Agent Hand.

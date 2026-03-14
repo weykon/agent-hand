@@ -1,0 +1,71 @@
+---
+title: インストール
+description: macOS、Linux、またはWindows（WSL）にAgent Handをインストールします。
+---
+
+## 必要条件
+
+- **tmux** 3.0以上がインストールされていること
+- macOS、Linux、またはWindows（WSL環境）
+- ターミナルエミュレータ
+
+## ワンラインインストール（推奨）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anthropics/agent-hand/main/install.sh | bash
+```
+
+このコマンドは、お使いのプラットフォーム向けの最新ビルド済みバイナリをダウンロードし、`~/.local/bin/` に配置します。
+
+## Cargo経由でインストール
+
+Rustがインストールされている場合：
+
+```bash
+cargo install agent-hand
+```
+
+## 手動ダウンロード
+
+[GitHub Releases](https://github.com/weykon/agent-hand/releases)から最新リリースをダウンロードしてください：
+
+| プラットフォーム | バイナリ |
+| --- | --- |
+| macOS (Apple Silicon) | `agent-hand-aarch64-apple-darwin` |
+| macOS (Intel) | `agent-hand-x86_64-apple-darwin` |
+| Linux (x86_64) | `agent-hand-x86_64-unknown-linux-gnu` |
+
+ダウンロード後：
+
+```bash
+chmod +x agent-hand-*
+mv agent-hand-* ~/.local/bin/agent-hand
+```
+
+## インストールの確認
+
+```bash
+agent-hand --version
+# agent-hand 0.3.8
+```
+
+## tmuxのセットアップ
+
+Agent Handにはtmuxが必要です。未インストールの場合はインストールしてください：
+
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu / Debian
+sudo apt install tmux
+
+# Arch
+sudo pacman -S tmux
+```
+
+Agent Handは独自のtmuxサーバーインスタンスを管理するため、既存のtmuxセッションに影響を与えることはありません。
+
+## 次のステップ
+
+`agent-hand` を起動して、[クイックスタート](/docs/getting-started/quick-start)ガイドに進んでください。

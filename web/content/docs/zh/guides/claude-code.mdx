@@ -1,0 +1,59 @@
+---
+title: 配合 Claude Code 使用
+description: 设置 Agent Hand 来管理 Claude Code 的终端会话。
+---
+
+## 概述
+
+Claude Code 是 Anthropic 推出的 Claude CLI 工具。当你在终端中运行 `claude` 时，它会创建 tmux 会话来执行命令、运行测试和构建项目。Agent Hand 通过钩子系统与 Claude Code 深度集成。
+
+## 设置
+
+1. 安装 Agent Hand（[安装指南](/docs/getting-started/installation)）
+2. 启动 Agent Hand：`agent-hand`
+3. 钩子会自动安装到 `~/.claude/hooks/`
+
+就是这么简单。Agent Hand 在启动时会自动向 Claude Code 注册事件钩子。
+
+## 捕获的内容
+
+通过钩子集成，Agent Hand 会接收：
+
+| 事件 | 数据 |
+| --- | --- |
+| **SessionStart** | 会话 ID、时间戳 |
+| **SessionStop** | 会话 ID、退出状态 |
+| **UserPromptSubmit** | 时间戳、提示文本（可选启用） |
+
+## 工作流程
+
+典型的 Claude Code + Agent Hand 工作流程：
+
+```
+终端 1                       终端 2
+┌─────────────────┐          ┌──────────────────────┐
+│  $ claude       │          │  $ agent-hand        │
+│                 │          │                      │
+│  > "修复登录   │ ──hook──→│  [SessionStart]      │
+│    bug"        │          │  ● claude-session-1  │
+│                 │          │    状态: 运行中      │
+│  运行测试中..  │          │                      │
+│  ✓ 全部通过    │          │  [SessionStop]       │
+│                 │ ──hook──→│  ○ claude-session-1  │
+│  > "现在添加   │          │    状态: 已退出(0)   │
+│    登出功能"   │          │                      │
+│                 │ ──hook──→│  ● claude-session-2  │
+└─────────────────┘          │    状态: 运行中      │
+                             └──────────────────────┘
+```
+
+## 使用技巧
+
+- **分屏终端**：在 tmux 窗格中将 Agent Hand 与 Claude Code 并排运行
+- **跳转到错误**：Agent Hand 将错误会话排在最前——按 `Enter` 跳转查看
+- **会话恢复**：如果 Claude Code 支持会话恢复，Agent Hand 会跟踪会话 ID 以便重新连接
+- **分组 Claude 会话**：使用 `g` 创建一个"Claude"分组并自动分配会话
+
+## 按配置文件隔离
+
+Agent Hand 支持按配置文件进行 tmux 服务器隔离。不同的 Claude Code 配置文件会获得独立的 tmux 服务器，防止会话冲突。

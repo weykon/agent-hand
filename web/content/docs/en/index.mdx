@@ -1,0 +1,58 @@
+---
+title: Introduction
+description: Agent Hand is a fast, tmux-backed terminal session manager built for AI coding agents.
+---
+
+## What is Agent Hand?
+
+Agent Hand is a terminal session manager written in Rust that gives you a unified TUI (Terminal User Interface) to manage sessions spawned by AI coding agents like **Claude Code**, **Cursor**, **Codex**, **Windsurf**, and more.
+
+When you're using AI-powered development tools, they spin up terminal sessions for builds, tests, dev servers, and other tasks. Agent Hand captures all of these into one dashboard where you can:
+
+- See every session's **live status** (running, idle, exited, error)
+- **Jump into any session** with one keypress
+- Organize sessions with **groups and labels**
+- Get **AI-powered summaries** of what happened in a session
+- Build **canvas workflow diagrams** from your session activity
+- **Share sessions** across machines via relay
+
+## Architecture
+
+Agent Hand is built on **tmux** — it doesn't reinvent terminal multiplexing. Instead, it adds a smart management layer on top:
+
+```
+┌─────────────────────────────────────┐
+│         Agent Hand TUI              │
+│  ┌─────┐ ┌─────┐ ┌─────┐ ┌──────┐ │
+│  │List │ │Info │ │Canv.│ │Search│ │
+│  │Panel│ │Bar  │ │Edit.│ │/Filt.│ │
+│  └──┬──┘ └──┬──┘ └──┬──┘ └──┬───┘ │
+│     │       │       │       │      │
+│  ┌──┴───────┴───────┴───────┴──┐   │
+│  │      tmux server(s)         │   │
+│  │  session1  session2  ...    │   │
+│  └─────────────────────────────┘   │
+└─────────────────────────────────────┘
+```
+
+## Feature Tiers
+
+Agent Hand follows a **Free / Pro / Max** tier model:
+
+| Tier | What You Get |
+| --- | --- |
+| **Free** | Session management, status detection, groups, hooks, i18n, fuzzy search |
+| **Pro** | Canvas workflow editor, session relationships, skills, sound notifications, resume |
+| **Max** | AI session summarizer, collaborative context, remote session nodes |
+
+## Quick Start
+
+```bash
+# Install (macOS / Linux)
+curl -fsSL https://raw.githubusercontent.com/anthropics/agent-hand/main/install.sh | bash
+
+# Launch
+agent-hand
+```
+
+See [Installation](/docs/getting-started/installation) for platform-specific instructions and [Quick Start](/docs/getting-started/quick-start) for a walkthrough of the TUI.

@@ -1,0 +1,59 @@
+---
+title: Using with Claude Code
+description: Set up Agent Hand to manage Claude Code terminal sessions.
+---
+
+## Overview
+
+Claude Code is Anthropic's CLI for Claude. When you run `claude` in your terminal, it creates tmux sessions for executing commands, running tests, and building projects. Agent Hand integrates deeply with Claude Code through the hook system.
+
+## Setup
+
+1. Install Agent Hand ([Installation](/docs/getting-started/installation))
+2. Launch Agent Hand: `agent-hand`
+3. Hooks are automatically installed to `~/.claude/hooks/`
+
+That's it. Agent Hand registers event hooks with Claude Code on startup.
+
+## What Gets Captured
+
+With the hook integration, Agent Hand receives:
+
+| Event | Data |
+| --- | --- |
+| **SessionStart** | Session ID, timestamp |
+| **SessionStop** | Session ID, exit status |
+| **UserPromptSubmit** | Timestamp, prompt text (opt-in) |
+
+## Workflow
+
+A typical Claude Code + Agent Hand workflow:
+
+```
+Terminal 1                    Terminal 2
+┌─────────────────┐          ┌──────────────────────┐
+│  $ claude       │          │  $ agent-hand        │
+│                 │          │                      │
+│  > "fix the     │ ──hook──→│  [SessionStart]      │
+│    login bug"   │          │  ● claude-session-1  │
+│                 │          │    Status: running    │
+│  Running tests..│          │                      │
+│  ✓ All pass     │          │  [SessionStop]       │
+│                 │ ──hook──→│  ○ claude-session-1  │
+│  > "now add     │          │    Status: exited(0) │
+│    logout"      │          │                      │
+│                 │ ──hook──→│  ● claude-session-2  │
+└─────────────────┘          │    Status: running   │
+                             └──────────────────────┘
+```
+
+## Tips
+
+- **Split your terminal**: Run Agent Hand in a tmux pane alongside Claude Code
+- **Jump to errors**: Agent Hand sorts error sessions to the top — press `Enter` to jump in
+- **Session resume**: If Claude Code supports session resume, Agent Hand tracks the session ID for reconnection
+- **Group Claude sessions**: Use `g` to create a "Claude" group and auto-assign sessions
+
+## Per-Profile Isolation
+
+Agent Hand supports per-profile tmux server isolation. Different Claude Code profiles get separate tmux servers, preventing session conflicts.

@@ -1,0 +1,75 @@
+---
+title: Canvas Workflow Editor
+description: Visual workflow diagrams and session maps in your terminal. Pro feature.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="info">
+Canvas is a **Pro** feature. Upgrade to Pro to unlock the visual workflow editor.
+</Callout>
+
+## Overview
+
+The Canvas is a visual editor that lives inside your terminal. It lets you create workflow diagrams, session maps, and node graphs — all rendered in ASCII/Unicode art.
+
+Press `p` to toggle the canvas panel.
+
+## Canvas Nodes
+
+Nodes represent units of work. Each node has:
+
+- **Title** — short description
+- **Content** — detailed text (supports multi-line)
+- **Position** — x/y coordinates on the canvas
+- **Connections** — edges to other nodes
+
+### Creating Nodes
+
+1. Open canvas with `p`
+2. Press `n` to create a new node
+3. Type the node title
+4. Position it with arrow keys
+5. Press `Enter` to place
+
+### Editing Nodes
+
+Select a node and press `e` to edit its content. The editor supports multi-line text with word wrapping.
+
+## Edges
+
+Connect nodes with edges to show relationships and flow.
+
+1. Select a source node
+2. Press `c` to start a connection
+3. Navigate to the target node
+4. Press `Enter` to create the edge
+
+### Edge Labels
+
+Edges can have labels. Press `l` on a selected edge to add or edit a label. Labels appear along the edge path.
+
+## Session Map
+
+The canvas can automatically generate a **session map** — a visual representation of your active sessions and their relationships. This is built from:
+
+- Session lifecycle events (start, stop, resume)
+- Relationship data between sessions
+- AI-generated summaries
+
+## Viewport Navigation
+
+| Key | Action |
+| --- | --- |
+| Arrow keys | Pan the viewport |
+| `+` / `-` | Zoom in/out (future) |
+| `h` | Reset viewport to home position |
+| `f` | Fit all nodes in view |
+
+## AI Integration (Max)
+
+With the Max tier, you can:
+
+- Generate node summaries using AI
+- Auto-layout nodes based on session relationships
+- Visualize relationship edges with type-colored styling

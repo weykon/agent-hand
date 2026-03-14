@@ -1,0 +1,29 @@
+---
+title: Using with Cursor
+description: Manage Cursor's terminal sessions with Agent Hand.
+---
+
+## Overview
+
+Cursor is an AI-powered code editor that runs terminal commands for code generation, debugging, and testing. These terminal sessions run inside tmux and are automatically discovered by Agent Hand.
+
+## Setup
+
+1. Install Agent Hand ([Installation](/docs/getting-started/installation))
+2. Make sure Cursor uses tmux for its terminal sessions
+3. Launch Agent Hand: `agent-hand`
+
+Agent Hand will automatically discover Cursor's terminal sessions.
+
+## Workflow
+
+1. Open your project in Cursor
+2. Start Agent Hand in a separate terminal
+3. As Cursor runs commands (builds, tests, linters), they appear in Agent Hand
+4. Use Agent Hand to monitor status, jump to errors, and review output
+
+## Tips
+
+- **Monitor build status**: Watch for red (error) indicators to catch failed builds
+- **Quick inspection**: Press `Enter` on any session to see its full terminal output
+- **Organize with groups**: Create a "Cursor" group to separate Cursor sessions from other tools

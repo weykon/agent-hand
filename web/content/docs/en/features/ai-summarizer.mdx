@@ -1,0 +1,51 @@
+---
+title: AI Session Summarizer
+description: Get AI-powered summaries of your terminal session activity. Max feature.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="info">
+AI Summarizer is a **Max** feature. Upgrade to Max to unlock AI-powered analysis.
+</Callout>
+
+## Overview
+
+The AI Summarizer analyzes the content of your terminal sessions and generates concise summaries of what happened. This is useful when you have many sessions running and need to quickly understand the state of each one.
+
+## How It Works
+
+1. Select a session in the list
+2. Press `A` to open the AI Analysis picker
+3. Choose **Summary** for a text summary or **ASCII Diagram** for a visual representation
+4. The AI processes the session's terminal output
+5. Results appear in an overlay modal
+
+## Analysis Modes
+
+### Summary
+
+A concise text summary of the session activity:
+
+- What commands were run
+- Key output and results
+- Errors or warnings encountered
+- Overall status assessment
+
+### ASCII Diagram
+
+A visual representation of the session's activity flow, rendered as an ASCII diagram directly in your terminal.
+
+## AI Provider
+
+Agent Hand uses configurable AI providers for summarization. The system supports:
+
+- Multiple provider backends
+- Custom API endpoints
+- Token-aware context management
+
+Configure your AI provider in the settings dialog (press `S`).
+
+## Privacy
+
+Session content is sent to the configured AI provider for analysis. No data is stored on Agent Hand's servers. You control which provider processes your data.

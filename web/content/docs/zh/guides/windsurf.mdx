@@ -1,0 +1,27 @@
+---
+title: 配合 Windsurf 使用
+description: 使用 Agent Hand 管理 Windsurf (Codeium) 的终端会话。
+---
+
+## 概述
+
+Windsurf 是 Codeium 推出的 AI 驱动 IDE，可以运行终端命令来执行代码和测试。Agent Hand 通过 tmux 自动发现这些会话。
+
+## 设置
+
+1. 安装 Agent Hand（[安装指南](/docs/getting-started/installation)）
+2. 确保 Windsurf 的终端会话在 tmux 中运行
+3. 启动 Agent Hand：`agent-hand`
+
+## 工作流程
+
+1. 在 Windsurf 中打开你的项目
+2. 在另一个终端中运行 Agent Hand
+3. Windsurf 的终端会话会自动出现
+4. 从 Agent Hand 中监控、跳转和管理会话
+
+## 使用技巧
+
+- **一目了然的状态**：查看哪些 Windsurf 任务正在运行、已完成或失败
+- **错误分诊**：错误会自动冒泡到列表顶部——按 `Enter` 调查
+- **多工具配置**：将 Windsurf 与其他 AI 工具一起运行，在同一个界面查看所有会话
