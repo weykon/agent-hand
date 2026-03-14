@@ -24,12 +24,14 @@ pub async fn ensure_event_bridge_hooks() -> Result<()> {
         installed
     } else {
         // Fallback: install the legacy shell script
+        // Pro/Max builds use the full version with relationship context injection;
+        // Free builds use the base version with basic context file injection only.
         let bridge_path = home.join(EVENT_BRIDGE_REL_PATH);
-        install_hook_script(
-            &bridge_path,
-            include_str!("../../scripts/claude/hook_event_bridge.sh"),
-        )
-        .await?;
+        #[cfg(feature = "pro")]
+        let script = include_str!("../../pro/scripts/claude/hook_event_bridge.sh");
+        #[cfg(not(feature = "pro"))]
+        let script = include_str!("../../scripts/claude/hook_event_bridge.sh");
+        install_hook_script(&bridge_path, script).await?;
         bridge_path
     };
 
