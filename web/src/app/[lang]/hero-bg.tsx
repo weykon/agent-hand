@@ -5,21 +5,11 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   "The Living Workshop" — Agent Hand Hero Background
+   "The Living Workshop" — Agent Hand Hero Background  v2
 
-   Visual narrative: AI agent sessions as living geometric entities
-   floating in a digital workspace. Each entity has personality through
-   its shape, color, and animation — reflecting its real status in
-   the Agent Hand TUI.
-
-   Elements:
-   1. Session entities  — wireframe polyhedra with status animations
-   2. Ember particles   — rising from "on fire" busy sessions
-   3. Relationship beams — flowing particles between connected sessions
-   4. Priority pulse     — expanding ring from attention-seeking sessions
-   5. Remote portal      — torus gateway with orbiting presence dots
-   6. Canvas grid        — the workflow editor's infinite canvas floor
-   7. Ambient particles  — background star field in brand colors
+   14 session entities spread to L/R margins, 6 floating terminal
+   window wireframes, 8 relationship streams, ember particles,
+   priority pulse, remote portal, canvas grid, ambient star field.
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 // ─── Types ───
@@ -51,23 +41,52 @@ const REL_HEX: Record<RelType, string> = {
   parent: "#6366f1", dependency: "#eab308", peer: "#06b6d4", collab: "#22c55e",
 };
 
-// ─── Scene Data (positioned to leave centre open for hero text) ───
+// ─── Scene Data — entities pushed to L/R margins, centre left open ───
 
 const ENTITIES: Entity[] = [
-  { id: 0, pos: [-3.0,  1.2,  0  ], status: "fire",     tool: "claude", size: 0.55, geo: "ico"    },
-  { id: 1, pos: [ 2.5,  1.0, -0.8], status: "waiting",  tool: "claude", size: 0.45, geo: "dodeca" },
-  { id: 2, pos: [-1.0, -2.0,  0.3], status: "idle",     tool: "shell",  size: 0.35, geo: "ico"    },
-  { id: 3, pos: [ 3.8, -0.5, -0.5], status: "running",  tool: "gemini", size: 0.42, geo: "dodeca" },
-  { id: 4, pos: [ 0.5,  2.5, -2  ], status: "idle",     tool: "claude", size: 0.3,  geo: "ico"    },
-  { id: 5, pos: [-3.8, -0.8, -1  ], status: "starting", tool: "shell",  size: 0.38, geo: "octa"   },
-  { id: 6, pos: [ 1.0, -2.5,  0.5], status: "running",  tool: "claude", size: 0.4,  geo: "ico"    },
+  // ── Left cluster ──
+  { id: 0,  pos: [-5.5,  2.0,  0.5], status: "fire",     tool: "claude",  size: 0.50, geo: "ico"    },
+  { id: 1,  pos: [-6.0,  0.0, -0.5], status: "running",  tool: "shell",   size: 0.38, geo: "octa"   },
+  { id: 2,  pos: [-4.5, -1.8,  0.3], status: "idle",     tool: "claude",  size: 0.32, geo: "ico"    },
+  { id: 3,  pos: [-7.0,  1.2, -2.0], status: "idle",     tool: "shell",   size: 0.28, geo: "ico"    },
+  { id: 4,  pos: [-5.0, -3.0, -0.5], status: "starting", tool: "gemini",  size: 0.35, geo: "dodeca" },
+  // ── Right cluster ──
+  { id: 5,  pos: [ 5.5,  1.8, -0.5], status: "waiting",  tool: "claude",  size: 0.45, geo: "dodeca" },
+  { id: 6,  pos: [ 6.5, -0.5,  0.0], status: "running",  tool: "gemini",  size: 0.40, geo: "dodeca" },
+  { id: 7,  pos: [ 4.5, -2.0,  0.5], status: "running",  tool: "claude",  size: 0.38, geo: "ico"    },
+  { id: 8,  pos: [ 7.0,  0.8, -1.5], status: "starting", tool: "shell",   size: 0.30, geo: "octa"   },
+  { id: 9,  pos: [ 5.5, -3.5, -0.5], status: "idle",     tool: "claude",  size: 0.30, geo: "ico"    },
+  // ── Scattered — behind / above / below hero text ──
+  { id: 10, pos: [-2.5,  3.5, -3.0], status: "idle",     tool: "claude",  size: 0.25, geo: "ico"    },
+  { id: 11, pos: [ 3.0,  3.2, -2.5], status: "running",  tool: "gemini",  size: 0.28, geo: "ico"    },
+  { id: 12, pos: [ 0.0, -3.8, -1.0], status: "idle",     tool: "shell",   size: 0.26, geo: "ico"    },
+  { id: 13, pos: [-1.5, -4.2,  0.0], status: "starting", tool: "claude",  size: 0.28, geo: "octa"   },
 ];
 
 const RELS: { from: number; to: number; type: RelType }[] = [
-  { from: 0, to: 6, type: "parent"     },   // Claude spawned a child
-  { from: 0, to: 1, type: "dependency"  },   // fire depends on waiting's output
-  { from: 3, to: 4, type: "peer"        },   // Gemini ↔ Claude peer work
-  { from: 1, to: 2, type: "collab"      },   // active collaboration
+  // Left-side connections
+  { from: 0, to: 2, type: "parent"     },   // fire → idle (spawned child)
+  { from: 0, to: 1, type: "dependency"  },   // fire → running shell
+  { from: 1, to: 4, type: "collab"      },   // shell ↔ starting gemini
+  // Right-side connections
+  { from: 5, to: 7, type: "dependency"  },   // waiting → running claude
+  { from: 6, to: 9, type: "peer"        },   // gemini ↔ idle claude
+  { from: 6, to: 8, type: "parent"      },   // gemini spawned starting shell
+  // Cross-scene dramatic link
+  { from: 0, to: 5, type: "dependency"  },   // fire → waiting (across entire scene)
+  // Background peers
+  { from: 11, to: 10, type: "peer"      },   // distant gemini ↔ claude
+];
+
+// ─── Terminal window definitions — floating wireframe terminal/session frames ───
+
+const TERMINALS: { pos: [number, number, number]; w: number; h: number; color: string; id: number }[] = [
+  { pos: [-6.5,  1.5,  1.5], w: 1.1, h: 0.75, color: "#6366f1", id: 0 },   // left Claude session
+  { pos: [-4.0, -2.5, -0.3], w: 0.85, h: 0.6,  color: "#06b6d4", id: 1 },   // lower-left Gemini
+  { pos: [ 6.5,  1.0,  0.5], w: 1.1, h: 0.75, color: "#6366f1", id: 2 },   // right Claude session
+  { pos: [ 4.5, -2.8, -0.3], w: 0.85, h: 0.6,  color: "#22c55e", id: 3 },   // lower-right shell
+  { pos: [-7.0, -1.0, -1.8], w: 0.7, h: 0.5,  color: "#64748b", id: 4 },   // far-left dim
+  { pos: [ 7.0, -0.5, -1.5], w: 0.7, h: 0.5,  color: "#7c3aed", id: 5 },   // far-right violet
 ];
 
 // ─── Geometry Helper ───
@@ -80,15 +99,7 @@ function EntityGeo({ geo, size }: { geo: Geo; size: number }) {
   }
 }
 
-/* ━━━ 1. Session Entity ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Each entity = wireframe polyhedron + outer glow shell.
-   Animation varies by status:
-     fire    → fast spin + vibration + periodic flare-ups
-     running → moderate spin + gentle pulse
-     waiting → slow drift + blink (opacity oscillation)
-     starting→ emerging animation (scale + fade in/out)
-     idle    → barely moving, dim
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* ━━━ 1. Session Entity ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function SessionEntity({ e }: { e: Entity }) {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -100,7 +111,6 @@ function SessionEntity({ e }: { e: Entity }) {
     const t = clock.getElapsedTime();
     const mat = mesh.material as THREE.MeshBasicMaterial;
 
-    // Gentle floating (all entities)
     mesh.position.x = e.pos[0] + Math.sin(t * 0.3 + e.id * 2.1) * 0.08;
     mesh.position.y = e.pos[1] + Math.sin(t * 0.5 + e.id * 1.3) * 0.15;
     mesh.position.z = e.pos[2];
@@ -109,10 +119,8 @@ function SessionEntity({ e }: { e: Entity }) {
       case "fire": {
         mesh.rotation.x += 0.015;
         mesh.rotation.y += 0.02;
-        // Vibration — overheating!
         mesh.position.x += Math.sin(t * 15 + e.id) * 0.02;
         mesh.position.y += Math.cos(t * 12 + e.id) * 0.015;
-        // Periodic flare-up every ~8s
         const flare = Math.pow(Math.max(0, Math.sin(t * 0.4)), 20);
         mat.opacity = 0.45 + Math.sin(t * 4) * 0.1 + flare * 0.3;
         mesh.scale.setScalar(1 + Math.sin(t * 1.5) * 0.08 + flare * 0.2);
@@ -134,12 +142,11 @@ function SessionEntity({ e }: { e: Entity }) {
         mat.opacity = 0.15 + Math.abs(Math.sin(t * 3)) * 0.45;
         mesh.scale.setScalar(0.8 + Math.sin(t * 2) * 0.15);
         break;
-      default: // idle
+      default:
         mesh.rotation.y += 0.002;
         mat.opacity = 0.2;
     }
 
-    // Sync outer glow shell
     const glow = glowRef.current;
     if (glow) {
       glow.position.copy(mesh.position);
@@ -169,11 +176,68 @@ function SessionEntity({ e }: { e: Entity }) {
   );
 }
 
-/* ━━━ 2. Ember Particles ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Rising embers from "on fire" entities.
-   Particles start orange, shift to red, then fade to dark (additive).
-   Continuous cycle — each particle has a staggered phase offset.
+/* ━━━ 2. Terminal Frame ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Floating wireframe terminal windows — the "session / window" concept.
+   Each frame has a border, title bar with dots, and faint text lines.
+   Slightly angled to face the camera, adding depth and variety.
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function TerminalFrame({ pos, w, h, color, id }: {
+  pos: [number, number, number]; w: number; h: number; color: string; id: number;
+}) {
+  const ref = useRef<THREE.LineSegments>(null);
+
+  const geometry = useMemo(() => {
+    const hw = w / 2, hh = h / 2;
+    const tb = hh - h * 0.18; // title bar y
+    const dotY = tb + (hh - tb) / 2;
+    const v: number[] = [
+      // Outer border
+      -hw, -hh, 0,  hw, -hh, 0,
+       hw, -hh, 0,  hw,  hh, 0,
+       hw,  hh, 0, -hw,  hh, 0,
+      -hw,  hh, 0, -hw, -hh, 0,
+      // Title bar separator
+      -hw, tb, 0,  hw, tb, 0,
+      // Title bar "dots" (3 small dashes = close/min/max)
+      -hw + 0.07, dotY, 0,  -hw + 0.11, dotY, 0,
+      -hw + 0.15, dotY, 0,  -hw + 0.19, dotY, 0,
+      -hw + 0.23, dotY, 0,  -hw + 0.27, dotY, 0,
+      // Content "text" lines (simulating terminal output)
+      -hw + 0.06, tb - h * 0.12, 0,  -hw + w * 0.7,  tb - h * 0.12, 0,
+      -hw + 0.06, tb - h * 0.24, 0,  -hw + w * 0.45, tb - h * 0.24, 0,
+      -hw + 0.06, tb - h * 0.36, 0,  -hw + w * 0.8,  tb - h * 0.36, 0,
+      -hw + 0.06, tb - h * 0.48, 0,  -hw + w * 0.3,  tb - h * 0.48, 0,
+      // Cursor line (blinking handled in animation)
+      -hw + 0.06, tb - h * 0.60, 0,  -hw + 0.12,     tb - h * 0.60, 0,
+    ];
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
+    return geo;
+  }, [w, h]);
+
+  useFrame(({ clock }) => {
+    if (!ref.current) return;
+    const t = clock.getElapsedTime();
+    const mat = ref.current.material as THREE.LineBasicMaterial;
+    // Float gently
+    ref.current.position.y = pos[1] + Math.sin(t * 0.35 + id * 1.7) * 0.1;
+    ref.current.position.x = pos[0] + Math.sin(t * 0.2 + id * 2.3) * 0.05;
+    // Face toward centre slightly
+    ref.current.rotation.y = (pos[0] > 0 ? -0.25 : 0.25) + Math.sin(t * 0.15 + id) * 0.08;
+    ref.current.rotation.x = Math.sin(t * 0.1 + id * 0.7) * 0.04;
+    // Subtle opacity pulse
+    mat.opacity = 0.1 + Math.sin(t * 0.6 + id * 1.1) * 0.03;
+  });
+
+  return (
+    <lineSegments ref={ref} geometry={geometry} position={pos}>
+      <lineBasicMaterial color={color} transparent opacity={0.1} blending={THREE.AdditiveBlending} depthWrite={false} />
+    </lineSegments>
+  );
+}
+
+/* ━━━ 3. Ember Particles ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function EmberParticles({ origin, count = 60 }: { origin: [number, number, number]; count?: number }) {
   const ref = useRef<THREE.Points>(null);
@@ -205,13 +269,9 @@ function EmberParticles({ origin, count = 60 }: { origin: [number, number, numbe
       const i3 = i * 3;
       const life = (t * 0.15 + offsets[i]) % 1;
       const fade = 1 - life;
-
-      // Position: rise upward with slight lateral drift
       pArr[i3]     = origin[0] + driftX[i] * life + Math.sin(t * 2 + i) * 0.04 * life;
       pArr[i3 + 1] = origin[1] + life * 2.5;
       pArr[i3 + 2] = origin[2] + driftZ[i] * life + Math.cos(t * 1.5 + i) * 0.03 * life;
-
-      // Colour: orange → red → dark (channels fade at different rates)
       cArr[i3]     = 0.98 * fade;
       cArr[i3 + 1] = 0.45 * fade * fade;
       cArr[i3 + 2] = 0.09 * fade * fade * fade;
@@ -234,11 +294,7 @@ function EmberParticles({ origin, count = 60 }: { origin: [number, number, numbe
   );
 }
 
-/* ━━━ 3. Relationship Stream ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Flowing particles along a quadratic bezier curve between entities.
-   Colour by relationship type. Bidirectional types (peer, collab) have
-   particles flowing both ways.
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* ━━━ 4. Relationship Stream ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function RelStream({ from, to, type }: { from: [number, number, number]; to: [number, number, number]; type: RelType }) {
   const ref = useRef<THREE.Points>(null);
@@ -263,8 +319,6 @@ function RelStream({ from, to, type }: { from: [number, number, number]; to: [nu
       let p = ((i / count) + t * 0.2) % 1;
       if (bidir && i >= count / 2) p = 1 - (((i / count) + t * 0.2) % 1);
       const q = 1 - p;
-
-      // Quadratic bezier interpolation
       arr[i3]     = q * q * from[0] + 2 * q * p * ctrl[0] + p * p * to[0] + Math.sin(t * 2 + i) * 0.015;
       arr[i3 + 1] = q * q * from[1] + 2 * q * p * ctrl[1] + p * p * to[1];
       arr[i3 + 2] = q * q * from[2] + 2 * q * p * ctrl[2] + p * p * to[2] + Math.cos(t * 2 + i) * 0.015;
@@ -285,12 +339,9 @@ function RelStream({ from, to, type }: { from: [number, number, number]; to: [nu
   );
 }
 
-/* ━━━ 4. Priority Pulse ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Expanding ring from the "waiting" entity — the Ctrl+N jump signal.
-   Blue ring expands outward and fades every 4 seconds.
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* ━━━ 5. Priority Pulse ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-function PriorityPulse({ origin }: { origin: [number, number, number] }) {
+function PriorityPulse({ origin, entityId }: { origin: [number, number, number]; entityId: number }) {
   const ref = useRef<THREE.Mesh>(null);
 
   useFrame(({ clock }) => {
@@ -300,10 +351,9 @@ function PriorityPulse({ origin }: { origin: [number, number, number] }) {
     const s = 0.5 + cycle * 3;
     ref.current.scale.set(s, s, s);
     (ref.current.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.2 * (1 - cycle));
-    // Track entity float
     ref.current.position.set(
-      origin[0] + Math.sin(t * 0.3 + 1 * 2.1) * 0.08,
-      origin[1] + Math.sin(t * 0.5 + 1 * 1.3) * 0.15,
+      origin[0] + Math.sin(t * 0.3 + entityId * 2.1) * 0.08,
+      origin[1] + Math.sin(t * 0.5 + entityId * 1.3) * 0.15,
       origin[2],
     );
   });
@@ -319,16 +369,13 @@ function PriorityPulse({ origin }: { origin: [number, number, number] }) {
   );
 }
 
-/* ━━━ 5. Remote Portal ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   A torus gateway in the distance with orbiting coloured presence dots
-   representing remote collaborators. Inner ring rotates counter to outer.
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* ━━━ 6. Remote Portal ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function RemotePortal() {
   const outerRef = useRef<THREE.Mesh>(null);
   const innerRef = useRef<THREE.Mesh>(null);
   const dotsRef = useRef<THREE.Group>(null);
-  const px = 4.5, py = 1.2, pz = -3.5;
+  const px = 7.5, py = 2.5, pz = -4;
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
@@ -372,17 +419,14 @@ function RemotePortal() {
   );
 }
 
-/* ━━━ 6. Canvas Grid ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   The workflow editor's infinite canvas floor — faint indigo grid lines
-   gently oscillating below the scene.
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* ━━━ 7. Canvas Grid ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function CanvasGrid() {
   const ref = useRef<THREE.LineSegments>(null);
   const geometry = useMemo(() => {
     const geo = new THREE.BufferGeometry();
     const v: number[] = [];
-    const size = 20, step = 2;
+    const size = 24, step = 2;
     for (let z = -size; z <= size; z += step) v.push(-size, 0, z, size, 0, z);
     for (let x = -size; x <= size; x += step) v.push(x, 0, -size, x, 0, size);
     geo.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
@@ -400,21 +444,18 @@ function CanvasGrid() {
   );
 }
 
-/* ━━━ 7. Ambient Particles ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Sparse star field in brand colours (indigo / violet / dim slate).
-   Slowly rotates to give depth to the scene.
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* ━━━ 8. Ambient Particles ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function AmbientParticles() {
   const ref = useRef<THREE.Points>(null);
-  const count = 600;
+  const count = 800;
 
   const [positions, colors] = useMemo(() => {
     const pos = new Float32Array(count * 3);
     const col = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       const i3 = i * 3;
-      const r = Math.random() * 14;
+      const r = Math.random() * 16;
       const th = Math.random() * Math.PI * 2;
       const ph = Math.random() * Math.PI;
       pos[i3]     = r * Math.sin(ph) * Math.cos(th);
@@ -431,8 +472,8 @@ function AmbientParticles() {
   useFrame(({ clock }) => {
     if (!ref.current) return;
     const t = clock.getElapsedTime();
-    ref.current.rotation.y = t * 0.015;
-    ref.current.rotation.x = Math.sin(t * 0.04) * 0.04;
+    ref.current.rotation.y = t * 0.012;
+    ref.current.rotation.x = Math.sin(t * 0.03) * 0.03;
   });
 
   return (
@@ -449,16 +490,14 @@ function AmbientParticles() {
   );
 }
 
-/* ━━━ Camera Drift ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Very slow sine-based camera movement to make the scene feel alive.
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* ━━━ Camera Drift ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function CameraDrift() {
   const { camera } = useThree();
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
-    camera.position.x = Math.sin(t * 0.08) * 0.4;
-    camera.position.y = 1 + Math.sin(t * 0.06) * 0.25;
+    camera.position.x = Math.sin(t * 0.08) * 0.3;
+    camera.position.y = 1 + Math.sin(t * 0.06) * 0.2;
     camera.lookAt(0, 0, 0);
   });
   return null;
@@ -469,27 +508,34 @@ function CameraDrift() {
 function Scene() {
   return (
     <>
-      {/* Subtle lighting */}
+      {/* Lighting — spread wider */}
       <ambientLight intensity={0.12} />
-      <pointLight position={[6, 5, 4]} intensity={0.35} color="#6366f1" />
-      <pointLight position={[-5, -3, -5]} intensity={0.2} color="#7c3aed" />
-      <pointLight position={[0, 3, 2]} intensity={0.12} color="#3b82f6" />
+      <pointLight position={[8, 5, 4]} intensity={0.3} color="#6366f1" />
+      <pointLight position={[-8, -3, -5]} intensity={0.2} color="#7c3aed" />
+      <pointLight position={[0, 4, 2]} intensity={0.1} color="#3b82f6" />
+      <pointLight position={[-6, 2, 2]} intensity={0.15} color="#eab308" />
 
-      {/* Session entities — the "characters" */}
+      {/* 14 session entities */}
       {ENTITIES.map(e => <SessionEntity key={e.id} e={e} />)}
 
-      {/* Ember particles rising from the "on fire" entity */}
-      <EmberParticles origin={ENTITIES[0].pos} count={60} />
+      {/* 6 floating terminal window frames */}
+      {TERMINALS.map(t => (
+        <TerminalFrame key={t.id} pos={t.pos} w={t.w} h={t.h} color={t.color} id={t.id} />
+      ))}
 
-      {/* Relationship beams — energy flowing between connected entities */}
+      {/* Embers from fire entity (left) + light embers from running entity (right) */}
+      <EmberParticles origin={ENTITIES[0].pos} count={60} />
+      <EmberParticles origin={ENTITIES[7].pos} count={25} />
+
+      {/* 8 relationship streams */}
       {RELS.map((r, i) => (
         <RelStream key={i} from={ENTITIES[r.from].pos} to={ENTITIES[r.to].pos} type={r.type} />
       ))}
 
-      {/* Priority pulse — the Ctrl+N attention signal */}
-      <PriorityPulse origin={ENTITIES[1].pos} />
+      {/* Priority pulse from the waiting entity (right side) */}
+      <PriorityPulse origin={ENTITIES[5].pos} entityId={5} />
 
-      {/* Remote collaboration portal */}
+      {/* Remote collaboration portal — far upper right */}
       <RemotePortal />
 
       {/* Canvas grid floor */}
@@ -515,7 +561,7 @@ export function HeroBg() {
     <div style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }}>
       <Canvas
         dpr={[1, 1.5]}
-        camera={{ position: [0, 1, 8], fov: 55 }}
+        camera={{ position: [0, 1, 8], fov: 60 }}
         style={{ background: "transparent" }}
         gl={{ alpha: true, antialias: false, powerPreference: "high-performance" }}
       >
