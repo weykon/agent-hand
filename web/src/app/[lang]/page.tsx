@@ -90,8 +90,8 @@ export default async function HomePage({
 
       {/* Terminal Preview */}
       <section className="mx-auto max-w-2xl px-6 pb-16">
-        <div className="overflow-hidden rounded-xl border border-[#333] bg-[#1a1a2e]">
-          <div className="flex items-center gap-2 border-b border-[#333] px-4 py-2">
+        <div className="overflow-hidden rounded-xl border border-white/10 bg-[#1a1a2e]/50 backdrop-blur-xl backdrop-saturate-150">
+          <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2">
             <span className="h-3 w-3 rounded-full bg-red-500" />
             <span className="h-3 w-3 rounded-full bg-yellow-500" />
             <span className="h-3 w-3 rounded-full bg-green-500" />
