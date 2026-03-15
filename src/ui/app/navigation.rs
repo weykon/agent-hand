@@ -257,7 +257,7 @@ impl App {
     }
 
     pub(super) fn priority_session_id(&self) -> Option<String> {
-        // Priority: Waiting (!) newest first, else Ready (✓) newest first.
+        // Priority 1: Waiting (!) — needs user input, newest first.
         if let Some(s) = self
             .sessions
             .iter()
@@ -267,9 +267,20 @@ impl App {
             return Some(s.id.clone());
         }
 
-        self.sessions
+        // Priority 2: Recently-idle with attention (✓) — just finished, newest first.
+        if let Some(s) = self
+            .sessions
             .iter()
             .filter(|s| s.status == Status::Idle && self.is_attention_active(&s.id))
+            .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
+        {
+            return Some(s.id.clone());
+        }
+
+        // Priority 3: Running sessions — currently active, newest first.
+        self.sessions
+            .iter()
+            .filter(|s| s.status == Status::Running)
             .max_by_key(|s| s.last_running_at.unwrap_or(s.created_at))
             .map(|s| s.id.clone())
     }

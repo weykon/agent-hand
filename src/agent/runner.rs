@@ -85,6 +85,8 @@ pub struct ActionExecutor {
     runtime_dir: PathBuf,
     /// Context delivery transport (file-based by default, swappable for ACPX).
     delivery: Box<dyn super::delivery::ContextDelivery>,
+    /// Tmux server name (e.g. "agenthand_default") for capture-pane commands.
+    tmux_server_name: String,
     /// Sender for forwarding ChatResponse actions to ChatService consumers.
     chat_response_tx: Option<mpsc::UnboundedSender<crate::chat::ChatResponsePayload>>,
     /// Persistent WASM canvas plugin host (lazy-initialized, survives across dispatches).
@@ -112,12 +114,21 @@ impl ActionExecutor {
             progress_dir.clone(),
             runtime_dir.clone(),
         ));
+        // Extract profile name from progress_dir (…/profiles/{profile}/progress/)
+        let tmux_server_name = progress_dir
+            .parent() // …/profiles/{profile}
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(|profile| crate::tmux::server_name_for_profile(profile))
+            .unwrap_or_else(|| crate::tmux::server_name_for_profile("default"));
+
         Self {
             notification_manager: crate::notification::NotificationManager::new(&initial_config),
             shared_config,
             progress_dir,
             runtime_dir,
             delivery,
+            tmux_server_name,
             chat_response_tx: None,
             #[cfg(feature = "wasm")]
             wasm_canvas_host: None,
@@ -850,9 +861,10 @@ impl ActionExecutor {
     /// Capture the last few lines of a tmux pane's visible content.
     async fn capture_pane_output(&self, session_key: &str) -> Option<String> {
         let session = session_key.to_string();
+        let server = self.tmux_server_name.clone();
         tokio::task::spawn_blocking(move || {
             let output = std::process::Command::new("tmux")
-                .args(["capture-pane", "-p", "-t", &session, "-S", "-10"])
+                .args(["-L", &server, "capture-pane", "-p", "-t", &session, "-S", "-10"])
                 .output()
                 .ok()?;
 

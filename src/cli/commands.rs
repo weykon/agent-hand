@@ -778,6 +778,7 @@ async fn handle_statusline(profile: &str) -> Result<()> {
 /// 3. Idle sessions: Excluded from jump (not frequently needed)
 async fn handle_jump(profile: &str) -> Result<()> {
     use crate::session::Status;
+    use crate::tmux::async_tmux_cmd;
 
     let cfg = crate::config::ConfigFile::load().await.ok().flatten();
     let ready_ttl_secs: i64 = cfg.as_ref().map(|c| c.ready_ttl_minutes()).unwrap_or(40) as i64 * 60;
@@ -786,9 +787,8 @@ async fn handle_jump(profile: &str) -> Result<()> {
     let (mut instances, _tree, _) = storage.load().await?;
 
     if instances.is_empty() {
-        // Use tmux display-message instead of eprintln so user sees it in tmux
-        let _ = TokioCommand::new("tmux")
-            .args(["-L", "agentdeck_rs", "display-message", "AH: no sessions"])
+        let _ = async_tmux_cmd(profile)
+            .args(["display-message", "AH: no sessions"])
             .status()
             .await;
         return Ok(());
@@ -798,14 +798,8 @@ async fn handle_jump(profile: &str) -> Result<()> {
     manager.refresh_cache().await?;
 
     // Get current tmux session name to find position for round-robin
-    let current_session = TokioCommand::new("tmux")
-        .args([
-            "-L",
-            "agentdeck_rs",
-            "display-message",
-            "-p",
-            "#{session_name}",
-        ])
+    let current_session = async_tmux_cmd(profile)
+        .args(["display-message", "-p", "#{session_name}"])
         .output()
         .await
         .ok()
@@ -834,7 +828,6 @@ async fn handle_jump(profile: &str) -> Result<()> {
 
     // Priority 2: Ready sessions (round-robin rotation)
     let ready_target = if waiting_target.is_none() {
-        // Collect all Ready sessions, sorted by tmux_name for consistent ordering
         let mut ready_sessions: Vec<_> = instances
             .iter()
             .filter(|s| s.status == Status::Idle && is_ready(s))
@@ -844,59 +837,68 @@ async fn handle_jump(profile: &str) -> Result<()> {
         if ready_sessions.is_empty() {
             None
         } else if ready_sessions.len() == 1 {
-            // Only one Ready session - jump to it if not current
             if ready_sessions[0].tmux_name() != current_session {
                 Some(ready_sessions[0])
             } else {
                 None
             }
         } else {
-            // Round-robin: find current position and jump to next
             let current_pos = ready_sessions
                 .iter()
                 .position(|s| s.tmux_name() == current_session);
-
             match current_pos {
-                Some(pos) => {
-                    // Jump to next session (wrap around)
-                    let next_pos = (pos + 1) % ready_sessions.len();
-                    Some(ready_sessions[next_pos])
-                }
-                None => {
-                    // Current session is not in Ready list, jump to first Ready
-                    Some(ready_sessions[0])
-                }
+                Some(pos) => Some(ready_sessions[(pos + 1) % ready_sessions.len()]),
+                None => Some(ready_sessions[0]),
             }
         }
     } else {
         None
     };
 
-    let target = waiting_target.or(ready_target);
+    // Priority 3: Running sessions (round-robin fallback)
+    let running_target = if waiting_target.is_none() && ready_target.is_none() {
+        let mut running_sessions: Vec<_> = instances
+            .iter()
+            .filter(|s| s.status == Status::Running && s.tmux_name() != current_session)
+            .collect();
+        running_sessions.sort_by(|a, b| a.tmux_name().cmp(&b.tmux_name()));
+
+        if running_sessions.is_empty() {
+            None
+        } else if running_sessions.len() == 1 {
+            Some(running_sessions[0])
+        } else {
+            let current_pos = running_sessions
+                .iter()
+                .position(|s| s.tmux_name() == current_session);
+            match current_pos {
+                Some(pos) => Some(running_sessions[(pos + 1) % running_sessions.len()]),
+                None => Some(running_sessions[0]),
+            }
+        }
+    } else {
+        None
+    };
+
+    let target = waiting_target.or(ready_target).or(running_target);
 
     match target {
         Some(inst) => {
             let tmux_name = inst.tmux_name();
-            // switch-client to the target session
-            let status = TokioCommand::new("tmux")
-                .args(["-L", "agentdeck_rs", "switch-client", "-t", &tmux_name])
+            let status = async_tmux_cmd(profile)
+                .args(["switch-client", "-t", &tmux_name])
                 .status()
                 .await;
             if !status.map(|s| s.success()).unwrap_or(false) {
-                let _ = TokioCommand::new("tmux")
-                    .args([
-                        "-L",
-                        "agentdeck_rs",
-                        "display-message",
-                        &format!("AH: failed to switch to {}", inst.title),
-                    ])
+                let _ = async_tmux_cmd(profile)
+                    .args(["display-message", &format!("AH: failed to switch to {}", inst.title)])
                     .status()
                     .await;
             }
         }
         None => {
-            let _ = TokioCommand::new("tmux")
-                .args(["-L", "agentdeck_rs", "display-message", "AH: no target"])
+            let _ = async_tmux_cmd(profile)
+                .args(["display-message", "AH: no target"])
                 .status()
                 .await;
         }

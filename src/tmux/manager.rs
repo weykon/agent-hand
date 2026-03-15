@@ -18,12 +18,13 @@ pub struct TmuxManager {
 impl TmuxManager {
     pub fn new(profile: &str) -> Self {
         Self {
-            server_name: format!("agenthand_{}", profile),
+            server_name: super::server_name_for_profile(profile),
             cache: Arc::new(SessionCache::new()),
         }
     }
 
-    fn tmux_cmd(&self) -> Command {
+    /// Build an async tmux command with the correct `-L <server>`.
+    pub fn tmux_cmd(&self) -> Command {
         let mut cmd = Command::new("tmux");
         cmd.args(["-L", &self.server_name]);
         cmd
@@ -454,11 +455,16 @@ impl TmuxManager {
             working_dir,
         ]);
 
-        // Build the shell command
+        // Build the shell command.
+        // When a command is provided, wrap it so the shell survives after the
+        // command exits (e.g. Ctrl+C kills claude → drops to shell, not closes pane).
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
         if let Some(command) = command {
-            cmd.arg(command);
+            // Escape single quotes in the command for safe embedding
+            let escaped = command.replace('\'', "'\\''");
+            let wrapped = format!("{} -c '{}; exec {} -l'", shell, escaped, shell);
+            cmd.arg(wrapped);
         } else {
             // Login shell (no command)
             cmd.args([&shell, "-l"]);
@@ -1000,7 +1006,7 @@ impl TmuxManager {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        // All sessions on our dedicated server (agentdeck_rs) belong to us.
+        // All sessions on our dedicated server (agenthand_{profile}) belong to us.
         let sessions: Vec<String> = stdout
             .lines()
             .filter(|line| !line.is_empty())

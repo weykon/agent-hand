@@ -480,6 +480,27 @@ impl App {
             // If not consumed, fall through to normal handling
         }
 
+        // Ctrl+N: jump to priority session — works from ANY panel (tree, active, viewer, canvas)
+        if self.keybindings.matches("jump_priority", &key, modifiers) {
+            if let Some(id) = self.priority_session_id() {
+                // Preserve current panel context for return
+                self.last_attach_source = if self.active_panel_focused {
+                    Some(super::AttachSource::ActivePanel)
+                } else {
+                    Some(super::AttachSource::TreePanel)
+                };
+                // Unfocus canvas/active/viewer panels so tree highlights the target
+                self.canvas_focused = false;
+                self.active_panel_focused = false;
+                #[cfg(feature = "pro")]
+                {
+                    self.pro.viewer_panel_focused = false;
+                }
+                self.queue_attach_by_id(&id).await?;
+            }
+            return Ok(());
+        }
+
         // When active panel is focused, intercept navigation keys
         #[cfg(feature = "pro")]
         if self.active_panel_focused {
@@ -647,19 +668,6 @@ impl App {
                 self.preview.clear();
                 return Ok(());
             }
-        }
-
-        if self.keybindings.matches("jump_priority", &key, modifiers) {
-            if let Some(id) = self.priority_session_id() {
-                // Preserve current panel context for return
-                self.last_attach_source = if self.active_panel_focused {
-                    Some(super::AttachSource::ActivePanel)
-                } else {
-                    Some(super::AttachSource::TreePanel)
-                };
-                self.queue_attach_by_id(&id).await?;
-            }
-            return Ok(());
         }
 
         // Actions

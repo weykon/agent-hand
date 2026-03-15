@@ -139,7 +139,7 @@ pub(crate) async fn get_tmux_pane_pids(server_name: &str) -> Vec<(String, u32)> 
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
-    // All sessions on our dedicated server (agentdeck_rs) belong to us.
+    // All sessions on our dedicated server (agenthand_{profile}) belong to us.
     stdout
         .lines()
         .filter_map(|line| {
