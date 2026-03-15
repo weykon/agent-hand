@@ -61,6 +61,8 @@ impl ContextGuardSystem {
             HookEventKind::PermissionRequest { .. } => Some("permission_request"),
             HookEventKind::ToolFailure { .. } => Some("tool_failure"),
             HookEventKind::UserChat { .. } => None,
+            HookEventKind::PreToolUse { .. } => Some("pre_tool_use"),
+            HookEventKind::PostToolUse { .. } => Some("post_tool_use"),
         }
     }
 }
@@ -116,7 +118,7 @@ impl System for ContextGuardSystem {
         };
 
         // Evidence records
-        let evidence = vec![
+        let mut evidence = vec![
             EvidenceRecord {
                 id: guard::short_id(),
                 trace_id: trace_id.clone(),
@@ -143,6 +145,38 @@ impl System for ContextGuardSystem {
                 }),
             },
         ];
+
+        // Tool activity evidence (if any tool calls have been recorded)
+        if state.tool_history.total_count > 0 {
+            let recent_tools: Vec<&str> = state
+                .tool_history
+                .recent
+                .iter()
+                .rev()
+                .take(10)
+                .map(|r| r.tool_name.as_str())
+                .collect();
+            let top_tools: Vec<(&String, &u64)> = {
+                let mut pairs: Vec<_> = state.tool_history.counts_by_tool.iter().collect();
+                pairs.sort_by(|a, b| b.1.cmp(a.1));
+                pairs.truncate(10);
+                pairs
+            };
+            evidence.push(EvidenceRecord {
+                id: guard::short_id(),
+                trace_id: trace_id.clone(),
+                session_key: event.tmux_session.clone(),
+                kind: EvidenceKind::ToolActivity,
+                captured_at_ms: ts_ms,
+                data: serde_json::json!({
+                    "total_tool_calls": state.tool_history.total_count,
+                    "recent_tools": recent_tools,
+                    "top_tools": top_tools.iter().map(|(k, v)| {
+                        serde_json::json!({"tool": k, "count": v})
+                    }).collect::<Vec<_>>(),
+                }),
+            });
+        }
 
         // ── Run guard ──────────────────────────────────────────────
 

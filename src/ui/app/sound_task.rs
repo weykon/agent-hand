@@ -145,5 +145,7 @@ fn event_to_status(kind: &HookEventKind) -> Status {
         HookEventKind::SubagentStart => Status::Running,
         HookEventKind::PreCompact => Status::Running,
         HookEventKind::UserChat { .. } => Status::Idle,
+        HookEventKind::PreToolUse { .. } => Status::Running,
+        HookEventKind::PostToolUse { .. } => Status::Running,
     }
 }

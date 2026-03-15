@@ -26,11 +26,14 @@ pub mod wasm_executor;
 #[cfg(feature = "wasm")]
 pub mod wasm_host;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
 use crate::hooks::{HookEvent, HookEventKind};
 use crate::session::Status;
+
+/// Maximum number of recent tool call records to keep per session.
+const MAX_TOOL_HISTORY: usize = 32;
 
 /// A reactive system that processes hook events and produces actions.
 ///
@@ -53,6 +56,67 @@ pub struct World {
     pub sessions: HashMap<String, SessionState>,
 }
 
+/// A single tool call record for tracking tool usage history.
+#[derive(Debug, Clone)]
+pub struct ToolCallRecord {
+    pub tool_name: String,
+    pub tool_use_id: String,
+    pub started_at: f64,
+    pub completed_at: Option<f64>,
+    pub completed: bool,
+}
+
+/// Bounded tool history per session — ring buffer of recent calls + aggregate counts.
+#[derive(Debug, Clone)]
+pub struct ToolHistory {
+    /// Recent tool call records (bounded to MAX_TOOL_HISTORY).
+    pub recent: VecDeque<ToolCallRecord>,
+    /// Total number of tool calls observed.
+    pub total_count: u64,
+    /// Aggregate counts by tool name.
+    pub counts_by_tool: HashMap<String, u64>,
+}
+
+impl ToolHistory {
+    pub fn new() -> Self {
+        Self {
+            recent: VecDeque::new(),
+            total_count: 0,
+            counts_by_tool: HashMap::new(),
+        }
+    }
+
+    /// Record a PreToolUse event.
+    pub fn record_pre(&mut self, tool_name: &str, tool_use_id: &str, ts: f64) {
+        self.total_count += 1;
+        *self.counts_by_tool.entry(tool_name.to_string()).or_insert(0) += 1;
+
+        if self.recent.len() >= MAX_TOOL_HISTORY {
+            self.recent.pop_front();
+        }
+        self.recent.push_back(ToolCallRecord {
+            tool_name: tool_name.to_string(),
+            tool_use_id: tool_use_id.to_string(),
+            started_at: ts,
+            completed_at: None,
+            completed: false,
+        });
+    }
+
+    /// Record a PostToolUse event — mark the matching PreToolUse as completed.
+    pub fn record_post(&mut self, tool_use_id: &str, ts: f64) {
+        // Find the matching record by tool_use_id (search from back for efficiency)
+        for record in self.recent.iter_mut().rev() {
+            if record.tool_use_id == tool_use_id && !record.completed {
+                record.completed = true;
+                record.completed_at = Some(ts);
+                return;
+            }
+        }
+        // No matching PreToolUse found — that's okay (might have been evicted)
+    }
+}
+
 /// Lightweight per-session state (the "components" of our entity).
 #[derive(Debug, Clone)]
 pub struct SessionState {
@@ -64,6 +128,8 @@ pub struct SessionState {
     pub project_path: Option<PathBuf>,
     /// Claude Code session_id (for sub-agent tracking).
     pub session_id: Option<String>,
+    /// Tool usage history (bounded ring buffer + aggregates).
+    pub tool_history: ToolHistory,
 }
 
 /// Side effects produced by Systems, executed asynchronously by ActionExecutor.
@@ -147,13 +213,23 @@ impl World {
                 current_status: Status::Idle,
                 project_path: None,
                 session_id: None,
+                tool_history: ToolHistory::new(),
             });
 
-        // UserChat is sideband — don't change session status.
-        if !matches!(event.kind, HookEventKind::UserChat { .. }) {
-            let new_status = event_to_status(&event.kind);
-            entry.prev_status = entry.current_status;
-            entry.current_status = new_status;
+        // UserChat, PreToolUse, PostToolUse are sideband — don't change session status.
+        match &event.kind {
+            HookEventKind::UserChat { .. } => {}
+            HookEventKind::PreToolUse { tool_name, tool_use_id, .. } => {
+                entry.tool_history.record_pre(tool_name, tool_use_id, event.ts);
+            }
+            HookEventKind::PostToolUse { tool_use_id, .. } => {
+                entry.tool_history.record_post(tool_use_id, event.ts);
+            }
+            other => {
+                let new_status = event_to_status(other);
+                entry.prev_status = entry.current_status;
+                entry.current_status = new_status;
+            }
         }
 
         // Update project_path from cwd if available
@@ -188,6 +264,9 @@ pub fn event_to_status(kind: &HookEventKind) -> Status {
         // UserChat is sideband — does not change session status.
         // Preserve whatever status the session already has.
         HookEventKind::UserChat { .. } => Status::Idle,
+        // PreToolUse/PostToolUse are sideband — agent is already Running.
+        HookEventKind::PreToolUse { .. } => Status::Running,
+        HookEventKind::PostToolUse { .. } => Status::Running,
     }
 }
 
@@ -386,6 +465,7 @@ mod tests {
                 current_status: Status::Running,
                 project_path: None,
                 session_id: None,
+                tool_history: ToolHistory::new(),
             },
         );
 
@@ -481,5 +561,145 @@ mod tests {
         assert_eq!(actions.len(), 2);
         assert!(matches!(&actions[0], Action::AuditJson { .. }));
         assert!(matches!(&actions[1], Action::ChatResponse { content, .. } if content == "[echo] ping"));
+    }
+
+    #[test]
+    fn tool_use_events_are_sideband() {
+        let mut world = World::new();
+
+        // Set session to Running
+        let event = make_event(HookEventKind::UserPromptSubmit, "/tmp/proj");
+        world.update_from_event(&event);
+        assert_eq!(
+            world.sessions.get("test_session").unwrap().current_status,
+            Status::Running
+        );
+
+        // PreToolUse should NOT change status
+        let pre_event = HookEvent {
+            tmux_session: "test_session".to_string(),
+            kind: HookEventKind::PreToolUse {
+                tool_name: "Read".to_string(),
+                tool_input: serde_json::json!({"file_path": "/tmp/foo"}),
+                tool_use_id: "tu-001".to_string(),
+            },
+            session_id: "sid-123".to_string(),
+            cwd: "/tmp/proj".to_string(),
+            ts: 1700000001.0,
+            prompt: None,
+            usage: None,
+        };
+        world.update_from_event(&pre_event);
+        let state = world.sessions.get("test_session").unwrap();
+        assert_eq!(state.current_status, Status::Running, "PreToolUse must not change status");
+        assert_eq!(state.prev_status, Status::Idle, "prev_status should not change on PreToolUse");
+
+        // PostToolUse should NOT change status
+        let post_event = HookEvent {
+            tmux_session: "test_session".to_string(),
+            kind: HookEventKind::PostToolUse {
+                tool_name: "Read".to_string(),
+                tool_input: serde_json::json!({"file_path": "/tmp/foo"}),
+                tool_response: "file contents here".to_string(),
+                tool_use_id: "tu-001".to_string(),
+            },
+            session_id: "sid-123".to_string(),
+            cwd: "/tmp/proj".to_string(),
+            ts: 1700000002.0,
+            prompt: None,
+            usage: None,
+        };
+        world.update_from_event(&post_event);
+        let state = world.sessions.get("test_session").unwrap();
+        assert_eq!(state.current_status, Status::Running, "PostToolUse must not change status");
+    }
+
+    #[test]
+    fn tool_history_tracks_pre_and_post() {
+        let mut world = World::new();
+
+        // Start session
+        let event = make_event(HookEventKind::UserPromptSubmit, "/tmp/proj");
+        world.update_from_event(&event);
+
+        // PreToolUse
+        let pre = HookEvent {
+            tmux_session: "test_session".to_string(),
+            kind: HookEventKind::PreToolUse {
+                tool_name: "Bash".to_string(),
+                tool_input: serde_json::json!({"command": "ls"}),
+                tool_use_id: "tu-100".to_string(),
+            },
+            session_id: "sid-123".to_string(),
+            cwd: "/tmp/proj".to_string(),
+            ts: 1700000010.0,
+            prompt: None,
+            usage: None,
+        };
+        world.update_from_event(&pre);
+
+        let state = world.sessions.get("test_session").unwrap();
+        assert_eq!(state.tool_history.total_count, 1);
+        assert_eq!(state.tool_history.counts_by_tool.get("Bash"), Some(&1));
+        assert_eq!(state.tool_history.recent.len(), 1);
+        assert!(!state.tool_history.recent[0].completed);
+
+        // PostToolUse (matching tool_use_id)
+        let post = HookEvent {
+            tmux_session: "test_session".to_string(),
+            kind: HookEventKind::PostToolUse {
+                tool_name: "Bash".to_string(),
+                tool_input: serde_json::json!({"command": "ls"}),
+                tool_response: "file1 file2".to_string(),
+                tool_use_id: "tu-100".to_string(),
+            },
+            session_id: "sid-123".to_string(),
+            cwd: "/tmp/proj".to_string(),
+            ts: 1700000011.0,
+            prompt: None,
+            usage: None,
+        };
+        world.update_from_event(&post);
+
+        let state = world.sessions.get("test_session").unwrap();
+        assert_eq!(state.tool_history.total_count, 1); // count only increments on Pre
+        assert!(state.tool_history.recent[0].completed);
+        assert_eq!(state.tool_history.recent[0].completed_at, Some(1700000011.0));
+    }
+
+    #[test]
+    fn tool_history_bounded_eviction() {
+        let mut history = ToolHistory::new();
+
+        // Add MAX_TOOL_HISTORY + 5 entries
+        for i in 0..(MAX_TOOL_HISTORY + 5) {
+            history.record_pre("Read", &format!("tu-{}", i), 1700000000.0 + i as f64);
+        }
+
+        assert_eq!(history.recent.len(), MAX_TOOL_HISTORY);
+        assert_eq!(history.total_count, (MAX_TOOL_HISTORY + 5) as u64);
+        // The first 5 should have been evicted; oldest remaining is tu-5
+        assert_eq!(history.recent[0].tool_use_id, "tu-5");
+    }
+
+    #[test]
+    fn event_to_status_mapping_tool_events() {
+        assert_eq!(
+            event_to_status(&HookEventKind::PreToolUse {
+                tool_name: "Read".into(),
+                tool_input: serde_json::Value::Null,
+                tool_use_id: "tu-1".into(),
+            }),
+            Status::Running
+        );
+        assert_eq!(
+            event_to_status(&HookEventKind::PostToolUse {
+                tool_name: "Read".into(),
+                tool_input: serde_json::Value::Null,
+                tool_response: String::new(),
+                tool_use_id: "tu-1".into(),
+            }),
+            Status::Running
+        );
     }
 }

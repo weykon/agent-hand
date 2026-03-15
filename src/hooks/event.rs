@@ -100,4 +100,28 @@ pub enum HookEventKind {
         #[serde(default)]
         conversation_id: Option<String>,
     },
+
+    /// Agent is about to call a tool (sideband — does not affect session status)
+    #[serde(rename = "pre_tool_use", alias = "pre_tool_use")]
+    PreToolUse {
+        #[serde(default)]
+        tool_name: String,
+        #[serde(default)]
+        tool_input: serde_json::Value,
+        #[serde(default)]
+        tool_use_id: String,
+    },
+
+    /// Agent finished calling a tool (sideband — does not affect session status)
+    #[serde(rename = "post_tool_use", alias = "post_tool_use")]
+    PostToolUse {
+        #[serde(default)]
+        tool_name: String,
+        #[serde(default)]
+        tool_input: serde_json::Value,
+        #[serde(default)]
+        tool_response: String,
+        #[serde(default)]
+        tool_use_id: String,
+    },
 }

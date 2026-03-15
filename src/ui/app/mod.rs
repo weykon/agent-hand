@@ -32,7 +32,7 @@ use super::{
 #[cfg(feature = "pro")]
 use super::{CreateRelationshipDialog, CreateRelationshipField, OrphanedRoomsDialog, ShareDialog};
 
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 use super::{AiAnalysisDialog, AiAnalysisMode, BehaviorAnalysisDialog};
 
 pub(super) mod activity;
@@ -46,7 +46,7 @@ mod search;
 #[path = "../../../pro/src/ui/viewer.rs"]
 mod viewer;
 pub(super) mod sound_task;
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 #[path = "../../../pro/src/ui/ws.rs"]
 mod ws;
 
@@ -54,13 +54,13 @@ mod ws;
 #[cfg(feature = "pro")]
 #[path = "../../../pro/src/ui/keys_pro.rs"]
 mod keys_pro;
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 #[path = "../../../pro/src/ui/keys_max.rs"]
 mod keys_max;
 #[cfg(feature = "pro")]
 #[path = "../../../pro/src/ui/dialog_handlers.rs"]
 mod dialog_handlers;
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 #[path = "../../../pro/src/ui/dialog_handlers_max.rs"]
 mod dialog_handlers_max;
 
@@ -73,7 +73,7 @@ pub(super) use crate::pro::ui::types::{
 };
 #[cfg(feature = "pro")]
 pub(super) use crate::pro::ui::app_state::ProAppState;
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 pub(super) use crate::pro::ui::app_state::MaxAppState;
 
 /// Tracks which panel the user attached from, so Ctrl+Q return restores focus correctly.
@@ -117,6 +117,12 @@ pub struct App {
     canvas_focused: bool,
     canvas_rx: mpsc::UnboundedReceiver<crate::ui::canvas::CanvasRequest>,
     _canvas_socket: crate::ui::canvas::socket::CanvasSocketServer,
+    /// tachyonfx animation effects for canvas edges/nodes (Pro only).
+    #[cfg(feature = "pro")]
+    canvas_animation: crate::ui::canvas::animation::CanvasAnimationManager,
+    /// Cached canvas render area from the last draw, for animation tick.
+    #[cfg(feature = "pro")]
+    last_canvas_area: Option<ratatui::layout::Rect>,
 
     // Control socket for external session/group/tag management
     control_rx: mpsc::UnboundedReceiver<crate::control::socket::ControlRequest>,
@@ -235,7 +241,7 @@ pub struct App {
     pub(super) pro: ProAppState,
 
     // Max-tier consolidated state
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub(super) max: MaxAppState,
 }
 
@@ -289,7 +295,12 @@ impl App {
 
     /// Dynamic tick rate: 60 FPS during animations, 4 FPS otherwise.
     fn tick_rate(&self) -> Duration {
-        if self.transition_engine.is_animating() || self.state == AppState::Startup {
+        #[cfg(feature = "pro")]
+        let canvas_animating = self.canvas_animation.is_animating();
+        #[cfg(not(feature = "pro"))]
+        let canvas_animating = false;
+
+        if self.transition_engine.is_animating() || self.state == AppState::Startup || canvas_animating {
             Duration::from_millis(16) // ~60 FPS
         } else {
             Duration::from_millis(250) // ~4 FPS
@@ -435,6 +446,7 @@ impl App {
                     runtime_dir.clone(),
                 ));
                 runner.register(crate::agent::systems::chat::ChatSystem::new());
+                runner.register(crate::agent::systems::tool_activity::ToolActivitySystem::new());
 
                 // Executor handles side effects (sound playback, progress files, context injection, audit)
                 #[allow(unused_mut)]
@@ -462,7 +474,7 @@ impl App {
         };
 
         // Start WebSocket data transport server (Max tier)
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         let (ws_broadcast_tx, ws_request_rx, ws_server) = {
             let (broadcast_tx, _) = tokio::sync::broadcast::channel::<crate::ws::BroadcastUpdate>(64);
             let ws_cfg = config.ws();
@@ -513,7 +525,7 @@ impl App {
         };
 
         // Load persisted AI analysis results once
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         let (loaded_summaries, loaded_diagrams) = crate::session::Storage::get_agent_hand_dir()
             .ok()
             .map(|d| Self::load_ai_results(&d))
@@ -528,7 +540,7 @@ impl App {
         };
 
         // Build Max state
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         let max_state = MaxAppState::new(
             &config,
             loaded_summaries,
@@ -570,6 +582,10 @@ impl App {
             canvas_focused: false,
             canvas_rx,
             _canvas_socket: canvas_socket,
+            #[cfg(feature = "pro")]
+            canvas_animation: crate::ui::canvas::animation::CanvasAnimationManager::new(),
+            #[cfg(feature = "pro")]
+            last_canvas_area: None,
             control_rx,
             _control_socket: control_socket,
             runtime_dir: Storage::get_agent_hand_dir()
@@ -645,7 +661,7 @@ impl App {
             action_tx: Some(wasm_action_tx),
             #[cfg(feature = "pro")]
             pro: pro_state,
-            #[cfg(feature = "max")]
+            #[cfg(feature = "pro")]
             max: max_state,
         };
 
@@ -785,6 +801,20 @@ impl App {
 
                 super::render::draw(f, self);
 
+                // Canvas animation effects (Pro: tachyonfx post-processing)
+                #[cfg(feature = "pro")]
+                {
+                    // Approximate the canvas panel area (right ~55% of screen)
+                    let canvas_area = ratatui::layout::Rect::new(
+                        (area.width * 45 / 100).min(area.width),
+                        0,
+                        area.width.saturating_sub(area.width * 45 / 100),
+                        area.height,
+                    );
+                    self.last_canvas_area = Some(canvas_area);
+                    self.canvas_animation.tick(f.buffer_mut(), canvas_area);
+                }
+
                 // Transition animation lifecycle
                 if self.transition_engine.should_start_transition() {
                     self.transition_engine
@@ -906,7 +936,7 @@ impl App {
                     }
                 }
                 // Auto-save AI analysis results before exit (Max only)
-                #[cfg(feature = "max")]
+                #[cfg(feature = "pro")]
                 if let Ok(dir) = crate::session::Storage::get_agent_hand_dir() {
                     Self::save_ai_results(&dir, &self.max.summary_results, &self.max.diagram_results);
                 }
@@ -1210,7 +1240,7 @@ impl App {
         }
 
         // Poll AI summary results (non-blocking)
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         if let Some(ref mut summarizer) = self.max.summarizer {
             for result in summarizer.poll_results() {
                 // Clear in-flight tracking for this session
@@ -1232,7 +1262,7 @@ impl App {
         }
 
         // Poll AI diagram results (non-blocking)
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         if let Some(ref mut summarizer) = self.max.summarizer {
             for result in summarizer.poll_diagram_results() {
                 if self.max.diagramming_session_id.as_deref() == Some(&result.session_id) {
@@ -1270,7 +1300,7 @@ impl App {
         }
 
         // Poll behavior analysis results (non-blocking)
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         if let Some(ref mut summarizer) = self.max.summarizer {
             for result in summarizer.poll_behavior_results() {
                 if self.max.analyzing_behavior_session_id.as_deref() == Some(&result.session_id) {
@@ -1368,7 +1398,7 @@ impl App {
         }
 
         // WebSocket: drain pending requests and broadcast changes (Max tier)
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         {
             // Drain all pending WebSocket requests (non-blocking)
             while let Ok((req, reply_tx)) = self.max.ws_request_rx.try_recv() {
@@ -1435,7 +1465,9 @@ impl App {
                     HookEventKind::ToolFailure { .. } => Status::Idle,
                     HookEventKind::SubagentStart => Status::Running,
                     HookEventKind::PreCompact => Status::Running,
-                    HookEventKind::UserChat { .. } => {
+                    HookEventKind::UserChat { .. }
+                    | HookEventKind::PreToolUse { .. }
+                    | HookEventKind::PostToolUse { .. } => {
                         // Sideband — don't change session status, skip status update
                         continue;
                     }
@@ -1732,7 +1764,7 @@ impl App {
 
     async fn update_preview(&mut self) -> Result<()> {
         if let Some(session) = self.selected_session() {
-            #[cfg(feature = "max")]
+            #[cfg(feature = "pro")]
             let session_id = session.id.clone();
             let tmux_session = session.tmux_name();
 
@@ -1811,7 +1843,7 @@ impl App {
             }
 
             // Append cached AI summary or in-flight indicator
-            #[cfg(feature = "max")]
+            #[cfg(feature = "pro")]
             {
                 if let Some(summary) = self.max.summary_results.get(&session_id) {
                     self.preview.push_str(&format!(
@@ -1901,25 +1933,25 @@ impl App {
     }
 
     /// Whether this session has a cached AI summary.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn has_ai_summary(&self, session_id: &str) -> bool {
         self.max.summary_results.contains_key(session_id)
     }
 
     /// Whether this session is currently being summarized.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn is_summarizing(&self, session_id: &str) -> bool {
         self.max.summarizing_session_id.as_deref() == Some(session_id)
     }
 
     /// Whether the AI summary overlay popup is visible.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn show_ai_summary_overlay(&self) -> bool {
         self.max.show_ai_summary_overlay
     }
 
     /// Get the AI summary text for the overlay, if any.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn ai_summary_overlay_text(&self) -> Option<(&str, &str)> {
         let id = self.max.ai_summary_overlay_id.as_deref()?;
         let summary = self.max.summary_results.get(id)?;
@@ -1928,19 +1960,19 @@ impl App {
     }
 
     /// Scroll offset for the AI summary overlay.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn summary_overlay_scroll(&self) -> u16 {
         self.max.summary_overlay_scroll
     }
 
     /// Whether the AI diagram overlay popup is visible.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn show_ai_diagram_overlay(&self) -> bool {
         self.max.show_ai_diagram_overlay
     }
 
     /// Get the AI diagram text for the overlay, if any.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn ai_diagram_overlay_text(&self) -> Option<(&str, &str)> {
         let id = self.max.ai_diagram_overlay_id.as_deref()?;
         let result = self.max.diagram_results.get(id)?;
@@ -1949,19 +1981,19 @@ impl App {
     }
 
     /// Current scroll offset for the diagram overlay.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn diagram_overlay_scroll(&self) -> u16 {
         self.max.diagram_overlay_scroll
     }
 
     /// Whether this session has a cached AI diagram.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn has_ai_diagram(&self, session_id: &str) -> bool {
         self.max.diagram_results.contains_key(session_id)
     }
 
     /// Whether this session is currently being diagrammed.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn is_diagramming(&self, session_id: &str) -> bool {
         self.max.diagramming_session_id.as_deref() == Some(session_id)
     }
@@ -1993,7 +2025,7 @@ impl App {
     }
 
     /// Get the AI analysis dialog, if open.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn ai_analysis_dialog(&self) -> Option<&AiAnalysisDialog> {
         match &self.dialog {
             Some(Dialog::AiAnalysis(d)) => Some(d),
@@ -2004,13 +2036,13 @@ impl App {
     // --- Behavior analysis overlay ---
 
     /// Whether the behavior analysis overlay is visible.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn show_behavior_overlay(&self) -> bool {
         self.max.show_behavior_overlay
     }
 
     /// Get the behavior analysis overlay text (title, analysis).
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn behavior_overlay_text(&self) -> Option<(&str, &str)> {
         let id = self.max.behavior_overlay_id.as_deref()?;
         let analysis = self.max.behavior_analysis_results.get(id)?;
@@ -2019,13 +2051,13 @@ impl App {
     }
 
     /// Scroll offset for the behavior overlay.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn behavior_overlay_scroll(&self) -> u16 {
         self.max.behavior_overlay_scroll
     }
 
     /// Get the behavior analysis dialog, if open.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn behavior_analysis_dialog(&self) -> Option<&BehaviorAnalysisDialog> {
         match &self.dialog {
             Some(Dialog::BehaviorAnalysis(d)) => Some(d),
@@ -2860,7 +2892,7 @@ impl App {
     }
 
     /// Load persisted AI analysis results (summaries + diagrams) from disk.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     fn load_ai_results(
         dir: &std::path::Path,
     ) -> (
@@ -2882,7 +2914,7 @@ impl App {
     }
 
     /// Persist AI analysis results (summaries + diagrams) to disk.
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     fn save_ai_results(
         dir: &std::path::Path,
         summaries: &HashMap<String, String>,

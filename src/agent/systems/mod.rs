@@ -5,3 +5,4 @@ pub mod context;
 pub mod progress;
 pub mod sound;
 pub mod token_burst;
+pub mod tool_activity;

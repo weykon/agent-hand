@@ -31,6 +31,18 @@ use agent_hand::hooks::{HookEvent, HookEventKind, HookUsage};
 /// Max prompt chars to keep (matches the old Python bridge).
 const MAX_PROMPT_CHARS: usize = 2000;
 
+/// Max chars to keep for tool_input and tool_response payloads.
+const MAX_TOOL_CHARS: usize = 4000;
+
+/// Truncate a string at a UTF-8 safe boundary.
+fn truncate_utf8(s: &str, max_chars: usize) -> &str {
+    if s.len() <= max_chars {
+        return s;
+    }
+    // floor_char_boundary finds the largest byte index <= max_chars that is a char boundary.
+    &s[..s.floor_char_boundary(max_chars)]
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -910,10 +922,105 @@ fn normalise_event(raw: &str, data: &serde_json::Value) -> Option<HookEventKind>
     map.insert("SubagentStart", HookEventKind::SubagentStart);
     map.insert("PreCompact", HookEventKind::PreCompact);
 
-    // Cursor compatibility
+    // Claude Code tool use events
+    map.insert(
+        "PreToolUse",
+        HookEventKind::PreToolUse {
+            tool_name: data
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            tool_input: {
+                let input = data.get("tool_input").cloned().unwrap_or(serde_json::Value::Null);
+                // Truncate serialized input for bounded storage
+                let serialized = serde_json::to_string(&input).unwrap_or_default();
+                if serialized.len() > MAX_TOOL_CHARS {
+                    let truncated = truncate_utf8(&serialized, MAX_TOOL_CHARS);
+                    serde_json::Value::String(truncated.to_string())
+                } else {
+                    input
+                }
+            },
+            tool_use_id: data
+                .get("tool_use_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+        },
+    );
+    map.insert(
+        "PostToolUse",
+        HookEventKind::PostToolUse {
+            tool_name: data
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            tool_input: {
+                let input = data.get("tool_input").cloned().unwrap_or(serde_json::Value::Null);
+                let serialized = serde_json::to_string(&input).unwrap_or_default();
+                if serialized.len() > MAX_TOOL_CHARS {
+                    let truncated = truncate_utf8(&serialized, MAX_TOOL_CHARS);
+                    serde_json::Value::String(truncated.to_string())
+                } else {
+                    input
+                }
+            },
+            tool_response: {
+                let resp = data
+                    .get("tool_response")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                truncate_utf8(resp, MAX_TOOL_CHARS).to_string()
+            },
+            tool_use_id: data
+                .get("tool_use_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+        },
+    );
+
+    // Cursor compatibility — map to proper tool use types
     map.insert("stop", HookEventKind::Stop);
-    map.insert("preToolUse", HookEventKind::UserPromptSubmit);
-    map.insert("postToolUse", HookEventKind::Stop);
+    map.insert(
+        "preToolUse",
+        HookEventKind::PreToolUse {
+            tool_name: data
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            tool_input: data.get("tool_input").cloned().unwrap_or(serde_json::Value::Null),
+            tool_use_id: data
+                .get("tool_use_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+        },
+    );
+    map.insert(
+        "postToolUse",
+        HookEventKind::PostToolUse {
+            tool_name: data
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            tool_input: data.get("tool_input").cloned().unwrap_or(serde_json::Value::Null),
+            tool_response: data
+                .get("tool_response")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            tool_use_id: data
+                .get("tool_use_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+        },
+    );
     map.insert("subagentStop", HookEventKind::Stop);
     map.insert("subagentStart", HookEventKind::SubagentStart);
     map.insert("beforeSubmitPrompt", HookEventKind::UserPromptSubmit);
@@ -975,11 +1082,7 @@ fn extract_prompt(data: &serde_json::Value) -> Option<String> {
         return None;
     }
 
-    let truncated = if trimmed.len() > MAX_PROMPT_CHARS {
-        &trimmed[..MAX_PROMPT_CHARS]
-    } else {
-        trimmed
-    };
+    let truncated = truncate_utf8(trimmed, MAX_PROMPT_CHARS);
 
     Some(truncated.to_string())
 }

@@ -77,6 +77,7 @@ pub enum EvidenceKind {
     SessionState,
     ProgressLog,
     EventMetadata,
+    ToolActivity,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
