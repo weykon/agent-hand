@@ -9,5 +9,5 @@ mod summarize;
 pub use summarize::{BehaviorAnalysisResult, DiagramResult, SummaryResult};
 
 // Re-export the real Summarizer from pro when max is enabled
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 pub use crate::pro::ai::Summarizer;

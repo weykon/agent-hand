@@ -636,7 +636,7 @@ pub(super) fn render_session_tree(f: &mut Frame, area: Rect, app: &App) {
                         }
 
                         // AI analysis badges (Max tier)
-                        #[cfg(feature = "max")]
+                        #[cfg(feature = "pro")]
                         {
                             if app.is_summarizing(&session.id) || app.is_diagramming(&session.id) {
                                 spans.push(Span::raw("  "));
@@ -786,7 +786,7 @@ pub(super) fn render_preview(f: &mut Frame, area: Rect, app: &App) {
 }
 
 /// Render the AI summary overlay popup (Max tier).
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 pub(super) fn render_ai_summary_overlay(f: &mut Frame, area: Rect, app: &App) {
     use ratatui::layout::{Constraint, Direction, Layout};
     use ratatui::widgets::Clear;
@@ -882,7 +882,7 @@ pub(super) fn render_ai_summary_overlay(f: &mut Frame, area: Rect, app: &App) {
 }
 
 /// Render the AI diagram overlay popup (Max tier) with scrollable content.
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 pub(super) fn render_ai_diagram_overlay(f: &mut Frame, area: Rect, app: &App) {
     use ratatui::layout::{Constraint, Direction, Layout};
     use ratatui::widgets::Clear;
@@ -977,7 +977,7 @@ pub(super) fn render_ai_diagram_overlay(f: &mut Frame, area: Rect, app: &App) {
 }
 
 /// Render the behavior analysis overlay popup (Max tier) with scrollable content.
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 pub(super) fn render_behavior_overlay(f: &mut Frame, area: Rect, app: &App) {
     use ratatui::layout::{Constraint, Direction, Layout};
     use ratatui::widgets::Clear;
@@ -1228,7 +1228,7 @@ pub(super) fn render_help_modal(f: &mut Frame, area: Rect, lang: crate::i18n::La
         key("d", if is_zh { "永久删除会话" } else { "Delete session permanently" }),
         key("b", if is_zh { "提升：将会话置顶到活跃面板" } else { "Boost: bring session to active panel" }),
         key("u", if is_zh { "恢复：继续 AI CLI 对话" } else { "Resume: continue AI CLI conversation" }),
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         key("A", if is_zh { "AI 总结会话输出 (Max)" } else { "AI summary of session output (Max)" }),
         Line::from(""),
         section(if is_zh { "分组操作" } else { "Group Actions" }),
@@ -1355,7 +1355,7 @@ pub(super) fn render_item_hints(spans: &mut Vec<Span<'static>>, app: &App) {
                 spans.push(Span::styled("a", Style::default().fg(Color::Green)));
                 spans.push(Span::raw(if is_zh { ":+画布  " } else { ":+canvas  " }));
             }
-            #[cfg(feature = "max")]
+            #[cfg(feature = "pro")]
             {
                 spans.push(Span::styled("A", Style::default().fg(Color::Magenta)));
                 spans.push(Span::raw(":AI  "));

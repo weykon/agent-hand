@@ -42,7 +42,7 @@ impl App {
         }
 
         // Dismiss AI summary overlay: Esc closes, 'C' adds to canvas, j/k scroll, 'A' reopens picker
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         if self.max.show_ai_summary_overlay {
             match key {
                 KeyCode::Esc => {
@@ -90,7 +90,7 @@ impl App {
         }
 
         // Dismiss AI diagram overlay: Esc closes, 'C' adds to canvas, j/k scroll, 'A' reopens picker
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         if self.max.show_ai_diagram_overlay {
             match key {
                 KeyCode::Esc => {
@@ -138,7 +138,7 @@ impl App {
         }
 
         // Dismiss behavior analysis overlay: Esc closes, j/k scroll, 'B' falls through
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         if self.max.show_behavior_overlay {
             match key {
                 KeyCode::Esc => {
@@ -453,6 +453,19 @@ impl App {
             let canvas_cols = (self.width * 55 / 100).saturating_sub(2);
             let canvas_rows = self.height.saturating_sub(5);
 
+            // Connect mode: c or Enter completes connection.
+            // Intercept to create Relationship when both nodes are sessions.
+            if self.canvas_state.in_connect_mode()
+                && (key == KeyCode::Char('c') || key == KeyCode::Enter)
+                && modifiers == KeyModifiers::NONE
+            {
+                if let Some((session_a, session_b, edge_idx)) = self.canvas_state.complete_connect() {
+                    // Both endpoints are session nodes → create a Relationship
+                    self.canvas_connect_relationship(&session_a, &session_b, edge_idx).await?;
+                }
+                return Ok(());
+            }
+
             // Esc unfocuses canvas if nothing to cancel inside
             if key == KeyCode::Esc && modifiers == KeyModifiers::NONE {
                 let consumed = crate::ui::canvas::input::handle_canvas_input(
@@ -467,6 +480,16 @@ impl App {
                 }
                 return Ok(());
             }
+            // Before canvas input: snapshot selected edge's relationship_id
+            // so we can cascade-delete the relationship if edge is removed.
+            let pre_edge_rel_id = if key == KeyCode::Char('d') && modifiers == KeyModifiers::NONE {
+                self.canvas_state.selected_edge
+                    .and_then(|eidx| self.canvas_state.graph.edge_weight(eidx))
+                    .and_then(|e| e.relationship_id.clone())
+            } else {
+                None
+            };
+
             let consumed = crate::ui::canvas::input::handle_canvas_input(
                 &mut self.canvas_state,
                 key,
@@ -475,6 +498,31 @@ impl App {
                 canvas_rows,
             );
             if consumed {
+                // Post-process: if a relationship edge was deleted, cascade to self.relationships
+                if let Some(rel_id) = pre_edge_rel_id {
+                    // Only cascade if the edge is actually gone now
+                    if self.canvas_state.selected_edge.is_none() {
+                        // Delete associated workspace sessions
+                        let workspace_ids: Vec<String> = self.sessions.iter()
+                            .filter(|s| s.relationship_id.as_deref() == Some(rel_id.as_str()))
+                            .map(|s| s.id.clone())
+                            .collect();
+                        for ws_id in workspace_ids {
+                            let _ = self.delete_session(&ws_id, true).await;
+                        }
+                        // Remove from relationships
+                        crate::session::relationships::remove_relationship(
+                            &mut self.relationships,
+                            &rel_id,
+                        );
+                        self.canvas_state.sync_relationship_edges(&self.relationships);
+                        // Persist
+                        let storage = self.storage.lock().await;
+                        storage.save(&self.sessions, &self.groups, &self.relationships).await?;
+                        drop(storage);
+                        self.refresh_sessions().await?;
+                    }
+                }
                 return Ok(());
             }
             // If not consumed, fall through to normal handling
@@ -736,7 +784,7 @@ impl App {
         // AI Analysis (Max tier) — 'A' key
         // Opens a picker dialog to choose analysis mode (Summary or ASCII Diagram).
         // If overlay is visible, dismiss it first.
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         if self.keybindings.matches("summarize", &key, modifiers) {
             // Dismiss any visible overlay first
             self.max.show_ai_summary_overlay = false;
@@ -752,7 +800,7 @@ impl App {
 
         // Behavior Analysis (Max tier) — 'B' key
         // Opens a dialog to analyze the user's prompt patterns for the selected session.
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         if self.keybindings.matches("behavior_analysis", &key, modifiers) {
             // Dismiss any visible overlay first
             if self.max.show_behavior_overlay {
@@ -958,17 +1006,10 @@ impl App {
             return Ok(());
         }
 
-        // Ctrl+E: Max = toggle relationship edges on canvas, Pro = Relationships panel
+        // Ctrl+E: open Relationships panel (Pro/Max)
         #[cfg(feature = "pro")]
         if key == KeyCode::Char('e') && modifiers == KeyModifiers::CONTROL {
-            if self.auth_token.as_ref().is_some_and(|t| t.is_max()) {
-                // Max: toggle relationship edge visibility on canvas
-                self.canvas_state.show_relationship_edges = !self.canvas_state.show_relationship_edges;
-                if !self.canvas_focused {
-                    self.canvas_focused = true;
-                }
-            } else if self.auth_token.as_ref().is_some_and(|t| t.is_pro()) {
-                // Pro: existing relationships panel
+            if self.auth_token.as_ref().is_some_and(|t| t.is_pro()) {
                 self.refresh_snapshot_counts_async().await;
                 self.state = AppState::Relationships;
             }
@@ -1378,6 +1419,12 @@ impl App {
                     self.activity.push_default(super::activity::ActivityOp::KillingSession);
                     self.delete_session(&session_id, kill_tmux).await?;
                     self.refresh_sessions().await?;
+                    // Sync canvas: remove orphaned nodes/edges for deleted sessions & relationships
+                    #[cfg(feature = "pro")]
+                    {
+                        self.canvas_state.sync_relationship_edges(&self.relationships);
+                        self.sync_canvas_after_deletion();
+                    }
                     self.activity.complete(super::activity::ActivityOp::KillingSession);
                 }
                 _ => {}
@@ -3205,7 +3252,7 @@ impl App {
                 }
             },
 
-            #[cfg(feature = "max")]
+            #[cfg(feature = "pro")]
             Dialog::AiAnalysis(ref mut d) => match key {
                 KeyCode::Esc => {
                     self.dialog = None;
@@ -3242,7 +3289,7 @@ impl App {
                 _ => {}
             },
 
-            #[cfg(feature = "max")]
+            #[cfg(feature = "pro")]
             Dialog::BehaviorAnalysis(ref mut d) => match key {
                 KeyCode::Esc => {
                     self.dialog = None;
@@ -3385,6 +3432,18 @@ impl App {
                                     d.notif_on_error = !d.notif_on_error;
                                     d.dirty = true;
                                 }
+                                SettingsField::ClaudeSkipPerms => {
+                                    d.claude_skip_perms = !d.claude_skip_perms;
+                                    d.dirty = true;
+                                }
+                                SettingsField::CodexFullAuto => {
+                                    d.codex_full_auto = !d.codex_full_auto;
+                                    d.dirty = true;
+                                }
+                                SettingsField::GeminiYolo => {
+                                    d.gemini_yolo = !d.gemini_yolo;
+                                    d.dirty = true;
+                                }
                                 _ => {}
                             },
                             KeyCode::Right | KeyCode::Char('l') => match d.field {
@@ -3435,6 +3494,18 @@ impl App {
                                 #[cfg(feature = "pro")]
                                 SettingsField::NotifOnError => {
                                     d.notif_on_error = !d.notif_on_error;
+                                    d.dirty = true;
+                                }
+                                SettingsField::ClaudeSkipPerms => {
+                                    d.claude_skip_perms = !d.claude_skip_perms;
+                                    d.dirty = true;
+                                }
+                                SettingsField::CodexFullAuto => {
+                                    d.codex_full_auto = !d.codex_full_auto;
+                                    d.dirty = true;
+                                }
+                                SettingsField::GeminiYolo => {
+                                    d.gemini_yolo = !d.gemini_yolo;
                                     d.dirty = true;
                                 }
                                 _ => {}

@@ -18,7 +18,7 @@ pub mod skills;
 pub mod tmux;
 pub mod ui;
 pub mod update;
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 pub mod ws;
 
 pub mod notification;

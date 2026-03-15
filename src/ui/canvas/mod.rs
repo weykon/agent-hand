@@ -20,6 +20,10 @@ pub mod input {
 pub mod socket {
     pub use crate::pro::canvas::socket::*;
 }
+#[cfg(feature = "pro")]
+pub mod animation {
+    pub use crate::pro::canvas::animation::*;
+}
 
 // ── Free path: stub types + no-op methods ───────────────────────────────────
 #[cfg(not(feature = "pro"))]

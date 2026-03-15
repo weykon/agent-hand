@@ -5,6 +5,7 @@ mod events;
 mod input;
 mod render;
 mod switcher;
+pub mod theme;
 pub mod transition;
 
 pub use app::App;
@@ -26,7 +27,7 @@ pub use dialogs::{
     ProposalActionDialog, ShareDialog, SkillCategory, SkillSection, SkillsBrowserEntry,
     SkillsCursor, SkillsManagerDialog, SkillsManagerMode,
 };
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 pub use dialogs::{AiAnalysisDialog, AiAnalysisMode, BehaviorAnalysisDialog};
 
 pub use input::TextInput;

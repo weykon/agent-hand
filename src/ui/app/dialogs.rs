@@ -157,7 +157,7 @@ impl App {
         };
 
         // Update AI config
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         {
             if let Some(name) = d.ai_provider_names.get(d.ai_provider_idx) {
                 self.config.ai.provider = name.clone();
@@ -233,6 +233,11 @@ impl App {
         self.config.mouse_capture = Some(mouse_str.to_string());
         self.mouse_capture_changed = true;
 
+        // Update auto-permission flags
+        self.config.claude.dangerously_skip_permissions = d.claude_skip_perms;
+        self.config.codex.full_auto = d.codex_full_auto;
+        self.config.gemini.yolo = d.gemini_yolo;
+
         // Update language config
         let lang = match d.language_idx {
             1 => crate::i18n::Language::Chinese,
@@ -273,7 +278,7 @@ impl App {
         }
 
         // Hot-reload: recreate AI summarizer with new config
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         {
             let is_max = self
                 .auth_token
@@ -405,7 +410,7 @@ impl App {
 
     /// Test AI connection from settings dialog.
     pub(super) async fn test_ai_connection(&mut self) {
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         {
             let Some(Dialog::Settings(d)) = self.dialog.as_mut() else {
                 return;

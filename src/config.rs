@@ -93,12 +93,12 @@ pub struct ConfigFile {
     pub skills: SkillsConfig,
 
     /// AI configuration (Max tier)
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     #[serde(default)]
     pub ai: AiConfig,
 
     /// WebSocket data transport configuration (Max tier)
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     #[serde(default)]
     pub ws: crate::ws::WsConfig,
 
@@ -233,7 +233,7 @@ pub struct ClaudeHooksConfig {
     #[serde(default)]
     pub user_prompt_logging: bool,
     /// When true, include `--dangerously-skip-permissions` in Claude resume commands.
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub dangerously_skip_permissions: bool,
 }
 
@@ -241,7 +241,7 @@ pub struct ClaudeHooksConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct CodexConfig {
     /// When true, include `--full-auto` in Codex resume commands.
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub full_auto: bool,
 }
 
@@ -249,7 +249,7 @@ pub struct CodexConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct GeminiConfig {
     /// When true, include `-y` (yolo mode) in Gemini resume commands.
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub yolo: bool,
 }
 
@@ -426,7 +426,7 @@ impl Default for SkillsConfig {
 }
 
 /// AI provider configuration (Max tier)
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AiConfig {
     /// Provider name (e.g. "deepseek", "claude", "ollama"). Default: "deepseek"
@@ -446,17 +446,17 @@ pub struct AiConfig {
     pub summary_lines: usize,
 }
 
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 fn default_ai_provider() -> String {
     "deepseek".to_string()
 }
 
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 fn default_summary_lines() -> usize {
     200
 }
 
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 impl Default for AiConfig {
     fn default() -> Self {
         Self {
@@ -585,12 +585,12 @@ impl ConfigFile {
         &self.skills
     }
 
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn ai(&self) -> &AiConfig {
         &self.ai
     }
 
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     pub fn ws(&self) -> &crate::ws::WsConfig {
         &self.ws
     }

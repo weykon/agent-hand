@@ -873,9 +873,10 @@ impl ActionExecutor {
                 if text.is_empty() {
                     None
                 } else {
-                    // Limit to 500 chars to avoid bloating progress files
+                    // Limit to ~500 chars to avoid bloating progress files
                     Some(if text.len() > 500 {
-                        text[..500].to_string()
+                        let end = text.floor_char_boundary(500);
+                        text[..end].to_string()
                     } else {
                         text
                     })

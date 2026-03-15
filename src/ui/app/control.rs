@@ -761,6 +761,11 @@ impl App {
         relation_type: Option<String>,
         label: Option<String>,
     ) -> ControlResponse {
+        if session_a == session_b {
+            return ControlResponse::Error {
+                message: "cannot create relationship between a session and itself".to_string(),
+            };
+        }
         if self.session_by_id(session_a).is_none() {
             return ControlResponse::Error {
                 message: format!("session not found: {session_a}"),

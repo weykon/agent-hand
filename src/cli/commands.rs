@@ -1647,6 +1647,7 @@ async fn handle_canvas(action: CanvasAction) -> Result<()> {
         CanvasAction::Layout { direction } => {
             let direction = match direction.to_lowercase().as_str() {
                 "left-right" | "lr" | "horizontal" => LayoutDirection::LeftRight,
+                "tiled" | "tile" | "grid" => LayoutDirection::Tiled,
                 _ => LayoutDirection::TopDown,
             };
             CanvasOp::Layout { direction }

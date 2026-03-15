@@ -17,8 +17,8 @@ path = "src/bin/bridge.rs"
 
 [features]
 default = []
-pro = ["dep:tokio-tungstenite", "dep:futures-util", "dep:base64", "dep:vt100"]
-max = ["pro", "dep:ai_api_provider"]
+pro = ["dep:tokio-tungstenite", "dep:futures-util", "dep:base64", "dep:vt100", "dep:tachyonfx", "dep:ai_api_provider"]
+max = ["pro"]
 wasm = ["dep:wasmtime"]
 
 [dependencies]
@@ -35,8 +35,11 @@ toml = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 
 # TUI framework
-ratatui = "0.28"
+ratatui = "0.30"
 crossterm = { version = "0.28", features = ["event-stream"] }
+
+# Canvas animation effects (Pro only)
+tachyonfx = { version = "0.25", optional = true }
 
 # CLI parsing
 clap = { version = "4", features = ["derive", "env"] }
@@ -76,6 +79,9 @@ ahash = "0.8"
 
 # String optimization
 compact_str = "0.8"
+
+# Unicode display width (CJK characters = 2 columns)
+unicode-width = "0.2"
 
 # Graph data structure for canvas workflow editor
 petgraph = "0.6"

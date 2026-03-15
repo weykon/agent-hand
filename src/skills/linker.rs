@@ -9,7 +9,7 @@ fn target_dir(project_path: &Path, cli: SkillCli, skill_name: &str) -> PathBuf {
     match cli {
         SkillCli::Claude => project_path
             .join(".claude")
-            .join("commands")
+            .join("skills")
             .join(skill_name),
         SkillCli::Codex => project_path
             .join(".agents")

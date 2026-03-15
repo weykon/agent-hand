@@ -136,13 +136,13 @@ pub(super) fn render_dialog(f: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     if let Some(d) = app.ai_analysis_dialog() {
         super::render_ai_analysis_dialog(f, area, d, is_zh);
         return;
     }
 
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     if let Some(d) = app.behavior_analysis_dialog() {
         super::render_behavior_analysis_dialog(f, area, d, is_zh);
     }
@@ -281,7 +281,7 @@ pub(super) fn render_new_session_dialog(f: &mut Frame, area: Rect, d: &crate::ui
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "新建" } else { "New" }));
+        .block(dialog_block("新建", "New", is_zh));
 
     f.render_widget(p, popup_area);
 }
@@ -323,7 +323,7 @@ pub(super) fn render_fork_dialog(f: &mut Frame, area: Rect, d: &crate::ui::ForkD
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "复制" } else { "Fork" }));
+        .block(dialog_block("复制", "Fork", is_zh));
 
     f.render_widget(p, popup_area);
 }
@@ -390,7 +390,7 @@ pub(super) fn render_create_group_dialog(f: &mut Frame, area: Rect, d: &crate::u
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "分组" } else { "Group" }));
+        .block(dialog_block("分组", "Group", is_zh));
 
     f.render_widget(p, popup_area);
 }
@@ -465,7 +465,7 @@ pub(super) fn render_move_group_dialog(f: &mut Frame, area: Rect, d: &crate::ui:
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "分组" } else { "Group" }));
+        .block(dialog_block("分组", "Group", is_zh));
 
     f.render_widget(p, popup_area);
 }
@@ -485,7 +485,7 @@ pub(super) fn render_tag_picker_dialog(f: &mut Frame, area: Rect, d: &crate::ui:
         )
         .style(Style::default().fg(Color::DarkGray))
         .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "标签" } else { "Tag" }));
+        .block(dialog_block("标签", "Tag", is_zh));
         f.render_widget(empty, chunks[0]);
     } else {
         let items: Vec<ListItem> = d
@@ -519,7 +519,7 @@ pub(super) fn render_tag_picker_dialog(f: &mut Frame, area: Rect, d: &crate::ui:
             })
             .collect();
 
-        let list = List::new(items).block(Block::default().borders(Borders::ALL).title(if is_zh { "标签" } else { "Tag" }));
+        let list = List::new(items).block(dialog_block("标签", "Tag", is_zh));
         let mut state = ListState::default().with_selected(Some(d.selected));
         f.render_stateful_widget(list, chunks[0], &mut state);
     }
@@ -601,7 +601,7 @@ pub(super) fn render_rename_session_dialog(f: &mut Frame, area: Rect, d: &crate:
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "会话" } else { "Session" }));
+        .block(dialog_block("会话", "Session", is_zh));
 
     f.render_widget(p, popup_area);
 }
@@ -636,7 +636,7 @@ pub(super) fn render_rename_group_dialog(f: &mut Frame, area: Rect, d: &crate::u
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "分组" } else { "Group" }));
+        .block(dialog_block("分组", "Group", is_zh));
 
     f.render_widget(p, popup_area);
 }
@@ -711,7 +711,7 @@ pub(super) fn render_delete_confirm_dialog(f: &mut Frame, area: Rect, d: &crate:
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "确认" } else { "Confirm" }));
+        .block(dialog_block("确认", "Confirm", is_zh));
 
     f.render_widget(p, popup_area);
 }
@@ -785,7 +785,7 @@ pub(super) fn render_delete_group_dialog(f: &mut Frame, area: Rect, d: &crate::u
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "确认" } else { "Confirm" }));
+        .block(dialog_block("确认", "Confirm", is_zh));
 
     f.render_widget(p, popup_area);
 }
@@ -850,7 +850,7 @@ pub(super) fn render_search_popup(f: &mut Frame, area: Rect, app: &App) {
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "搜索" } else { "Search" }));
+        .block(dialog_block("搜索", "Search", is_zh));
 
     f.render_widget(p, popup_area);
 }
@@ -955,6 +955,9 @@ pub(super) fn render_settings_dialog(
                 SettingsField::ScrollPadding => "滚动边距",
                 SettingsField::ReadyTtl => "就绪 TTL (分)",
                 SettingsField::Language => "语言",
+                SettingsField::ClaudeSkipPerms => "Claude: 自动允许",
+                SettingsField::CodexFullAuto => "Codex: 全自动",
+                SettingsField::GeminiYolo => "Gemini: Yolo 模式",
                 SettingsField::KeyUp => "上移",
                 SettingsField::KeyDown => "下移",
                 SettingsField::KeyHalfPageDown => "半页下",
@@ -1437,6 +1440,20 @@ pub(super) fn render_settings_dialog(
                     }
                 }
             }
+            SettingsField::ClaudeSkipPerms | SettingsField::CodexFullAuto | SettingsField::GeminiYolo => {
+                let val = match field {
+                    SettingsField::ClaudeSkipPerms => d.claude_skip_perms,
+                    SettingsField::CodexFullAuto => d.codex_full_auto,
+                    SettingsField::GeminiYolo => d.gemini_yolo,
+                    _ => false,
+                };
+                let label = if val { "On" } else { "Off" };
+                let color = if val { Color::Red } else { Color::DarkGray };
+                spans.push(Span::styled(format!("▸ {label}"), Style::default().fg(color)));
+                if is_active {
+                    spans.push(Span::styled("  ← → toggle", dim_style));
+                }
+            }
             // Key binding fields
             f if f.is_key_binding() => {
                 if d.key_capturing && is_active {
@@ -1541,7 +1558,7 @@ pub(super) fn render_settings_dialog(
 
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title(if is_zh { "设置" } else { "Settings" }));
+        .block(dialog_block("设置", "Settings", is_zh));
 
     f.render_widget(p, popup_area);
 }

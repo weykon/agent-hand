@@ -17,6 +17,7 @@ pub enum NodeKind {
     Process,
     Decision,
     Note,
+    Relationship,
 }
 
 impl NodeKind {
@@ -27,12 +28,13 @@ impl NodeKind {
             Self::Decision => "\u{25c7} ",
             Self::Process => "",
             Self::Note => "# ",
+            Self::Relationship => "\u{25cb} ",
         }
     }
 
     pub fn border_type(self) -> ratatui::widgets::BorderType {
         match self {
-            Self::Start | Self::End => ratatui::widgets::BorderType::Rounded,
+            Self::Start | Self::End | Self::Relationship => ratatui::widgets::BorderType::Rounded,
             Self::Decision => ratatui::widgets::BorderType::Double,
             Self::Process | Self::Note => ratatui::widgets::BorderType::Plain,
         }
@@ -45,6 +47,7 @@ impl NodeKind {
             Self::Process => ratatui::style::Color::Cyan,
             Self::Decision => ratatui::style::Color::Yellow,
             Self::Note => ratatui::style::Color::DarkGray,
+            Self::Relationship => ratatui::style::Color::Magenta,
         }
     }
 }
@@ -128,6 +131,7 @@ pub enum CanvasMode {
 pub enum LayoutDirection {
     TopDown,
     LeftRight,
+    Tiled,
 }
 
 fn default_process_kind() -> NodeKind { NodeKind::Process }

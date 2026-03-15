@@ -92,11 +92,22 @@ pub(super) fn render_text_input(input: &TextInput, active: bool, _base_style: St
 }
 
 #[cfg(feature = "pro")]
-pub(super) fn truncate_name(name: &str, max: usize) -> String {
-    if name.chars().count() <= max {
+pub(super) fn truncate_name(name: &str, max_width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+    if UnicodeWidthStr::width(name) <= max_width {
         name.to_string()
     } else {
-        let end = name.char_indices().nth(max).map(|(i, _)| i).unwrap_or(name.len());
+        // Truncate respecting display width (CJK chars = 2 columns)
+        let mut w = 0;
+        let mut end = 0;
+        for (i, ch) in name.char_indices() {
+            let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if w + cw + 2 > max_width { // +2 for ".."
+                break;
+            }
+            w += cw;
+            end = i + ch.len_utf8();
+        }
         format!("{}..", &name[..end])
     }
 }
@@ -123,6 +134,36 @@ pub(super) fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(vertical);
 
     popup_layout[1]
+}
+
+// ── Dialog/Block helpers ──────────────────────────────────────────────────
+
+/// Build a bordered block with bilingual title.
+pub(super) fn dialog_block<'a>(title_zh: &'a str, title_en: &'a str, is_zh: bool) -> Block<'a> {
+    let t = crate::ui::theme::theme();
+    Block::default()
+        .borders(Borders::ALL)
+        .border_style(t.dialog_border_style())
+        .title(if is_zh { title_zh } else { title_en })
+}
+
+/// Build a bordered block with a single title (no i18n).
+pub(super) fn titled_block(title: &str) -> Block<'_> {
+    let t = crate::ui::theme::theme();
+    Block::default()
+        .borders(Borders::ALL)
+        .border_style(t.dialog_border_style())
+        .title(title)
+}
+
+/// Build a plain bordered block with no title.
+pub(super) fn plain_block() -> Block<'static> {
+    Block::default().borders(Borders::ALL)
+}
+
+/// Compute a unicode-aware display width for terminal text.
+pub(super) fn display_width(s: &str) -> u16 {
+    unicode_width::UnicodeWidthStr::width(s) as u16
 }
 
 /// Format room age as a human-readable string (e.g. "5 min ago").

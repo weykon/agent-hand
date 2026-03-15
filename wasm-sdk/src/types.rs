@@ -338,6 +338,13 @@ impl CanvasOp {
         }
     }
 
+    /// Auto-layout tiled grid (fills rows first, avoids overlap).
+    pub fn layout_tiled() -> Self {
+        Self::Layout {
+            direction: "tiled".to_string(),
+        }
+    }
+
     /// Batch multiple operations.
     pub fn batch(ops: Vec<CanvasOp>) -> Self {
         Self::Batch { ops }

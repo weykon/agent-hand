@@ -185,6 +185,116 @@ impl App {
         Ok(session_id)
     }
 
+    /// Called when user connects two session nodes on canvas.
+    /// Creates a Relationship + workspace SessionC + triggers animation.
+    #[cfg(feature = "pro")]
+    pub(super) async fn canvas_connect_relationship(
+        &mut self,
+        session_a_id: &str,
+        session_b_id: &str,
+        edge_idx: petgraph::graph::EdgeIndex,
+    ) -> Result<()> {
+        use crate::session::relationships::add_relationship;
+
+        let session_a = self.session_by_id(session_a_id).cloned();
+        let session_b = self.session_by_id(session_b_id).cloned();
+        let (Some(sa), Some(sb)) = (session_a, session_b) else {
+            return Ok(());
+        };
+
+        // Create the Relationship (default: Peer)
+        let mut rel = crate::session::Relationship::new(
+            crate::session::RelationType::Peer,
+            session_a_id.to_string(),
+            session_b_id.to_string(),
+        );
+        rel.bidirectional = true;
+        let rel_id = rel.id.clone();
+
+        add_relationship(&mut self.relationships, rel.clone());
+
+        // Stamp the relationship_id on the canvas edge
+        if let Some(edge_data) = self.canvas_state.graph.edge_weight_mut(edge_idx) {
+            edge_data.relationship_id = Some(rel_id.clone());
+        }
+        self.canvas_state.relationship_types.insert(
+            rel_id.clone(),
+            crate::session::RelationType::Peer,
+        );
+
+        // Save relationships
+        let storage = self.storage.lock().await;
+        storage.save(&self.sessions, &self.groups, &self.relationships).await?;
+        drop(storage);
+
+        // Remove the direct A→B edge that connect_nodes created —
+        // we'll replace it with A→C and C→B via the relationship workspace.
+        let a_canvas_id = format!("session:{}", session_a_id);
+        let b_canvas_id = format!("session:{}", session_b_id);
+        self.canvas_state.apply_op(crate::ui::canvas::CanvasOp::RemoveEdge {
+            from: a_canvas_id.clone(),
+            to: b_canvas_id.clone(),
+        });
+
+        // Create workspace SessionC
+        if let Ok(session_c_id) = self.create_relationship_session(&rel, &sa, &sb).await {
+            self.refresh_sessions().await?;
+
+            let a_pos = self.canvas_state.id_index_get(&a_canvas_id)
+                .and_then(|idx| self.canvas_state.positions.get(&idx).copied());
+            let b_pos = self.canvas_state.id_index_get(&b_canvas_id)
+                .and_then(|idx| self.canvas_state.positions.get(&idx).copied());
+
+            if let (Some((ax, ay)), Some((bx, by))) = (a_pos, b_pos) {
+                let mx = (ax as i32 + bx as i32) / 2;
+                let my = (ay as i32 + by as i32) / 2 + 4; // offset down to avoid overlap
+                let c_title = rel.label.as_deref()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("{} ⇄ {}", sa.title, sb.title));
+
+                // Add SessionC as a Relationship kind node (rendered as circle)
+                let c_canvas_id = format!("session:{}", session_c_id);
+                self.canvas_state.apply_op(crate::ui::canvas::CanvasOp::AddNode {
+                    id: c_canvas_id.clone(),
+                    label: c_title,
+                    kind: crate::ui::canvas::NodeKind::Relationship,
+                    pos: Some((mx.max(0) as u16, my.max(0) as u16)),
+                    content: None,
+                });
+
+                // Add edges: A → C and C → B
+                self.canvas_state.apply_op(crate::ui::canvas::CanvasOp::AddEdge {
+                    from: a_canvas_id,
+                    to: c_canvas_id.clone(),
+                    label: None,
+                    relationship_id: Some(rel_id.clone()),
+                });
+                self.canvas_state.apply_op(crate::ui::canvas::CanvasOp::AddEdge {
+                    from: c_canvas_id.clone(),
+                    to: b_canvas_id,
+                    label: None,
+                    relationship_id: Some(rel_id.clone()),
+                });
+
+                // Trigger spawn animation on SessionC node
+                if let Some(c_idx) = self.canvas_state.id_index_get(&c_canvas_id) {
+                    let spawn_area = ratatui::layout::Rect::new(
+                        mx.max(0) as u16,
+                        my.max(0) as u16,
+                        20, 3,
+                    );
+                    self.canvas_animation.start_node_spawn(c_idx, spawn_area);
+                }
+            }
+        }
+
+        // Sync relationship edges on canvas
+        self.canvas_state.sync_relationship_edges(&self.relationships);
+
+        Ok(())
+    }
+
     pub(super) async fn create_fork_session(
         &mut self,
         parent_session_id: &str,
@@ -486,14 +596,54 @@ impl App {
         }
 
         let storage = self.storage.lock().await;
-        let (mut instances, tree, relationships) = storage.load().await?;
+        let (mut instances, tree, mut relationships) = storage.load().await?;
         let before = instances.len();
         instances.retain(|s| s.id != session_id);
         if instances.len() != before {
+            // Cascade: collect relationship IDs that reference the deleted session
+            let orphaned_rel_ids: Vec<String> = relationships
+                .iter()
+                .filter(|r| r.session_a_id == session_id || r.session_b_id == session_id)
+                .map(|r| r.id.clone())
+                .collect();
+
+            if !orphaned_rel_ids.is_empty() {
+                // Remove workspace sessions linked to orphaned relationships
+                instances.retain(|s| {
+                    s.relationship_id.as_ref().map_or(true, |rid| !orphaned_rel_ids.contains(rid))
+                });
+                // Remove the orphaned relationships themselves
+                relationships.retain(|r| {
+                    r.session_a_id != session_id && r.session_b_id != session_id
+                });
+            }
             storage.save(&instances, &tree, &relationships).await?;
         }
 
         Ok(())
+    }
+
+    /// Remove canvas nodes whose session no longer exists in `self.sessions`.
+    /// Called after session/relationship deletion to keep canvas in sync.
+    #[cfg(feature = "pro")]
+    pub(super) fn sync_canvas_after_deletion(&mut self) {
+        let session_ids: std::collections::HashSet<String> = self.sessions.iter()
+            .map(|s| format!("session:{}", s.id))
+            .collect();
+        // Collect node IDs to remove (session nodes whose session was deleted)
+        let orphaned: Vec<String> = self.canvas_state.graph.node_indices()
+            .filter_map(|idx| {
+                let node = self.canvas_state.graph.node_weight(idx)?;
+                if node.id.starts_with("session:") && !session_ids.contains(&node.id) {
+                    Some(node.id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in orphaned {
+            self.canvas_state.apply_op(crate::ui::canvas::CanvasOp::RemoveNode { id });
+        }
     }
 
     pub(super) fn ensure_groups_exist(&mut self) {

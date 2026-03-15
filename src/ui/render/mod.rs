@@ -25,7 +25,7 @@ mod tests;
 #[cfg(feature = "pro")]
 #[path = "../../../pro/src/ui/render/dialogs.rs"]
 mod dialogs_pro;
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 #[path = "../../../pro/src/ui/render/dialogs_max.rs"]
 mod dialogs_max;
 
@@ -34,7 +34,7 @@ use sessions::*;
 use dialogs::*;
 #[cfg(feature = "pro")]
 use dialogs_pro::*;
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 use dialogs_max::*;
 #[cfg(feature = "pro")]
 use viewer::*;
@@ -155,19 +155,19 @@ pub fn draw(f: &mut Frame, app: &App) {
     render_toast_notifications(f, f.area(), app);
 
     // AI summary overlay popup (Max tier)
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     if app.max.show_ai_summary_overlay {
         render_ai_summary_overlay(f, f.area(), app);
     }
 
     // AI diagram overlay popup (Max tier)
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     if app.max.show_ai_diagram_overlay {
         render_ai_diagram_overlay(f, f.area(), app);
     }
 
     // Behavior analysis overlay popup (Max tier)
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     if app.max.show_behavior_overlay {
         render_behavior_overlay(f, f.area(), app);
     }
@@ -596,6 +596,8 @@ fn collect_overlay_hints(app: &App) -> Vec<(&'static str, &'static str, Color)> 
     hints.push(("p", if is_zh { "画布" } else { "canvas" }, Color::Cyan));
     #[cfg(not(feature = "pro"))]
     hints.push(("p", if is_zh { "预览" } else { "preview" }, Color::Cyan));
+    #[cfg(feature = "pro")]
+    hints.push(("K", if is_zh { "技能" } else { "skills" }, Color::Cyan));
     hints.push(("^T", if is_zh { "聊天" } else { "chat" }, Color::Cyan));
     hints.push(("?", if is_zh { "帮助" } else { "help" }, Color::Magenta));
     hints.push(("q", if is_zh { "退出" } else { "quit" }, Color::Red));
@@ -687,7 +689,7 @@ fn collect_item_selection_hints(hints: &mut Vec<(&'static str, &'static str, Col
             ]);
             #[cfg(feature = "pro")]
             hints.push(("a", if is_zh { "+画布" } else { "+canvas" }, Color::Green));
-            #[cfg(feature = "max")]
+            #[cfg(feature = "pro")]
             hints.push(("A", "AI", Color::Magenta));
         }
         _ => {
@@ -767,7 +769,7 @@ fn render_toast_notifications(f: &mut Frame, area: Rect, app: &App) {
     // Show up to 3 most recent notifications
     let visible: Vec<_> = toasts.iter().rev().take(3).collect();
     let toast_width = visible.iter()
-        .map(|t| t.message.len() as u16 + 4)
+        .map(|t| helpers::display_width(&t.message) + 4)
         .max()
         .unwrap_or(20)
         .min(area.width / 2);
@@ -804,13 +806,14 @@ fn render_startup(
     let combined = format!("{}\n{}", LOGO_ASYMPTAI.trim(), LOGO_AGENT_HAND.trim());
     let logo_lines: Vec<&str> = combined.lines().collect();
     let logo_height = logo_lines.len() as u16;
-    let logo_width = logo_lines.iter().map(|l| l.len()).max().unwrap_or(0) as u16;
+    let logo_width = logo_lines.iter().map(|l| helpers::display_width(l)).max().unwrap_or(0);
 
     // Skip logo if terminal is too small
     if area.width < 40 || area.height < logo_height + 4 {
         // Small terminal: just show a compact version
         let text = "AsymptAI · Agent-Hand";
-        let x = area.x + area.width.saturating_sub(text.len() as u16) / 2;
+        let tw = helpers::display_width(text);
+        let x = area.x + area.width.saturating_sub(tw) / 2;
         let y = area.y + area.height / 2;
         if y < area.bottom() {
             let alpha = match phase {
@@ -821,7 +824,7 @@ fn render_startup(
             let grey = (alpha * 255.0) as u8;
             let style = Style::default().fg(Color::Rgb(grey, grey, grey));
             let para = Paragraph::new(text).style(style);
-            f.render_widget(para, Rect::new(x, y, text.len() as u16, 1));
+            f.render_widget(para, Rect::new(x, y, tw, 1));
         }
         return;
     }
@@ -885,7 +888,7 @@ fn render_startup(
     // Version tag + signature below logo
     if chars_shown >= total_chars {
         let version = format!("v{}", env!("CARGO_PKG_VERSION"));
-        let version_len = version.len() as u16;
+        let version_len = helpers::display_width(&version);
         let vx = area.x + area.width.saturating_sub(version_len) / 2;
         let vy = start_y + logo_height + 1;
         if vy < area.bottom() {
@@ -897,7 +900,7 @@ fn render_startup(
 
         // Signature line
         let sig = "design by weykon";
-        let sx = area.x + area.width.saturating_sub(sig.len() as u16) / 2;
+        let sx = area.x + area.width.saturating_sub(helpers::display_width(sig)) / 2;
         let sy = start_y + logo_height + 3;
         if sy < area.bottom() {
             // Subtle warm tone for the signature
@@ -908,7 +911,7 @@ fn render_startup(
                 .fg(Color::Rgb(r, g, b))
                 .add_modifier(Modifier::ITALIC);
             let para = Paragraph::new(sig).style(style).alignment(Alignment::Center);
-            f.render_widget(para, Rect::new(sx, sy, sig.len() as u16, 1));
+            f.render_widget(para, Rect::new(sx, sy, helpers::display_width(sig), 1));
         }
     }
 }

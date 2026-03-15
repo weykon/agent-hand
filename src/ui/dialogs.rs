@@ -7,7 +7,7 @@ use super::input::TextInput;
 // Pro/Max dialog types re-exported from pro module
 #[cfg(feature = "pro")]
 pub use crate::pro::ui::dialogs::*;
-#[cfg(feature = "max")]
+#[cfg(feature = "pro")]
 pub use crate::pro::ui::dialogs_max::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,9 +284,9 @@ pub enum Dialog {
     ProposalAction(ProposalActionDialog),
     #[cfg(feature = "pro")]
     ConfirmInjection(ConfirmInjectionDialog),
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     AiAnalysis(AiAnalysisDialog),
-    #[cfg(feature = "max")]
+    #[cfg(feature = "pro")]
     BehaviorAnalysis(BehaviorAnalysisDialog),
 }
 
@@ -306,7 +306,7 @@ pub enum SettingsTab {
 impl SettingsTab {
     pub fn available_tabs() -> Vec<SettingsTab> {
         let mut tabs = Vec::new();
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         tabs.push(SettingsTab::AI);
         #[cfg(feature = "pro")]
         tabs.push(SettingsTab::Sharing);
@@ -363,6 +363,10 @@ pub enum SettingsField {
     ScrollPadding,
     ReadyTtl,
     Language,
+    // General tab — Auto-permission flags (per-tool resume)
+    ClaudeSkipPerms,
+    CodexFullAuto,
+    GeminiYolo,
     // Keys tab
     KeyUp,
     KeyDown,
@@ -421,6 +425,9 @@ impl SettingsField {
                 Self::ScrollPadding,
                 Self::ReadyTtl,
                 Self::Language,
+                Self::ClaudeSkipPerms,
+                Self::CodexFullAuto,
+                Self::GeminiYolo,
             ],
             SettingsTab::Keys => vec![
                 Self::KeyUp,
@@ -476,6 +483,9 @@ impl SettingsField {
             Self::ScrollPadding => "Scroll Padding",
             Self::ReadyTtl => "Ready TTL (min)",
             Self::Language => "Language",
+            Self::ClaudeSkipPerms => "Claude: Auto-Permit",
+            Self::CodexFullAuto => "Codex: Full Auto",
+            Self::GeminiYolo => "Gemini: Yolo Mode",
             Self::KeyUp => "Up",
             Self::KeyDown => "Down",
             Self::KeyHalfPageDown => "Half Page Down",
@@ -517,7 +527,7 @@ impl SettingsField {
     /// Whether this field is a selector (toggle/cycle) type.
     pub fn is_selector(&self) -> bool {
         match self {
-            Self::AiProvider | Self::DefaultPermission | Self::AnimationsEnabled | Self::PromptCollection | Self::AnalyticsEnabled | Self::MouseCapture | Self::Language => true,
+            Self::AiProvider | Self::DefaultPermission | Self::AnimationsEnabled | Self::PromptCollection | Self::AnalyticsEnabled | Self::MouseCapture | Self::Language | Self::ClaudeSkipPerms | Self::CodexFullAuto | Self::GeminiYolo => true,
             #[cfg(feature = "pro")]
             Self::NotifAutoRegister
             | Self::NotifEnabled
@@ -620,6 +630,10 @@ pub struct SettingsDialog {
     pub ready_ttl: TextInput,
     /// 0=English, 1=Chinese
     pub language_idx: usize,
+    // Auto-permission flags
+    pub claude_skip_perms: bool,
+    pub codex_full_auto: bool,
+    pub gemini_yolo: bool,
     // Keys tab
     pub key_bindings: std::collections::HashMap<&'static str, Vec<crate::config::KeySpec>>,
     /// When true, waiting for next keypress to capture as new binding
@@ -633,7 +647,7 @@ impl SettingsDialog {
     #[allow(unused_variables)]
     pub fn new(cfg: &crate::config::ConfigFile, kb: &crate::config::KeyBindings) -> Self {
         // Build provider list + AI fields (max-gated)
-        #[cfg(feature = "max")]
+        #[cfg(feature = "pro")]
         let (ai_provider_names, ai_provider_idx, ai_api_key, ai_model, ai_base_url, ai_summary_lines) = {
             let names: Vec<String> = ai_api_provider::PROVIDERS
                 .iter()
@@ -734,6 +748,9 @@ impl SettingsDialog {
                 Some(crate::i18n::Language::Chinese) => 1,
                 _ => 0,
             },
+            claude_skip_perms: cfg.claude.dangerously_skip_permissions,
+            codex_full_auto: cfg.codex.full_auto,
+            gemini_yolo: cfg.gemini.yolo,
             key_bindings: {
                 let mut key_bindings = std::collections::HashMap::new();
                 for action in ["up", "down", "half_page_down", "half_page_up", "select", "start", "stop", "restart", "delete", "rename", "new_session", "fork", "canvas_toggle", "summarize", "behavior_analysis", "search", "settings", "boost"] {
