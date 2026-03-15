@@ -463,7 +463,14 @@ impl TmuxManager {
         if let Some(command) = command {
             // Escape single quotes in the command for safe embedding
             let escaped = command.replace('\'', "'\\''");
-            let wrapped = format!("{} -c '{}; exec {} -l'", shell, escaped, shell);
+            // Trap SIGINT in the outer shell so Ctrl+C only kills the child command,
+            // not the wrapper. The child runs in a subshell with default signal handling.
+            // After the child exits (by any means), restore default INT and exec login shell.
+            let wrapped = format!(
+                "{shell} -c 'trap \"\" INT; (trap - INT; exec {escaped}); trap - INT; exec {shell} -l'",
+                shell = shell,
+                escaped = escaped,
+            );
             cmd.arg(wrapped);
         } else {
             // Login shell (no command)
