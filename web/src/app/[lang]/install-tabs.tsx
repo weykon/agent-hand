@@ -26,7 +26,7 @@ export function HeroInstallTabs() {
           {t.tabWindows}
         </TabButton>
       </div>
-      <div className="mx-auto mb-1 flex max-w-lg items-center justify-center rounded-lg border border-white/10 bg-[#1a1a2e]/50 px-4 py-3 font-mono text-sm backdrop-blur-xl backdrop-saturate-150">
+      <div className="mx-auto mb-1 flex max-w-lg items-center justify-center rounded-lg border border-white/8 bg-[#1a1a2e]/30 px-4 py-3 font-mono text-sm backdrop-blur-md backdrop-saturate-125">
         <code className="flex-1 overflow-x-auto text-[#94a3b8]">
           {platform === "unix" ? INSTALL_SH : INSTALL_PS1}
         </code>

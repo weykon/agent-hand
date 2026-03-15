@@ -7,8 +7,8 @@ import * as THREE from "three";
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    "The Living Workshop" — Agent Hand Hero Background  v2
 
-   14 session entities spread to L/R margins, 6 floating terminal
-   window wireframes, 8 relationship streams, ember particles,
+   18 session entities spread wide to L/R margins, 10 floating terminal
+   window wireframes, 12 relationship streams, ember particles,
    priority pulse, remote portal, canvas grid, ambient star field.
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
@@ -41,26 +41,31 @@ const REL_HEX: Record<RelType, string> = {
   parent: "#6366f1", dependency: "#eab308", peer: "#06b6d4", collab: "#22c55e",
 };
 
-// ─── Scene Data — entities pushed to L/R margins, centre left open ───
+// ─── Scene Data — entities pushed wide to L/R margins, centre left open ───
 
 const ENTITIES: Entity[] = [
-  // ── Left cluster ──
-  { id: 0,  pos: [-5.5,  2.0,  0.5], status: "fire",     tool: "claude",  size: 0.50, geo: "ico"    },
-  { id: 1,  pos: [-6.0,  0.0, -0.5], status: "running",  tool: "shell",   size: 0.38, geo: "octa"   },
-  { id: 2,  pos: [-4.5, -1.8,  0.3], status: "idle",     tool: "claude",  size: 0.32, geo: "ico"    },
-  { id: 3,  pos: [-7.0,  1.2, -2.0], status: "idle",     tool: "shell",   size: 0.28, geo: "ico"    },
-  { id: 4,  pos: [-5.0, -3.0, -0.5], status: "starting", tool: "gemini",  size: 0.35, geo: "dodeca" },
-  // ── Right cluster ──
-  { id: 5,  pos: [ 5.5,  1.8, -0.5], status: "waiting",  tool: "claude",  size: 0.45, geo: "dodeca" },
-  { id: 6,  pos: [ 6.5, -0.5,  0.0], status: "running",  tool: "gemini",  size: 0.40, geo: "dodeca" },
-  { id: 7,  pos: [ 4.5, -2.0,  0.5], status: "running",  tool: "claude",  size: 0.38, geo: "ico"    },
-  { id: 8,  pos: [ 7.0,  0.8, -1.5], status: "starting", tool: "shell",   size: 0.30, geo: "octa"   },
-  { id: 9,  pos: [ 5.5, -3.5, -0.5], status: "idle",     tool: "claude",  size: 0.30, geo: "ico"    },
+  // ── Left cluster — wide spread ──
+  { id: 0,  pos: [-8.5,  2.2,  0.5], status: "fire",     tool: "claude",  size: 0.55, geo: "ico"    },
+  { id: 1,  pos: [-10.0, 0.0, -0.5], status: "running",  tool: "shell",   size: 0.42, geo: "octa"   },
+  { id: 2,  pos: [-7.0, -1.8,  0.3], status: "idle",     tool: "claude",  size: 0.35, geo: "ico"    },
+  { id: 3,  pos: [-11.0, 1.5, -2.0], status: "idle",     tool: "shell",   size: 0.30, geo: "ico"    },
+  { id: 4,  pos: [-7.5, -3.2, -0.5], status: "starting", tool: "gemini",  size: 0.38, geo: "dodeca" },
+  // ── Right cluster — wide spread ──
+  { id: 5,  pos: [ 8.5,  2.0, -0.5], status: "waiting",  tool: "claude",  size: 0.50, geo: "dodeca" },
+  { id: 6,  pos: [10.5, -0.5,  0.0], status: "running",  tool: "gemini",  size: 0.44, geo: "dodeca" },
+  { id: 7,  pos: [ 7.0, -2.0,  0.5], status: "running",  tool: "claude",  size: 0.42, geo: "ico"    },
+  { id: 8,  pos: [11.0,  1.0, -1.5], status: "starting", tool: "shell",   size: 0.33, geo: "octa"   },
+  { id: 9,  pos: [ 8.0, -3.5, -0.5], status: "idle",     tool: "claude",  size: 0.33, geo: "ico"    },
   // ── Scattered — behind / above / below hero text ──
-  { id: 10, pos: [-2.5,  3.5, -3.0], status: "idle",     tool: "claude",  size: 0.25, geo: "ico"    },
-  { id: 11, pos: [ 3.0,  3.2, -2.5], status: "running",  tool: "gemini",  size: 0.28, geo: "ico"    },
-  { id: 12, pos: [ 0.0, -3.8, -1.0], status: "idle",     tool: "shell",   size: 0.26, geo: "ico"    },
-  { id: 13, pos: [-1.5, -4.2,  0.0], status: "starting", tool: "claude",  size: 0.28, geo: "octa"   },
+  { id: 10, pos: [-4.5,  3.8, -3.0], status: "idle",     tool: "claude",  size: 0.28, geo: "ico"    },
+  { id: 11, pos: [ 5.0,  3.5, -2.5], status: "running",  tool: "gemini",  size: 0.30, geo: "ico"    },
+  { id: 12, pos: [ 0.0, -4.0, -1.0], status: "idle",     tool: "shell",   size: 0.28, geo: "ico"    },
+  { id: 13, pos: [-2.5, -4.5,  0.0], status: "starting", tool: "claude",  size: 0.30, geo: "octa"   },
+  // ── Extra entities for more density on sides ──
+  { id: 14, pos: [-12.0, -1.0, -1.0], status: "running", tool: "gemini",  size: 0.32, geo: "dodeca" },
+  { id: 15, pos: [ 12.0,  0.5, -1.0], status: "running", tool: "claude",  size: 0.35, geo: "ico"    },
+  { id: 16, pos: [-9.5,  3.5, -1.5], status: "waiting",  tool: "claude",  size: 0.30, geo: "dodeca" },
+  { id: 17, pos: [ 9.5, -4.0,  0.0], status: "fire",     tool: "shell",   size: 0.40, geo: "octa"   },
 ];
 
 const RELS: { from: number; to: number; type: RelType }[] = [
@@ -76,17 +81,27 @@ const RELS: { from: number; to: number; type: RelType }[] = [
   { from: 0, to: 5, type: "dependency"  },   // fire → waiting (across entire scene)
   // Background peers
   { from: 11, to: 10, type: "peer"      },   // distant gemini ↔ claude
+  // New entity connections
+  { from: 14, to: 3,  type: "collab"     },   // far-left gemini ↔ idle shell
+  { from: 15, to: 8,  type: "dependency" },   // far-right claude → starting shell
+  { from: 16, to: 0,  type: "peer"       },   // upper-left waiting → fire
+  { from: 17, to: 9,  type: "parent"     },   // lower-right fire spawned idle
 ];
 
 // ─── Terminal window definitions — floating wireframe terminal/session frames ───
 
 const TERMINALS: { pos: [number, number, number]; w: number; h: number; color: string; id: number }[] = [
-  { pos: [-6.5,  1.5,  1.5], w: 1.1, h: 0.75, color: "#6366f1", id: 0 },   // left Claude session
-  { pos: [-4.0, -2.5, -0.3], w: 0.85, h: 0.6,  color: "#06b6d4", id: 1 },   // lower-left Gemini
-  { pos: [ 6.5,  1.0,  0.5], w: 1.1, h: 0.75, color: "#6366f1", id: 2 },   // right Claude session
-  { pos: [ 4.5, -2.8, -0.3], w: 0.85, h: 0.6,  color: "#22c55e", id: 3 },   // lower-right shell
-  { pos: [-7.0, -1.0, -1.8], w: 0.7, h: 0.5,  color: "#64748b", id: 4 },   // far-left dim
-  { pos: [ 7.0, -0.5, -1.5], w: 0.7, h: 0.5,  color: "#7c3aed", id: 5 },   // far-right violet
+  { pos: [-10.0, 1.5,  1.5], w: 1.3, h: 0.85, color: "#6366f1", id: 0 },   // left Claude session
+  { pos: [-6.5, -2.5, -0.3], w: 1.0, h: 0.7,  color: "#06b6d4", id: 1 },   // lower-left Gemini
+  { pos: [ 10.0, 1.0,  0.5], w: 1.3, h: 0.85, color: "#6366f1", id: 2 },   // right Claude session
+  { pos: [ 7.0, -2.8, -0.3], w: 1.0, h: 0.7,  color: "#22c55e", id: 3 },   // lower-right shell
+  { pos: [-12.0,-1.0, -1.8], w: 0.9, h: 0.6,  color: "#64748b", id: 4 },   // far-left dim
+  { pos: [ 12.0,-0.5, -1.5], w: 0.9, h: 0.6,  color: "#7c3aed", id: 5 },   // far-right violet
+  // ── Extra terminal frames — more density ──
+  { pos: [-8.0,  3.0, -0.5], w: 0.85, h: 0.6,  color: "#22c55e", id: 6 },   // upper-left shell
+  { pos: [ 8.5,  3.2, -0.8], w: 0.85, h: 0.6,  color: "#06b6d4", id: 7 },   // upper-right gemini
+  { pos: [-11.0, 3.0, -2.0], w: 0.7, h: 0.5,  color: "#eab308", id: 8 },   // far upper-left
+  { pos: [ 11.5,-3.0, -1.0], w: 0.7, h: 0.5,  color: "#6366f1", id: 9 },   // far lower-right
 ];
 
 // ─── Geometry Helper ───
@@ -122,29 +137,29 @@ function SessionEntity({ e }: { e: Entity }) {
         mesh.position.x += Math.sin(t * 15 + e.id) * 0.02;
         mesh.position.y += Math.cos(t * 12 + e.id) * 0.015;
         const flare = Math.pow(Math.max(0, Math.sin(t * 0.4)), 20);
-        mat.opacity = 0.45 + Math.sin(t * 4) * 0.1 + flare * 0.3;
+        mat.opacity = 0.8 + Math.sin(t * 4) * 0.15 + flare * 0.3;
         mesh.scale.setScalar(1 + Math.sin(t * 1.5) * 0.08 + flare * 0.2);
         break;
       }
       case "running":
         mesh.rotation.x += 0.008;
         mesh.rotation.y += 0.012;
-        mat.opacity = 0.4;
+        mat.opacity = 0.75;
         mesh.scale.setScalar(1 + Math.sin(t * 1.2 + e.id) * 0.05);
         break;
       case "waiting":
         mesh.rotation.y += 0.003;
-        mat.opacity = 0.2 + Math.abs(Math.sin(t * 2)) * 0.4;
+        mat.opacity = 0.45 + Math.abs(Math.sin(t * 2)) * 0.45;
         break;
       case "starting":
         mesh.rotation.x += 0.01;
         mesh.rotation.z += 0.015;
-        mat.opacity = 0.15 + Math.abs(Math.sin(t * 3)) * 0.45;
+        mat.opacity = 0.4 + Math.abs(Math.sin(t * 3)) * 0.5;
         mesh.scale.setScalar(0.8 + Math.sin(t * 2) * 0.15);
         break;
       default:
         mesh.rotation.y += 0.002;
-        mat.opacity = 0.2;
+        mat.opacity = 0.45;
     }
 
     const glow = glowRef.current;
@@ -153,9 +168,9 @@ function SessionEntity({ e }: { e: Entity }) {
       glow.rotation.copy(mesh.rotation);
       glow.scale.setScalar(mesh.scale.x * 1.8);
       const gMat = glow.material as THREE.MeshBasicMaterial;
-      gMat.opacity = e.status === "fire"    ? 0.03 + Math.sin(t * 3) * 0.02
-                   : e.status === "running" ? 0.025
-                   : 0.015;
+      gMat.opacity = e.status === "fire"    ? 0.1 + Math.sin(t * 3) * 0.05
+                   : e.status === "running" ? 0.08
+                   : 0.05;
     }
   });
 
@@ -163,12 +178,12 @@ function SessionEntity({ e }: { e: Entity }) {
     <group>
       <mesh ref={meshRef} position={e.pos}>
         <EntityGeo geo={e.geo} size={e.size} />
-        <meshBasicMaterial color={STATUS_HEX[e.status]} wireframe transparent opacity={0.3} />
+        <meshBasicMaterial color={STATUS_HEX[e.status]} wireframe transparent opacity={0.65} />
       </mesh>
       <mesh ref={glowRef} position={e.pos}>
         <EntityGeo geo={e.geo} size={e.size * 1.8} />
         <meshBasicMaterial
-          color={TOOL_HEX[e.tool]} wireframe transparent opacity={0.02}
+          color={TOOL_HEX[e.tool]} wireframe transparent opacity={0.08}
           blending={THREE.AdditiveBlending} depthWrite={false}
         />
       </mesh>
@@ -227,12 +242,12 @@ function TerminalFrame({ pos, w, h, color, id }: {
     ref.current.rotation.y = (pos[0] > 0 ? -0.25 : 0.25) + Math.sin(t * 0.15 + id) * 0.08;
     ref.current.rotation.x = Math.sin(t * 0.1 + id * 0.7) * 0.04;
     // Subtle opacity pulse
-    mat.opacity = 0.1 + Math.sin(t * 0.6 + id * 1.1) * 0.03;
+    mat.opacity = 0.32 + Math.sin(t * 0.6 + id * 1.1) * 0.08;
   });
 
   return (
     <lineSegments ref={ref} geometry={geometry} position={pos}>
-      <lineBasicMaterial color={color} transparent opacity={0.1} blending={THREE.AdditiveBlending} depthWrite={false} />
+      <lineBasicMaterial color={color} transparent opacity={0.32} blending={THREE.AdditiveBlending} depthWrite={false} />
     </lineSegments>
   );
 }
@@ -332,7 +347,7 @@ function RelStream({ from, to, type }: { from: [number, number, number]; to: [nu
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
       <pointsMaterial
-        size={0.03} color={REL_HEX[type]} transparent opacity={0.5}
+        size={0.05} color={REL_HEX[type]} transparent opacity={0.85}
         blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation
       />
     </points>
@@ -375,19 +390,19 @@ function RemotePortal() {
   const outerRef = useRef<THREE.Mesh>(null);
   const innerRef = useRef<THREE.Mesh>(null);
   const dotsRef = useRef<THREE.Group>(null);
-  const px = 7.5, py = 2.5, pz = -4;
+  const px = 11.5, py = 2.5, pz = -4;
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
     if (outerRef.current) {
       outerRef.current.rotation.x = Math.PI / 2 + Math.sin(t * 0.3) * 0.1;
       outerRef.current.rotation.z = t * 0.15;
-      (outerRef.current.material as THREE.MeshBasicMaterial).opacity = 0.08 + Math.sin(t * 0.8) * 0.03;
+      (outerRef.current.material as THREE.MeshBasicMaterial).opacity = 0.14 + Math.sin(t * 0.8) * 0.05;
     }
     if (innerRef.current) {
       innerRef.current.rotation.x = Math.PI / 2 + Math.sin(t * 0.3) * 0.1;
       innerRef.current.rotation.z = -t * 0.1;
-      (innerRef.current.material as THREE.MeshBasicMaterial).opacity = 0.03 + Math.sin(t * 1.2) * 0.015;
+      (innerRef.current.material as THREE.MeshBasicMaterial).opacity = 0.06 + Math.sin(t * 1.2) * 0.03;
     }
     if (dotsRef.current) {
       dotsRef.current.children.forEach((dot, i) => {
@@ -439,7 +454,7 @@ function CanvasGrid() {
 
   return (
     <lineSegments ref={ref} geometry={geometry} position={[0, -4, 0]} rotation={[0.3, 0, 0]}>
-      <lineBasicMaterial color="#6366f1" transparent opacity={0.04} />
+      <lineBasicMaterial color="#6366f1" transparent opacity={0.1} />
     </lineSegments>
   );
 }
@@ -455,7 +470,7 @@ function AmbientParticles() {
     const col = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       const i3 = i * 3;
-      const r = Math.random() * 16;
+      const r = Math.random() * 20;
       const th = Math.random() * Math.PI * 2;
       const ph = Math.random() * Math.PI;
       pos[i3]     = r * Math.sin(ph) * Math.cos(th);
@@ -483,7 +498,7 @@ function AmbientParticles() {
         <bufferAttribute attach="attributes-color" args={[colors, 3]} />
       </bufferGeometry>
       <pointsMaterial
-        size={0.02} vertexColors transparent opacity={0.35}
+        size={0.03} vertexColors transparent opacity={0.6}
         sizeAttenuation blending={THREE.AdditiveBlending} depthWrite={false}
       />
     </points>
@@ -509,11 +524,12 @@ function Scene() {
   return (
     <>
       {/* Lighting — spread wider */}
-      <ambientLight intensity={0.12} />
-      <pointLight position={[8, 5, 4]} intensity={0.3} color="#6366f1" />
-      <pointLight position={[-8, -3, -5]} intensity={0.2} color="#7c3aed" />
-      <pointLight position={[0, 4, 2]} intensity={0.1} color="#3b82f6" />
-      <pointLight position={[-6, 2, 2]} intensity={0.15} color="#eab308" />
+      <ambientLight intensity={0.2} />
+      <pointLight position={[12, 5, 4]} intensity={0.5} color="#6366f1" />
+      <pointLight position={[-12, -3, -5]} intensity={0.4} color="#7c3aed" />
+      <pointLight position={[0, 4, 2]} intensity={0.2} color="#3b82f6" />
+      <pointLight position={[-10, 2, 2]} intensity={0.3} color="#eab308" />
+      <pointLight position={[10, -2, 3]} intensity={0.25} color="#06b6d4" />
 
       {/* 14 session entities */}
       {ENTITIES.map(e => <SessionEntity key={e.id} e={e} />)}
@@ -526,6 +542,7 @@ function Scene() {
       {/* Embers from fire entity (left) + light embers from running entity (right) */}
       <EmberParticles origin={ENTITIES[0].pos} count={60} />
       <EmberParticles origin={ENTITIES[7].pos} count={25} />
+      <EmberParticles origin={ENTITIES[17].pos} count={40} />
 
       {/* 8 relationship streams */}
       {RELS.map((r, i) => (
@@ -561,7 +578,7 @@ export function HeroBg() {
     <div style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }}>
       <Canvas
         dpr={[1, 1.5]}
-        camera={{ position: [0, 1, 8], fov: 60 }}
+        camera={{ position: [0, 1, 8], fov: 80 }}
         style={{ background: "transparent" }}
         gl={{ alpha: true, antialias: false, powerPreference: "high-performance" }}
       >
